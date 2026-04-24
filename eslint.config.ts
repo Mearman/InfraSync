@@ -143,6 +143,11 @@ export default defineConfig(
     plugins: { custom: customPlugin },
     rules: {
       "custom/testFileNaming": "error",
+      // node:test describe/it return Promises that the test runner handles
+      "@typescript-eslint/no-floating-promises": "off",
+      // Mock adapter methods are async to satisfy the ResourcePort interface
+      // but don't await anything internally
+      "@typescript-eslint/require-await": "off",
     },
   },
   eslintConfigPrettier,
