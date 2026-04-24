@@ -195,7 +195,7 @@ export class SyncEngine {
         issues.push(
           ...err.issues.map((issue) => ({
             resource: resource.name,
-            message: `${issue.path.join(".")}: ${issue.message}`,
+            message: `${issue.path.map(String).join(".")}: ${issue.message}`,
           })),
         );
         outcomes.push({
@@ -297,7 +297,7 @@ export class SyncEngine {
         issues.push(
           ...err.issues.map((issue) => ({
             resource: resource.name,
-            message: `${issue.path.join(".")}: ${issue.message}`,
+            message: `${issue.path.map(String).join(".")}: ${issue.message}`,
           })),
         );
         outcomes.push({ name: resource.name, action, status: "failed" });

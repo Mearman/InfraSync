@@ -181,7 +181,7 @@ export function collectZodIssues(
   resource: string,
   error: {
     readonly issues: readonly {
-      readonly path: readonly unknown[];
+      readonly path: readonly PropertyKey[];
       readonly message: string;
     }[];
   },

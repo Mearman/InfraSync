@@ -71,3 +71,28 @@ export { declarative } from "./authoring/declarative.js";
 // ─── Authoring: compiler ─────────────────────────────────────────────────────
 export { defineInfra, compileToIR } from "./authoring/compiler.js";
 export type { InfraResult } from "./authoring/compiler.js";
+
+// ─── Normalised schemas ──────────────────────────────────────────────────────
+export {
+  dnsRecordSpecSchema,
+  dnsRecordIdentitySchema,
+  dnsRecordDesiredStateSchema,
+} from "./core/schemas/dns-record.js";
+export type { DnsRecordSpec } from "./core/schemas/dns-record.js";
+
+// ─── Cloudflare provider ─────────────────────────────────────────────────────
+export {
+  CloudflareProvider,
+  cloudflareConfigSchema,
+} from "./providers/cloudflare/index.js";
+export type { CloudflareConfig } from "./providers/cloudflare/index.js";
+export { buildDnsRecordRefs } from "./providers/cloudflare/dns-record.js";
+export type { DnsRecordRefs } from "./providers/cloudflare/dns-record.js";
+export { buildAccessApplicationRefs } from "./providers/cloudflare/access-app.js";
+export type { AccessApplicationRefs } from "./providers/cloudflare/access-app.js";
+export { buildAccessPolicyRefs } from "./providers/cloudflare/access-policy.js";
+export type { AccessPolicyRefs } from "./providers/cloudflare/access-policy.js";
+export { buildIdentityProviderRefs } from "./providers/cloudflare/identity-provider.js";
+export type { IdentityProviderRefs } from "./providers/cloudflare/identity-provider.js";
+export { buildPagesCustomDomainRefs } from "./providers/cloudflare/pages-domain.js";
+export type { PagesCustomDomainRefs } from "./providers/cloudflare/pages-domain.js";

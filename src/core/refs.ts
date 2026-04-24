@@ -52,7 +52,7 @@ export function refTokenToIR(token: RefToken): RefTokenIR {
  * Example: `refable(z.string())` accepts `string | RefToken<string>`.
  */
 export function refable<T extends z.ZodType>(inner: T) {
-  return z.union([
+  return z.xor([
     inner,
     z.custom<RefToken<z.infer<T>>>((v) => v instanceof RefToken),
   ]);

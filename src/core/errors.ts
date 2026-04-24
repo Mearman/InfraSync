@@ -4,7 +4,7 @@
 
 /** Issue representation that works across Zod versions. */
 export interface ValidationIssue {
-  readonly path: readonly string[];
+  readonly path: readonly PropertyKey[];
   readonly message: string;
 }
 
