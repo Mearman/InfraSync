@@ -269,7 +269,7 @@ await sync({
 
 #### How the types work end-to-end
 
-There are three layers of type safety for attribute references:
+There are three layers of type safety for attribute references.
 
 **1. The path is valid.** `$ref()` accepts only paths that exist on the target's state schema:
 
@@ -288,7 +288,7 @@ $ref(bucket, "websitEndpoint");       // ❌ compile error — typo
 $ref(bucket, "nonexistent");           // ❌ compile error — no such path
 ```
 
-`DeepPath<T>` derives all valid dot-notation paths from the Zod state schema:
+`DeepPath<T>` is a utility type that derives all valid dot-notation paths from the Zod state schema:
 
 ```typescript
 // Given S3BucketState inferred from s3BucketStateSchema:
@@ -306,39 +306,32 @@ type Paths = DeepPath<S3BucketState>;
 // "encryption" | "encryption.kmsKeyId" | "encryption.algorithm" | "tags"
 ```
 
-**2. The resolved type matches the consuming field.** `RefToken<T>` carries the type at the path. The spec schema uses `z.refable()` for fields that can receive cross-resource values. `z.refable(z.string())` accepts both `string` and `RefToken<string>` — and rejects `RefToken<number>`:
+**2. The resolved type matches the consuming field.** This is where it gets tricky. The spec schema defines `value: z.string()`, but `$ref()` returns `RefToken<string>` — a different type. Plain `z.string()` would reject a `RefToken` at runtime, and TypeScript would reject assigning `RefToken<string>` to `string` at compile time.
+
+InfraSync solves this with a custom schema helper called `refable()`. It wraps a Zod schema to accept both the concrete type and a `RefToken` of the same inner type:
 
 ```typescript
-// Spec schema with refable fields
+// InfraSync defines this helper (not a Zod built-in)
+function refable<T extends ZodType>(inner: T) {
+	return z.union([
+		inner,                                                  // concrete value
+		z.custom<RefToken<z.infer<T>>>((v) => isRefToken(v)),  // ref token
+	]);
+}
+```
+
+`refable(z.string())` produces `z.union([z.string(), RefToken<string>])`. At the TypeScript level this infers as `string | RefToken<string>`. The compile-time type check then works naturally:
+
+```typescript
 const dnsRecordSpecSchema = z.object({
 	domain: z.string(),
 	type: z.enum(["A", "AAAA", "CNAME", "MX", "TXT"]),
-	value: z.refable(z.string()),     // accepts string | RefToken<string>
-	ttl: z.refable(z.number()),       // accepts number | RefToken<number>
-	proxied: z.boolean(),             // plain boolean — no $ref allowed
+	value: refable(z.string()),   // accepts string | RefToken<string>
+	ttl: refable(z.number()),     // accepts number | RefToken<number>
+	proxied: z.boolean(),         // plain boolean — no $ref allowed
 });
 
-// So this compiles:
-const dns = resource("cloudflare", "DnsRecord", {
-	name: "media-dns",
-	domain: "media.example.com",
-	type: "CNAME",
-	value: $ref(mediaBucket, "websiteEndpoint"),  // RefToken<string> ✓
-	ttl: $ref(mediaBucket, "versioning") ? 300 : 60,  // number ✓
-	proxied: true,
-});
-
-// And these are compile errors:
-resource("cloudflare", "DnsRecord", {
-	value: $ref(mediaBucket, "versioning"),  // ❌ RefToken<boolean> not assignable to RefToken<string>
-	ttl: $ref(mediaBucket, "arn"),           // ❌ RefToken<string> not assignable to RefToken<number>
-	proxied: $ref(mediaBucket, "versioning"), // ❌ RefToken<boolean> not assignable to boolean (field is not refable)
-});
-```
-
-The inferred spec type from a schema using `z.refable()` is:
-
-```typescript
+// Inferred type:
 type DnsRecordSpec = z.infer<typeof dnsRecordSpecSchema>;
 // {
 //   domain: string;
@@ -349,26 +342,41 @@ type DnsRecordSpec = z.infer<typeof dnsRecordSpecSchema>;
 // }
 ```
 
-**3. The engine resolves before validation.** At runtime, the engine walks the spec, replaces every `RefToken` with the concrete value from the state map, then passes the result through `specSchema.parse()`. The Zod schema never sees a `RefToken` — it only validates concrete values. The `z.refable()` wrapper strips the `RefToken` union during parsing:
+Now the compile-time checks work:
 
 ```typescript
-// z.refable() is defined as:
-function refable<T extends ZodType>(inner: T): ZodUnion<[T, ZodType<RefToken<z.infer<T>>>] {
-	return z.union([
-		inner,                                                    // concrete value
-		z.custom<RefToken<z.infer<T>>>((v) => isRefToken(v)),    // ref token
-	]);
-}
+// ✅ Compiles — RefToken<string> is assignable to string | RefToken<string>
+resource("cloudflare", "DnsRecord", {
+	value: $ref(mediaBucket, "websiteEndpoint"),
+});
 
-// During parsing, the engine's resolve step converts RefTokens to concrete
-// values, so the inner schema validates the resolved value:
-//   $ref(bucket, "websiteEndpoint")  →  "my-bucket.s3.amazonaws.com"
-//   specSchema.parse({ value: "my-bucket.s3.amazonaws.com" })  →  ✅
+// ❌ Compile error — RefToken<boolean> is not assignable to string | RefToken<string>
+resource("cloudflare", "DnsRecord", {
+	value: $ref(mediaBucket, "versioning"),
+});
+
+// ❌ Compile error — RefToken<boolean> is not assignable to boolean
+// (proxied is NOT wrapped in refable)
+resource("cloudflare", "DnsRecord", {
+	proxied: $ref(mediaBucket, "versioning"),
+});
 ```
 
-#### Which fields should be refable?
+**3. The engine resolves before validation.** At runtime, the engine walks the spec, replaces every `RefToken` with the concrete value from the state map, then passes the result through `specSchema.parse()`. The `refable()` union's `z.custom` branch handles `RefToken` objects during the brief window between construction and resolution. After resolution, only concrete values reach the inner schema:
 
-Only fields that represent provider-assigned or runtime-computed values need `z.refable()`. These are typically fields whose values come from another resource's state — ARNs, endpoints, IDs, URLs. Fields that users always set to a known value (names, types, booleans) stay as plain schemas.
+```typescript
+// Engine's resolve step:
+const resolved = resolveRefs(rawSpec, stateMap);
+// $ref(bucket, "websiteEndpoint")  →  "my-bucket.s3.amazonaws.com"
+
+// Then validate with the inner schema:
+const spec = handler.specSchema.parse(resolved);
+// z.string() validates "my-bucket.s3.amazonaws.com"  →  ✅
+```
+
+#### Which fields should use refable()?
+
+Only fields whose values might come from another resource's state — ARNs, endpoints, IDs, URLs. Fields that users always set to a known value stay as plain schemas:
 
 ```typescript
 const s3BucketPolicySpecSchema = z.object({
@@ -377,7 +385,7 @@ const s3BucketPolicySpecSchema = z.object({
 		Effect: z.enum(["Allow", "Deny"]),
 		Principal: z.string(),
 		Action: z.string(),
-		Resource: z.refable(z.string()),                   // likely an ARN from another resource
+		Resource: refable(z.string()),                    // likely an ARN from $ref
 	}),
 });
 ```
