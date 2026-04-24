@@ -2,7 +2,7 @@
 
 Idempotent, deterministic, stateless infrastructure management for TypeScript.
 
-InfraSync is a TypeScript package and CLI for managing cloud infrastructure declaratively — without a state file. Each run reads the current state from the provider, compares it against your desired configuration, and applies only the changes needed. No stored state to corrupt, no lock files to stale, no remote backend to configure.
+InfraSync is a TypeScript package and CLI for managing cloud infrastructure with nestable TypeScript `Infra` scopes — without a state file. Authoring code compiles to a serialisable `InfraIR`, then each run reads the current state from the provider, compares it against your desired configuration, and applies only the changes needed. No stored state to corrupt, no lock files to stale, no remote backend to configure.
 
 An alternative to Terraform for teams who want infrastructure-as-code without the operational overhead of state management.
 
@@ -18,7 +18,8 @@ The pattern emerged from a real project — a script that configured Cloudflare 
 - **Idempotent.** Running the same configuration twice produces the same result. Create-if-missing, update-if-changed, skip-if-matching.
 - **Deterministic.** Given the same desired configuration and the same current state, the same plan is produced every time.
 - **TypeScript-native.** Infrastructure is defined with full type safety. No HCL, no DSL, no template strings. Intellisense, refactoring, and type checking all work. Zod schemas are the single source of truth for every type — runtime validation and static types are always in sync.
-- **Programmable first, CLI second.** The core is a library. The CLI is a thin wrapper that loads a config file and invokes the programmatic API.
+- **Programmable first, CLI second.** The core is a library. The CLI is a thin wrapper that loads an infra file and invokes the programmatic API.
+- **Serialisable core.** Authoring code compiles to `InfraIR`, a canonical intermediate representation the engine can execute independent of the language frontend.
 - **Provider-agnostic.** The sync engine knows nothing about Cloudflare, AWS, or GCP. Providers are adapters that implement a uniform interface over provider-specific APIs.
 
 ## Installation
@@ -31,123 +32,123 @@ pnpm add infrasync
 
 ### Programmatic API
 
-Define your infrastructure as a TypeScript configuration spanning multiple providers:
+Define infrastructure with nested `Infra` scopes. Builder code compiles to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
 
 ```typescript
-import { sync, resource, $ref } from "infrasync";
+import {
+	defineInfra,
+	declarative,
+	aws,
+	cloudflare,
+	github,
+} from "infrasync";
 
-// resource() returns a typed handle bound to the provider's state schema.
-// This handle is what makes $ref type-safe.
-// The first argument is a provider INSTANCE key — not the adapter type.
-const appBucket = resource("aws-prod", "S3Bucket", {
-	name: "app-bucket",
-	bucketName: "my-bucket",
-	region: "eu-west-2",
-	versioning: true,
-	publicAccessBlock: {
-		blockPublicAcls: true,
-		blockPublicPolicy: true,
-		ignorePublicAcls: true,
-		restrictPublicBuckets: true,
-	},
-});
+const infra = defineInfra("prod", (infra) => {
+	const awsProd = infra.provider("awsProd", aws, {
+		region: "eu-west-1",
+		credentials: {
+			accessKeyId: infra.secret.env("AWS_PROD_ACCESS_KEY_ID"),
+			secretAccessKey: infra.secret.env("AWS_PROD_SECRET_ACCESS_KEY"),
+		},
+	});
 
-const result = await sync({
-	providers: {
-		// Each key is a provider INSTANCE — a unique name you choose.
-		// The `adapter` field tells the engine which adapter handles it.
-		// When the instance key matches an adapter name, `adapter` can be omitted.
-		"aws-prod": {
-			adapter: "aws",
-			region: "eu-west-1",
-			credentials: {
-				accessKeyId: process.env.AWS_PROD_ACCESS_KEY_ID,
-				secretAccessKey: process.env.AWS_PROD_SECRET_ACCESS_KEY,
+	const awsStaging = infra.provider("awsStaging", aws, {
+		region: "us-east-1",
+		credentials: {
+			accessKeyId: infra.secret.env("AWS_STAGING_ACCESS_KEY_ID"),
+			secretAccessKey: infra.secret.env("AWS_STAGING_SECRET_ACCESS_KEY"),
+		},
+	});
+
+	const cf = infra.provider("cloudflare", cloudflare, {
+		apiToken: infra.secret.env("CLOUDFLARE_API_TOKEN"),
+	});
+
+	infra.provider("github", github, {
+		token: infra.secret.env("GITHUB_TOKEN"),
+	});
+
+	const platform = infra.infra("platform", () => {
+		const appBucket = awsProd.s3Bucket("appBucket", {
+			bucketName: "my-bucket",
+			region: "eu-west-2",
+			versioning: true,
+			publicAccessBlock: {
+				blockPublicAcls: true,
+				blockPublicPolicy: true,
+				ignorePublicAcls: true,
+				restrictPublicBuckets: true,
 			},
-		},
-		"aws-staging": {
-			adapter: "aws",
-			region: "us-east-1",
-			credentials: {
-				accessKeyId: process.env.AWS_STAGING_ACCESS_KEY_ID,
-				secretAccessKey: process.env.AWS_STAGING_SECRET_ACCESS_KEY,
-			},
-		},
-		cloudflare: {  // adapter: "cloudflare" inferred from key
-			apiToken: process.env.CLOUDFLARE_API_TOKEN,
-		},
-		github: {  // adapter: "github" inferred from key
-			token: process.env.GITHUB_TOKEN,
-		},
-	},
-	resources: [
-		appBucket,
-		{
-			provider: "cloudflare",
-			kind: "DnsRecord",
+		});
+
+		cf.dnsRecord("appDns", {
 			domain: "app.example.com",
 			type: "CNAME",
-			value: $ref(appBucket, "websiteEndpoint"),  // type-checked: RefToken<string>
+			value: appBucket.ref.websiteEndpoint,
 			ttl: 300,
 			proxied: false,
-		},
-		{
-			provider: "aws-prod",
-			kind: "DynamodbTable",
-			name: "sessions",
-			billingMode: "PAY_PER_REQUEST",
-			hashKey: { name: "pk", type: "S" },
-			sortKey: { name: "sk", type: "S" },
-			pointInTimeRecovery: true,
-		},
-		{
-			provider: "aws-staging",
-			kind: "DynamodbTable",
-			name: "sessions",
-			billingMode: "PAY_PER_REQUEST",
-			hashKey: { name: "pk", type: "S" },
-			sortKey: { name: "sk", type: "S" },
-			pointInTimeRecovery: true,
-		},
-		{
-			provider: "github",
-			kind: "Repository",
-			name: "my-project",
-			visibility: "private",
-			defaultBranch: "main",
-			branchProtection: {
-				pattern: "main",
-				requireStatusChecks: ["ci", "lint"],
-				requirePullRequestReviews: true,
+		});
+
+		return {
+			outputs: {
+				websiteEndpoint: appBucket.ref.websiteEndpoint,
+				bucketArn: appBucket.ref.arn,
 			},
-		},
-		{
-			provider: "cloudflare",
-			kind: "AccessApplication",
-			name: "Internal Dashboard",
-			domain: "dash.example.com",
-			type: "self_hosted",
-			sessionDuration: "24h",
-			policies: [
+		};
+	});
+
+	infra.infra("data", () => {
+		awsProd.dynamodbTable("sessionsProd", {
+			billingMode: "PAY_PER_REQUEST",
+			hashKey: { name: "pk", type: "S" },
+			sortKey: { name: "sk", type: "S" },
+			pointInTimeRecovery: true,
+		});
+
+		awsStaging.dynamodbTable("sessionsStaging", {
+			billingMode: "PAY_PER_REQUEST",
+			hashKey: { name: "pk", type: "S" },
+			sortKey: { name: "sk", type: "S" },
+			pointInTimeRecovery: true,
+		});
+	});
+
+	// Declarative fragments can live alongside builder-written infra.
+	infra.use(
+		declarative("repositories", {
+			resources: [
 				{
-					name: "Allow Team",
-					decision: "allow",
-					include: [{ emailDomain: { domain: "example.com" } }],
+					provider: "github",
+					kind: "Repository",
+					name: "my-project",
+					visibility: "private",
+					defaultBranch: "main",
+					branchProtection: {
+						pattern: "main",
+						requireStatusChecks: ["ci", "lint"],
+						requirePullRequestReviews: true,
+					},
 				},
 			],
+		}),
+	);
+
+	return {
+		outputs: {
+			websiteEndpoint: platform.outputs.websiteEndpoint,
 		},
-	],
+	};
 });
 
-// result.plans — what would change
-// result.applied — what was actually changed
-// result.unchanged — what was already in the desired state
+const plan = await infra.plan();
+const result = await infra.apply();
+const ir = infra.toIR(); // serialisable InfraIR
 ```
 
 ### CLI
 
 ```bash
-# Apply configuration
+# Apply configuration from a TypeScript infra file
 npx infrasync apply --config infra.config.ts
 
 # Preview changes without applying
@@ -155,59 +156,72 @@ npx infrasync plan --config infra.config.ts
 
 # Show current drift (diff between desired and actual state)
 npx infrasync drift --config infra.config.ts
+
+# Future-compatible low-level path: apply a raw InfraIR document
+npx infrasync apply --ir infra.ir.json
 ```
 
 ## How It Works
 
-InfraSync operates in three phases. Every resource goes through the read phase. Only resources in `"manage"` mode proceed to plan and apply.
+InfraSync operates in four phases. First the authoring API compiles nested `Infra` scopes into a flat, serialisable `InfraIR`. Then the engine reads current state, plans changes, and applies them. Every resource goes through the read phase. Only resources in `"manage"` mode proceed to plan and apply.
 
 ### Provider instances
 
-The `providers` map keys are **instance keys** — unique names you choose. Each entry configures one independent adapter instance with its own credentials and SDK client:
+Providers are first-class builder objects created inside an `Infra` scope. Each instance configures one independent adapter with its own credentials and SDK client:
 
 ```typescript
-providers: {
-    // Instance key        Adapter type       Instance-specific config
-    "aws-prod":    { adapter: "aws",        region: "eu-west-1", credentials: { ... } },
-    "aws-staging": { adapter: "aws",        region: "us-east-1", credentials: { ... } },
-    "cf-company":  { adapter: "cloudflare", apiToken: process.env.CF_COMPANY_TOKEN },
-    "cf-client":   { adapter: "cloudflare", apiToken: process.env.CF_CLIENT_TOKEN },
-    cloudflare:    { apiToken: process.env.CF_TOKEN },  // adapter: "cloudflare" inferred
-    github:        { token: process.env.GITHUB_TOKEN }, // adapter: "github" inferred
-}
-```
+const awsProd = infra.provider("awsProd", aws, {
+    region: "eu-west-1",
+    credentials: {
+        accessKeyId: infra.secret.env("AWS_PROD_ACCESS_KEY_ID"),
+        secretAccessKey: infra.secret.env("AWS_PROD_SECRET_ACCESS_KEY"),
+    },
+});
 
-**Instance key ≠ adapter type.** `"aws-prod"` and `"aws-staging"` both use the AWS adapter, but they get independent SDK clients with separate credentials. Resources reference the instance key:
-
-```typescript
-resource("aws-prod", "S3Bucket", { ... });    // production AWS account
-resource("aws-staging", "S3Bucket", { ... }); // staging AWS account
-```
-
-Cross-instance `$ref` references work like any other — the DAG resolves values across provider boundaries:
-
-```typescript
-const prodBucket = resource("aws-prod", "S3Bucket", { ... });
-
-// DNS record on Cloudflare pointing to the production bucket
-resource("cf-company", "DnsRecord", {
-    domain: "app.example.com",
-    type: "CNAME",
-    value: $ref(prodBucket, "websiteEndpoint"),
+const awsStaging = infra.provider("awsStaging", aws, {
+    region: "us-east-1",
+    credentials: {
+        accessKeyId: infra.secret.env("AWS_STAGING_ACCESS_KEY_ID"),
+        secretAccessKey: infra.secret.env("AWS_STAGING_SECRET_ACCESS_KEY"),
+    },
 });
 ```
 
-**Adapter inference.** When the instance key matches a built-in adapter name, the `adapter` field can be omitted. The engine resolves adapter types in this order:
+**Instance key ≠ adapter type.** `"awsProd"` and `"awsStaging"` both use the AWS adapter, but they get independent SDK clients with separate credentials. Resources are created through the provider instance, so there is no stringly-typed `provider: "awsProd"` in normal authoring code:
 
-1. Explicit `adapter` field in the provider config
-2. Custom providers registered via `customProviders` matched by name
-3. Built-in adapters matched by name
+```typescript
+const bucket = awsProd.s3Bucket("appBucket", { ... });
+awsStaging.dynamodbTable("sessions", { ... });
+```
 
-This means `cloudflare: { apiToken: ... }` is shorthand for `cloudflare: { adapter: "cloudflare", apiToken: ... }`.
+Cross-instance references work like any other — the compiled DAG resolves values across provider boundaries:
+
+```typescript
+const prodBucket = awsProd.s3Bucket("appBucket", { ... });
+cf.dnsRecord("appDns", {
+    domain: "app.example.com",
+    type: "CNAME",
+    value: prodBucket.ref.websiteEndpoint,
+});
+```
+
+### -1. Compile nested Infra scopes to `InfraIR`
+
+The public API is nested and compositional. The engine is not. Before any provider work begins, InfraSync compiles the authoring tree into a canonical, flat intermediate representation:
+
+```typescript
+type InfraIR = {
+    name: string;
+    providers: ProviderInstanceIR[];
+    resources: ResourceIR[];
+};
+```
+
+Nested `Infra` scopes, provider instances, builder-written resources, and declarative fragments all compile to the same `InfraIR`. This is what makes the design serialisable and future-proof for cross-language frontends.
 
 ### 0. Build the dependency graph
 
-Before any provider API calls, the engine scans every resource for `$ref` tokens and `dependsOn` declarations, then builds a directed acyclic graph (DAG). Each `$ref("name", ...)` creates an edge from the referenced resource to the referencing resource. Topological sort determines processing order — configuration array order is irrelevant.
+Before any provider API calls, the compiler scans every resource spec for symbolic refs and `dependsOn` declarations, then builds a directed acyclic graph (DAG). Each ref token creates an edge from the referenced resource to the referencing resource. Topological sort determines processing order — authoring order is irrelevant.
 
 If the graph contains a cycle, the engine fails immediately with a clear error showing the cycle path.
 
@@ -215,7 +229,7 @@ If the graph contains a cycle, the engine fails immediately with a clear error s
 
 Resources are processed in topological order. For each resource, InfraSync resolves the provider instance key to the correct adapter, which calls the provider API to discover the current state. No local state file is consulted — the provider is the sole source of truth.
 
-Read state is collected into a **state map** keyed by resource name. As each resource's state is stored, any `$ref` tokens in downstream resources that point to it are resolved with the concrete value. By the time a resource is processed, all of its dependencies have been read and their `$ref` values resolved.
+Read state is collected into a **state map** keyed by resource name. As each resource's state is stored, any symbolic refs in downstream resources that point to it are resolved with the concrete value. By the time a resource is processed, all of its dependencies have been read and their refs resolved.
 
 ### 2. Plan
 
@@ -235,7 +249,7 @@ The plan is executed in topological order. Each create or update is applied, and
 
 ## Resource Model
 
-Every resource has a **mode** that controls whether the engine manages it or just reads it:
+The builder API is nested and object-oriented, but the canonical model is flat. After compilation each resource in `InfraIR` has a **mode** that controls whether the engine manages it or just reads it:
 
 | Mode                 | Behaviour                                                                                        |
 | -------------------- | ------------------------------------------------------------------------------------------------ |
@@ -244,23 +258,23 @@ Every resource has a **mode** that controls whether the engine manages it or jus
 
 There is no separate "data resource" type. A read-mode resource uses the same spec schema, the same provider adapter, and the same codecs as a managed resource. The only difference is the engine stops after reading.
 
-Each resource has:
+Each compiled `ResourceIR` has:
 
 | Property             | Description                                                                                                                      |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `name`               | Unique identifier within the configuration. Used as the DAG node key and as the target for `$ref`.                               |
+| `name`               | Unique identifier within the configuration. Used as the DAG node key and as the target for symbolic refs.                         |
 | `provider`           | Which provider **instance** to route this resource to (e.g. `"aws-prod"`, `"cf-company"`, `"github"`)                          |
 | `kind`               | The resource type within that provider (e.g. `DnsRecord`, `S3Bucket`, `Repository`)                                              |
 | `mode`               | `"manage"` (default) or `"read"`                                                                                                 |
-| `dependsOn`          | Optional explicit dependency edges — names of resources that must be processed before this one, even if no `$ref` connects them. |
+| `dependsOn`          | Optional explicit dependency edges — resources that must be processed before this one, even if no symbolic ref connects them.    |
 | Identity fields      | Fields used to match against existing resources (e.g. `domain` for an app, `name` for a bucket)                                  |
-| Desired state fields | Fields that should be enforced (e.g. `versioning` for a bucket, `content` for a DNS record). May contain `$ref` tokens.          |
+| Desired state fields | Fields that should be enforced (e.g. `versioning` for a bucket, `content` for a DNS record). May contain symbolic refs.          |
 
 InfraSync uses **identity fields** to find existing resources (not provider-assigned IDs — those are opaque and provider-specific). If a matching resource exists, its desired state fields are compared and updated only when drifted. If no match is found, the resource is created.
 
 ## Read-Mode Resources
 
-Read-mode resources are InfraSync's equivalent of Terraform's data sources — but without a separate concept. Any resource can be read-only by setting `mode: "read"`. The engine queries the provider API, validates the response, and stores the state. Other resources can then reference that state via `$ref`.
+Read-mode resources are InfraSync's equivalent of Terraform's data sources — but without a separate concept. Any resource can be read-only by setting `mode: "read"`. The engine queries the provider API, validates the response, and stores the state. Other resources can then reference that state via symbolic refs such as `bucket.ref.websiteEndpoint`.
 
 ### Why a single resource type, not two
 
@@ -281,219 +295,180 @@ InfraSync builds a **directed acyclic graph (DAG)** from the configuration. Proc
 
 Edges in the DAG come from two sources:
 
-| Edge source     | Syntax                                              | Creates attribute binding?                   |
-| --------------- | --------------------------------------------------- | -------------------------------------------- |
-| **`$ref`**      | `$ref(handle, "path")` in any spec field            | Yes — the resolved value flows into the spec |
-| **`dependsOn`** | `dependsOn: [handleA, handleB]` on a resource       | No — ordering only, no attribute binding     |
+| Edge source     | Authoring syntax                                              | Creates attribute binding?                   |
+| --------------- | ------------------------------------------------------------- | -------------------------------------------- |
+| **Symbolic ref**| `resource.ref.path` inside any spec field                     | Yes — the resolved value flows into the spec |
+| **`dependsOn`** | `dependsOn: [otherResource]` or an equivalent builder helper  | No — ordering only, no attribute binding     |
 
-`$ref` creates both a dependency edge and an attribute binding. `dependsOn` creates only an edge — useful when there's no attribute reference but the provider API requires one resource to exist before another (e.g. a bucket must exist before a policy attached to it).
+A symbolic ref creates both a dependency edge and an attribute binding. `dependsOn` creates only an edge — useful when there is no attribute reference but the provider API still requires ordering.
 
-### Type-safe references with `resource()` and `$ref()`
+### Type-safe references with `.ref`
 
-The problem with string-based references (`$ref("media-bucket", "websiteEndpoint")`) is that TypeScript can't verify the path exists or that the resolved type is compatible with the field it's injected into. Typos and type mismatches are caught only at runtime.
-
-InfraSync solves this with **typed resource handles**. The `resource()` function returns a handle bound to the provider's state schema. The `$ref()` function accepts this handle and a path type-checked against it:
+The problem with string-based references is that TypeScript cannot verify either the path or the resolved type. InfraSync's public API avoids string paths entirely. Provider methods return typed resource handles, and each handle exposes a `.ref` namespace derived from the resource's state schema.
 
 ```typescript
-import { sync, resource, $ref } from "infrasync";
+import { defineInfra, aws, cloudflare } from "infrasync";
 
-// resource() returns a ResourceHandle<TSpec, TState>.
-// TState is inferred from the provider's state schema for this kind.
-const mediaBucket = resource("aws-prod", "S3Bucket", {
-	name: "media-bucket",
-	mode: "read",
-	bucketName: "my-media-bucket",
-	region: "eu-west-2",
-});
+const infra = defineInfra("media", (infra) => {
+	const awsProd = infra.provider("awsProd", aws, { region: "eu-west-2" });
+	const cf = infra.provider("cloudflare", cloudflare, {
+		apiToken: infra.secret.env("CLOUDFLARE_API_TOKEN"),
+	});
 
-const mediaPolicy = resource("aws-prod", "S3BucketPolicy", {
-	name: "media-policy",
-	bucketName: "my-media-bucket",
-	policy: {
-		Effect: "Allow",
-		Principal: "*",
-		Action: "s3:GetObject",
-		Resource: $ref(mediaBucket, "arn"),
-	},
-	dependsOn: [mediaBucket],
-});
+	const mediaBucket = awsProd.s3Bucket("mediaBucket", {
+		mode: "read",
+		bucketName: "my-media-bucket",
+		region: "eu-west-2",
+	});
 
-const mediaDns = resource("cloudflare", "DnsRecord", {
-	name: "media-dns",
-	domain: "media.example.com",
-	type: "CNAME",
-	value: $ref(mediaBucket, "websiteEndpoint"),
-	ttl: 300,
-	proxied: true,
-});
+	awsProd.s3BucketPolicy("mediaPolicy", {
+		bucketName: "my-media-bucket",
+		policy: {
+			Effect: "Allow",
+			Principal: "*",
+			Action: "s3:GetObject",
+			Resource: mediaBucket.ref.arn,
+		},
+		dependsOn: [mediaBucket],
+	});
 
-await sync({
-	providers: { /* ... */ },
-	resources: [mediaBucket, mediaPolicy, mediaDns],
+	cf.dnsRecord("mediaDns", {
+		domain: "media.example.com",
+		type: "CNAME",
+		value: mediaBucket.ref.websiteEndpoint,
+		ttl: 300,
+		proxied: true,
+	});
 });
 ```
 
 #### How the types work end-to-end
 
-There are three layers of type safety for attribute references.
+There are three layers of type safety for symbolic refs.
 
-**1. The path is valid.** `$ref()` accepts only paths that exist on the target's state schema:
+**1. The path is valid.** Property access on `.ref` is typed from the target resource's state schema:
 
 ```typescript
-const bucket = resource("aws-prod", "S3Bucket", { /* spec */ });
-// typeof bucket = ResourceHandle<S3BucketSpec, S3BucketState>
+const bucket = awsProd.s3Bucket("bucket", { /* spec */ });
 
-function $ref<TState, TPath extends DeepPath<TState>>(
-	handle: ResourceHandle<any, TState>,
-	path: TPath,
-): RefToken<DeepPathType<TState, TPath>>;
-
-$ref(bucket, "websiteEndpoint");       // ✅ RefToken<string>
-$ref(bucket, "encryption.kmsKeyId");  // ✅ RefToken<string>
-$ref(bucket, "websitEndpoint");       // ❌ compile error — typo
-$ref(bucket, "nonexistent");           // ❌ compile error — no such path
+bucket.ref.websiteEndpoint;      // ✅ RefToken<string>
+bucket.ref.encryption.kmsKeyId;  // ✅ RefToken<string>
+bucket.ref.websitEndpoint;       // ❌ compile error — typo
+bucket.ref.nonexistent;          // ❌ compile error — no such path
 ```
 
-`DeepPath<T>` is a utility type that derives all valid dot-notation paths from the Zod state schema:
+The public `.ref` API is SDK sugar. It compiles to an explicit symbolic token in `InfraIR`, for example:
 
-```typescript
-// Given S3BucketState inferred from s3BucketStateSchema:
-// {
-//   id: string;
-//   arn: string;
-//   websiteEndpoint: string;
-//   versioning: boolean;
-//   encryption: { kmsKeyId: string; algorithm: string };
-//   tags: Record<string, string>;
-// }
-
-type Paths = DeepPath<S3BucketState>;
-// "id" | "arn" | "websiteEndpoint" | "versioning" |
-// "encryption" | "encryption.kmsKeyId" | "encryption.algorithm" | "tags"
-```
-
-**2. The resolved type matches the consuming field.** This is where it gets tricky. The spec schema defines `value: z.string()`, but `$ref()` returns `RefToken<string>` — a different type. Plain `z.string()` would reject a `RefToken` at runtime, and TypeScript would reject assigning `RefToken<string>` to `string` at compile time.
-
-InfraSync solves this with a custom schema helper called `refable()`. It wraps a Zod schema to accept both the concrete type and a `RefToken` of the same inner type:
-
-```typescript
-// InfraSync defines this helper (not a Zod built-in)
-function refable<T extends ZodType>(inner: T) {
-	return z.union([
-		inner,                                                  // concrete value
-		z.custom<RefToken<z.infer<T>>>((v) => isRefToken(v)),  // ref token
-	]);
+```json
+{
+  "$ref": {
+    "resource": "media.mediaBucket",
+    "path": "websiteEndpoint"
+  }
 }
 ```
 
-`refable(z.string())` produces `z.union([z.string(), RefToken<string>])`. At the TypeScript level this infers as `string | RefToken<string>`. The compile-time type check then works naturally:
+This keeps the authoring experience ergonomic while preserving a fully serialisable core model.
+
+**2. The resolved type matches the consuming field.** The spec schema still uses `refable()` under the hood. `refable(z.string())` accepts both `string` and `RefToken<string>`, so the type checker rejects incompatible refs naturally:
 
 ```typescript
 const dnsRecordSpecSchema = z.object({
 	domain: z.string(),
 	type: z.enum(["A", "AAAA", "CNAME", "MX", "TXT"]),
-	value: refable(z.string()),   // accepts string | RefToken<string>
-	ttl: refable(z.number()),     // accepts number | RefToken<number>
-	proxied: z.boolean(),         // plain boolean — no $ref allowed
+	value: refable(z.string()),
+	ttl: refable(z.number()),
+	proxied: z.boolean(),
 });
 
-// Inferred type:
-type DnsRecordSpec = z.infer<typeof dnsRecordSpecSchema>;
-// {
-//   domain: string;
-//   type: "A" | "AAAA" | "CNAME" | "MX" | "TXT";
-//   value: string | RefToken<string>;
-//   ttl: number | RefToken<number>;
-//   proxied: boolean;
-// }
-```
-
-Now the compile-time checks work:
-
-```typescript
-// ✅ Compiles — RefToken<string> is assignable to string | RefToken<string>
-resource("cloudflare", "DnsRecord", {
-	value: $ref(mediaBucket, "websiteEndpoint"),
+// ✅ Compiles — websiteEndpoint resolves to string
+cf.dnsRecord("app", {
+	value: bucket.ref.websiteEndpoint,
 });
 
-// ❌ Compile error — RefToken<boolean> is not assignable to string | RefToken<string>
-resource("cloudflare", "DnsRecord", {
-	value: $ref(mediaBucket, "versioning"),
+// ❌ Compile error — versioning resolves to boolean, not string
+cf.dnsRecord("bad", {
+	value: bucket.ref.versioning,
 });
 
-// ❌ Compile error — RefToken<boolean> is not assignable to boolean
-// (proxied is NOT wrapped in refable)
-resource("cloudflare", "DnsRecord", {
-	proxied: $ref(mediaBucket, "versioning"),
+// ❌ Compile error — proxied is plain boolean, not refable<boolean>
+cf.dnsRecord("alsoBad", {
+	proxied: bucket.ref.versioning,
 });
 ```
 
-**3. The engine resolves before validation.** At runtime, the engine walks the spec, replaces every `RefToken` with the concrete value from the state map, then passes the result through `specSchema.safeParse()`. The `refable()` union's `z.custom` branch handles `RefToken` objects during the brief window between construction and resolution. After resolution, only concrete values reach the inner schema:
+**3. The engine resolves before validation.** At runtime the engine walks each compiled spec, replaces every `RefToken` with the concrete value from the state map, then validates the resolved spec:
 
 ```typescript
-// Engine's resolve step:
 const resolved = resolveRefs(rawSpec, stateMap);
-// $ref(bucket, "websiteEndpoint")  →  "my-bucket.s3.amazonaws.com"
+// bucket.ref.websiteEndpoint  →  "my-bucket.s3.amazonaws.com"
 
-// Then validate with the inner schema:
 const specResult = handler.specSchema.safeParse(resolved);
 if (!specResult.success) {
-	// report issues and skip
 	continue;
 }
 const spec = specResult.data;
-// z.string() validates "my-bucket.s3.amazonaws.com"  →  ✅
 ```
 
-#### Which fields should use refable()?
+#### Which fields should use `refable()`?
 
 Only fields whose values might come from another resource's state — ARNs, endpoints, IDs, URLs. Fields that users always set to a known value stay as plain schemas:
 
 ```typescript
 const s3BucketPolicySpecSchema = z.object({
-	bucketName: z.string(),                                // user always sets this
+	bucketName: z.string(),
 	policy: z.object({
 		Effect: z.enum(["Allow", "Deny"]),
 		Principal: z.string(),
 		Action: z.string(),
-		Resource: refable(z.string()),                    // likely an ARN from $ref
+		Resource: refable(z.string()),
 	}),
 });
 ```
 
-#### Inline resources still work
+#### Mixing declarative and builder-written infra
 
-Not every resource needs a handle. Resources with no incoming `$ref` references can be written inline as plain objects, just like before:
+Nested `Infra` scopes let you mix styles in the same application. Builder-written resources can reference outputs from declarative fragments, and declarative fragments can target provider instances created in the builder layer:
 
 ```typescript
-await sync({
-	providers: { /* ... */ },
-	resources: [
-		// Handle — needed because other resources $ref it
-		mediaBucket,
-		// Handle — needed because it $refs mediaBucket
-		mediaPolicy,
-		mediaDns,
-		// Inline — nothing references this, no handle needed
-		{
-			provider: "aws-prod",
-			kind: "DynamodbTable",
-			name: "sessions",
-			billingMode: "PAY_PER_REQUEST",
-			hashKey: { name: "pk", type: "S" },
-			sortKey: { name: "sk", type: "S" },
-			pointInTimeRecovery: true,
+const infra = defineInfra("prod", (infra) => {
+	const awsProd = infra.provider("awsProd", aws, { region: "eu-west-2" });
+
+	const bucket = awsProd.s3Bucket("appBucket", {
+		bucketName: "my-bucket",
+	});
+
+	infra.use(
+		declarative("ops", {
+			resources: [
+				{
+					provider: "awsProd",
+					kind: "DynamodbTable",
+					name: "sessions",
+					billingMode: "PAY_PER_REQUEST",
+					hashKey: { name: "pk", type: "S" },
+					sortKey: { name: "sk", type: "S" },
+					pointInTimeRecovery: true,
+				},
+			],
+		}),
+	);
+
+	return {
+		outputs: {
+			bucketArn: bucket.ref.arn,
 		},
-	],
+	};
 });
 ```
 
-The `resources` array accepts both `ResourceHandle` and plain resource objects. Plain objects have no type-safe `$ref` surface — they're leaf nodes in the DAG.
-
+Both styles compile to the same `InfraIR`, so the engine only ever sees one canonical graph.
 ### How the engine builds the DAG from handles
 
+Builder methods like `awsProd.s3Bucket(...)` return internal resource handles. These are not the canonical execution format — they are compilation artefacts the SDK uses before emitting `InfraIR`.
+
 ```typescript
-// The resource handle carries dependency identity for the DAG
+// The resource handle carries dependency identity during compilation
 
 interface ResourceHandle<TSpec, TState> {
 	/** Unique name — the DAG node key */
@@ -525,7 +500,7 @@ function buildDag(
 		const refBindings = new Map<string, string>();
 
 		if (isHandle) {
-			// Edges from $ref — already extracted, type-safe
+			// Edges from symbolic refs — already extracted, type-safe
 			for (const [, [target, statePath]] of resource.refs) {
 				deps.add(target.name);
 			}
@@ -534,7 +509,7 @@ function buildDag(
 				deps.add(dep.name);
 			}
 		} else {
-			// Plain object — walk for $ref tokens (untyped fallback)
+			// Declarative object — walk for ref tokens (untyped fallback)
 			walkSpec(resource, (path, token) => {
 				deps.add(token.target);
 				refBindings.set(path, token.dotPath);
@@ -548,7 +523,7 @@ function buildDag(
 }
 ```
 
-Handles carry their dependency edges at construction time — the engine doesn't need to walk specs with string matching. For plain inline resources (no handle), the engine falls back to walking for `$ref` tokens with string keys.
+Handles carry their dependency edges at construction time — the compiler does not need to walk builder specs with string matching. For declarative fragments, it falls back to walking raw specs for ref tokens.
 
 ### Processing in topological order
 
@@ -561,7 +536,7 @@ const allIssues: { resource: string; issues: z.ZodIssue[] }[] = [];
 for (const node of sortedNodes) {
 	const handler = getHandler(node.providerInstance, node.kind);
 
-	// 1. Resolve all $ref tokens using the state map
+	// 1. Resolve all symbolic ref tokens using the state map
 	const resolvedSpec = resolveRefs(node.rawSpec, node.refBindings, stateMap);
 
 	// 2. Validate the resolved spec against the schema
@@ -642,9 +617,9 @@ This gives you Terraform-style parallelism for free — the DAG tells you exactl
 
 The DAG is **implicit** — you don't declare edges explicitly (though `dependsOn` is available for cases that need it). The graph emerges from the data flow:
 
-1. Every `$ref("name", ...)` is an edge: `name → this resource`.
+1. Every symbolic ref is an edge: `target → this resource`.
 2. Every entry in `dependsOn` is an edge: `dep → this resource`.
-3. Resources with no `$ref` and no `dependsOn` have no incoming edges — they are roots.
+3. Resources with no refs and no `dependsOn` have no incoming edges — they are roots.
 4. The topological sort produces a valid processing order.
 
 This is the same approach Terraform uses (implicit edges from interpolation references), but expressed as a TypeScript function call rather than a string interpolation.
@@ -675,6 +650,25 @@ graph TD
     AWS --> AWSSDK
     GH --> GHSDK
 ```
+
+### Authoring model and `InfraIR`
+
+The public API is a builder: nested `Infra` scopes, provider instances, typed resource handles, declarative fragments, and outputs. The engine does not execute that object model directly. The builder compiles it into a flat, canonical intermediate representation:
+
+```typescript
+type InfraIR = {
+	name: string;
+	providers: ProviderInstanceIR[];
+	resources: ResourceIR[];
+};
+```
+
+This separation is deliberate:
+
+- **SDK ergonomics.** TypeScript users get a functional/OOP API with property-based refs (`bucket.ref.websiteEndpoint`) and nested composition (`infra.infra("platform", ...)`).
+- **Serialisability.** The engine only consumes data, not live objects, Proxies, or closures.
+- **Cross-language future.** Other frontends can target the same `InfraIR` without reimplementing engine semantics.
+- **Mixed authoring styles.** Builder-written infra and declarative fragments both compile to the same representation.
 
 ### Zod as the Schema Backbone
 
@@ -740,7 +734,7 @@ InfraSync applies specific Zod features to each schema type for different guaran
 | Schema type | Scope | Zod features | Why |
 |-------------|-------|-------------|-----|
 | **Config schemas** | Public | `z.strictObject()` | Reject typos in credential keys — `"apKey"` instead of `"apiKey"` should fail, not be silently ignored |
-| **Spec schemas** | Public | `z.object()`, `z.default()`, `z.refine()`, `refable()`, string formats (`z.hostname()`, `z.url()`, `z.cidrv4()`) | Validate resource shape, fill provider defaults, enforce cross-field rules, accept `$ref` tokens |
+| **Spec schemas** | Public | `z.object()`, `z.default()`, `z.refine()`, `refable()`, string formats (`z.hostname()`, `z.url()`, `z.cidrv4()`) | Validate resource shape, fill provider defaults, enforce cross-field rules, accept symbolic refs |
 | **State schemas** | Public | `z.looseObject()`, `z.coerce`, `z.brand()`, `z.readonly()` | Tolerate extra fields, coerce types, prevent type mix-ups, freeze against mutation |
 | **API response schemas** | Adapter-internal | `z.looseObject()`, `z.coerce`, string formats (`z.iso.datetime()`, `z.uuid()`) | Validate raw API responses at the source, catch contract violations with full error context |
 
@@ -1249,32 +1243,31 @@ export class CloudflareDnsRecord implements ResourcePort<
 #### The user writes one spec, targets any provider
 
 ```typescript
-const result = await sync({
-  providers: {
-    cloudflare: { apiToken: process.env.CLOUDFLARE_API_TOKEN },
-    "aws-prod": { adapter: "aws", region: "eu-west-2", credentials: { ... } },
-  },
-  resources: [
-    // Same spec shape — only the provider instance changes
-    {
-      provider: "cloudflare",
-      kind: "DnsRecord",
-      domain: "app.example.com",
-      type: "CNAME",
-      value: "my-app.pages.dev",
-      ttl: 300,
-      proxied: true,               // Cloudflare-specific, ignored by AWS codec
-    },
-    {
-      provider: "aws-prod",
-      kind: "DnsRecord",
-      domain: "api.example.com",
-      type: "CNAME",
-      value: "my-bucket.s3.amazonaws.com",
-      ttl: 60,
-      // proxied omitted — codec defaults to false
-    },
-  ],
+const infra = defineInfra("dns", (infra) => {
+  const cf = infra.provider("cloudflare", cloudflare, {
+    apiToken: infra.secret.env("CLOUDFLARE_API_TOKEN"),
+  });
+  const awsProd = infra.provider("awsProd", aws, {
+    region: "eu-west-2",
+    credentials: { ... },
+  });
+
+  // Same spec shape — only the provider instance changes
+  cf.dnsRecord("appDns", {
+    domain: "app.example.com",
+    type: "CNAME",
+    value: "my-app.pages.dev",
+    ttl: 300,
+    proxied: true,               // Cloudflare-specific, ignored by AWS codec
+  });
+
+  awsProd.dnsRecord("apiDns", {
+    domain: "api.example.com",
+    type: "CNAME",
+    value: "my-bucket.s3.amazonaws.com",
+    ttl: 60,
+    // proxied omitted — codec defaults to false
+  });
 });
 ```
 
@@ -1459,28 +1452,20 @@ export const internalPlatformProvider = defineProvider<typeof configSchema>({
 #### 4. Register and use
 
 ```typescript
-import { sync } from "infrasync";
+import { defineInfra } from "infrasync";
 import { internalPlatformProvider } from "./providers/internal-platform";
 
-const result = await sync({
-	providers: {
-		"internal-platform": {
-			adapter: "internal-platform",
-			baseUrl: "https://infra.internal",
-			apiKey: process.env.INTERNAL_API_KEY,
-		},
-	},
-	customProviders: [internalPlatformProvider],
-	resources: [
-		{
-			provider: "internal-platform",
-			kind: "Service",
-			name: "billing-api",
-			image: "registry.internal/billing-api:latest",
-			replicas: 3,
-			env: { NODE_ENV: "production", PORT: "3000" },
-		},
-	],
+const infra = defineInfra("internal", (infra) => {
+	const platform = infra.provider("internalPlatform", internalPlatformProvider, {
+		baseUrl: "https://infra.internal",
+		apiKey: infra.secret.env("INTERNAL_API_KEY"),
+	});
+
+	platform.resource("Service", "billingApi", {
+		image: "registry.internal/billing-api:latest",
+		replicas: 3,
+		env: { NODE_ENV: "production", PORT: "3000" },
+	});
 });
 ```
 
@@ -1497,7 +1482,7 @@ If any safeParse fails, the engine produces structured errors with exact field p
 
 - [ ] Define Zod schemas (single source of truth for types and validation):
   - [ ] `configSchema` — `z.strictObject()` for credentials, base URL, region, etc. Rejects unknown keys.
-  - [ ] `specSchema` — `z.object()` with `z.default()` for optional fields, `z.refine()` for cross-field rules, `refable()` for fields that accept `$ref`, string formats (`z.hostname()`, `z.url()`, `z.cidrv4()`) where appropriate
+  - [ ] `specSchema` — `z.object()` with `z.default()` for optional fields, `z.refine()` for cross-field rules, `refable()` for fields that accept symbolic refs, string formats (`z.hostname()`, `z.url()`, `z.cidrv4()`) where appropriate
   - [ ] `stateSchema` — `z.looseObject().brand().readonly()` with `z.coerce` for stringly-typed fields. Tolerates extra API fields, prevents type mix-ups, freezes against mutation.
   - [ ] `identitySchema` — `specSchema.pick({ ... })` with identity fields only
   - [ ] `desiredStateSchema` — `specSchema.pick({ ... })` with desired-state fields only
@@ -1528,7 +1513,7 @@ If any safeParse fails, the engine produces structured errors with exact field p
 | **Type safety**         | Full (TypeScript)                         | Partial (HCL validation)                   |
 | **Extensibility**       | Write a provider adapter in TypeScript    | Write a Terraform provider in Go           |
 | **Data sources**        | Same resource type with `mode: "read"`    | Separate `data` blocks                     |
-| **Cross-provider refs** | `$ref()` with DAG resolution              | `data` sources + implicit dependency graph |
+| **Cross-provider refs** | `.ref` symbolic references with DAG resolution | `data` sources + implicit dependency graph |
 | **Multi-provider**      | Resources from any provider in one config | Same (provider plugin system)              |
 | **Multi-account**       | Multiple instances of the same provider with different credentials | Same (provider aliases in Terraform 0.12+) |
 | **Learning curve**      | TypeScript knowledge transfers            | HCL and Terraform-specific concepts        |
@@ -1542,17 +1527,25 @@ Trade-offs from the stateless design:
 - **No resource deletion.** Without state, InfraSync cannot know whether a resource was previously managed and should be removed. It only creates and updates. Deletion is a deliberate operation outside its scope — this is a safety feature, not a bug.
 - **API-dependent identity matching.** Resources are matched by identity fields (name, domain, type), not by provider-assigned IDs. If a provider's API cannot reliably list and filter by these fields, matching may be ambiguous.
 - **Rate limits.** Every run queries provider APIs to read current state. For large infrastructures, this may hit rate limits. Terraform avoids this by reading from local state.
-- **No cycles.** The dependency graph must be acyclic. If `$ref` and `dependsOn` form a cycle, the engine fails at DAG-build time with the cycle path. This is inherent to any declarative DAG — cycles mean there is no valid processing order.
-- **`$ref` paths must be known statically.** The path in `$ref(handle, "path")` is a static string literal, not a runtime expression. Dynamic path computation (e.g. building a path from a variable) is not supported. This constraint enables `DeepPath<T>` type derivation and compile-time validation.
+- **No cycles.** The dependency graph must be acyclic. If symbolic refs and `dependsOn` form a cycle, the engine fails at DAG-build time with the cycle path. This is inherent to any declarative DAG — cycles mean there is no valid processing order.
+- **Ref paths must be known statically.** The `.ref` surface is derived from the state schema, so only statically known properties are addressable. Dynamic path computation is not supported. This constraint enables compile-time validation and serialisable `RefToken` emission.
 
 ## Project Structure
 
 ```
 src/
+  authoring/
+    infra.ts               # defineInfra(), nested Infra scopes, outputs, secret sources
+    declarative.ts         # Wrap declarative fragments as Infra scopes
+    compiler.ts            # Compile builder/declarative scopes to InfraIR
+    refs.ts                # Symbolic ref proxy surface, RefToken<T>, resolution metadata
+    handles.ts             # Internal resource/provider handle types used during compilation
+  ir/
+    types.ts               # InfraIR, ProviderInstanceIR, ResourceIR, RefTokenIR
+    merge.ts               # Merge nested Infra fragments into a flat InfraIR
   core/
     sync.ts                # Main sync engine (build DAG → read → plan → apply)
     dag.ts                 # DAG construction, topological sort, cycle detection
-    refs.ts                # $ref token type, RefToken<T>, DeepPath<T>, resolution
     plan.ts                # Plan computation and diffing
     resource.ts            # Resource model types and identity matching
     provider.ts            # Provider adapter interface and defineProvider
