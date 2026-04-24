@@ -1,9 +1,24 @@
 {
   "name": "infrasync",
-  "version": "1.0.0",
-  "description": "",
+  "version": "0.1.0",
+  "description": "Stateless infrastructure management for TypeScript",
   "type": "module",
-  "main": "index.js",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    }
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
   "bin": {
     "infrasync": "./bin/infrasync.mjs"
   },
@@ -11,6 +26,8 @@
     "lint": "eslint . --cache",
     "lint:fix": "eslint . --fix --cache",
     "typecheck": "tsc -p tsconfig.json",
+    "build": "tsup",
+    "prepublishOnly": "pnpm run build",
     "prepare": "husky",
     "cli": "node ./bin/infrasync.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -29,6 +46,7 @@
     "jiti": "2.6.1",
     "lint-staged": "16.4.0",
     "prettier": "3.8.3",
+    "tsup": "8.5.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.58.2"
   },
