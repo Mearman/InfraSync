@@ -10,6 +10,8 @@ import tseslint from "typescript-eslint";
 
 const tsconfigRootDir = dirname(fileURLToPath(import.meta.url));
 
+// ─── Custom rules ────────────────────────────────────────────────────────────
+
 /**
  * Test file naming rule.
  * Requires test files to match: foo.{type}.test.ts
@@ -53,6 +55,50 @@ const testFileNamingRule: Rule.RuleModule = {
   },
 };
 
+/**
+ * Bans all eslint-disable comments (inline, block, and next-line variants).
+ * Forces developers to fix the underlying issue rather than silencing the linter.
+ */
+const banEslintDisableRule: Rule.RuleModule = {
+  meta: {
+    type: "problem",
+    docs: {
+      description: "Bans eslint-disable comments — fix the underlying issue",
+    },
+  },
+  create(context) {
+    return {
+      Program() {
+        const comments = context.sourceCode.getAllComments();
+        for (const comment of comments) {
+          const text = comment.value.trimStart();
+          if (
+            text.startsWith("eslint-disable") ||
+            text.startsWith("eslint-enable")
+          ) {
+            context.report({
+              loc: comment.loc ?? { line: 1, column: 0 },
+              message:
+                "eslint-disable comments are forbidden — fix the underlying issue instead",
+            });
+          }
+        }
+      },
+    };
+  },
+};
+
+// ─── Shared custom plugin ────────────────────────────────────────────────────
+
+const customPlugin = {
+  rules: {
+    testFileNaming: testFileNamingRule,
+    banEslintDisable: banEslintDisableRule,
+  },
+};
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+
 export default defineConfig(
   {
     ignores: ["**/dist/**", "**/node_modules/**"],
@@ -72,6 +118,7 @@ export default defineConfig(
     },
     plugins: {
       prettier: eslintPluginPrettier,
+      custom: customPlugin,
     },
     rules: {
       "@typescript-eslint/no-unused-vars": "error",
@@ -79,6 +126,7 @@ export default defineConfig(
         "error",
         { assertionStyle: "never" },
       ],
+      "custom/banEslintDisable": "error",
       "no-restricted-syntax": [
         "error",
         {
@@ -92,11 +140,7 @@ export default defineConfig(
   },
   {
     files: ["**/*.test.{ts,tsx}"],
-    plugins: {
-      custom: {
-        rules: { testFileNaming: testFileNamingRule },
-      },
-    },
+    plugins: { custom: customPlugin },
     rules: {
       "custom/testFileNaming": "error",
     },
