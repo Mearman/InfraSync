@@ -586,26 +586,27 @@ This is the same approach Terraform uses (implicit edges from interpolation refe
 
 InfraSync follows the **ports and adapters** pattern (hexagonal architecture). The sync engine is the core domain. It defines **ports** — interfaces that describe what it needs from the outside world — and each provider is an **adapter** that implements those ports for a specific platform. The engine never imports an AWS SDK, a Cloudflare SDK, or any provider-specific dependency. It only calls through the port interfaces.
 
-```
-┌─────────────────────────────────────────────────┐
-│                   Sync Engine                    │
-│                                                  │
-│  build DAG → read → plan → apply                 │
-│                                                  │
-│  depends only on ports, never on adapters        │
-└──────────┬──────────┬──────────┬────────────────┘
-           │          │          │
-     ┌─────▼──┐ ┌─────▼──┐ ┌────▼─────┐
-     │ Cloud- │ │  AWS   │ │  GitHub  │  ...any adapter
-     │ flare  │ │adapter │ │ adapter  │
-     │adapter │ │        │ │          │
-     └────┬───┘ └────┬───┘ └────┬─────┘
-          │          │          │
-     ┌────▼───┐ ┌────▼───┐ ┌───▼──────┐
-     │cloud-  │ │@aws-   │ │@octokit/ │
-     │flare   │ │sdk/    │ │rest      │
-     │npm pkg │ │client-*│ │npm pkg   │
-     └────────┘ └────────┘ └──────────┘
+```mermaid
+graph TD
+    Engine["<b>Sync Engine</b><br/>build DAG → read → plan → apply<br/><i>depends only on ports, never on adapters</i>"]
+
+    subgraph Adapters
+        CF["Cloudflare adapter"]
+        AWS["AWS adapter"]
+        GH["GitHub adapter"]
+        More["…any adapter"]
+    end
+
+    subgraph SDKs
+        CFSDK["cloudflare npm pkg"]
+        AWSSDK["@aws-sdk/client-*"]
+        GHSDK["@octokit/rest"]
+    end
+
+    Engine --> CF & AWS & GH & More
+    CF --> CFSDK
+    AWS --> AWSSDK
+    GH --> GHSDK
 ```
 
 ### Zod as the Schema Backbone
@@ -617,27 +618,26 @@ This matters because InfraSync has two distinct validation boundaries:
 1. **The adapter boundary** — the adapter receives `unknown` from a provider API and validates it against a private API response schema. This catches API contract violations (rate limit responses where objects were expected, missing fields, changed shapes) at the source, with full context about what the API actually returned.
 2. **The engine boundary** — the engine validates the adapter's output against the public state schema. This is the safety net: even if an adapter has a bug, the engine catches malformed state before it enters the state map or gets compared for convergence.
 
-```
-User config ──► specSchema.safeParse() ──► sync engine ──► ResourcePort.read()
-                          ▲                                              │
-                   validates resource                                    ▼
-                   shape and values                          raw API response (unknown)
-                                                                  │
-                                         ┌───────────────────────┘
-                                         │
-                                         ▼  apiResponseSchema.safeParse()  ← adapter-internal
-                                         validated provider data
-                                         │
-                                         ▼  adapter maps fields
-                                         TState (plain object)
-                                         │
-                          ┌──────────────┘
-                          ▼
-                    stateSchema.safeParse()  ← engine validates adapter output
-                    branded, readonly, frozen state
-                          │
-                          ▼
-                    plan: create | update | no-op
+```mermaid
+graph TD
+    User["User config"]
+    SpecVal["<b>specSchema.safeParse()</b><br/><i>validates resource shape and values</i>"]
+    Engine["Sync engine"]
+    Read["ResourcePort.read(spec)"]
+    Raw["raw API response<br/><i>unknown</i>"]
+    ApiVal["<b>apiResponseSchema.safeParse()</b><br/><i>adapter-internal: validates API contract</i>"]
+    Validated["validated provider data<br/><i>typed, coerced</i>"]
+    Mapped["TState<br/><i>adapter maps fields</i>"]
+    StateVal["<b>stateSchema.safeParse()</b><br/><i>engine validates adapter output</i>"]
+    State["branded, readonly, frozen state"]
+    Plan["<b>plan:</b> create | update | no-op"]
+
+    User --> SpecVal --> Engine --> Read --> Raw
+    Raw --> ApiVal --> Validated --> Mapped --> StateVal --> State --> Plan
+
+    style SpecVal fill:#e8f5e9,stroke:#4caf50
+    style ApiVal fill:#fff3e0,stroke:#ff9800
+    style StateVal fill:#e8f5e9,stroke:#4caf50
 ```
 
 #### What Zod provides
@@ -871,42 +871,38 @@ Why two layers? The adapter catches API contract violations (wrong shape, missin
 
 #### Data flow through the ports
 
-```
-User config (TypeScript)
-    │
-    ▼  specSchema.safeParse()     ← engine validates user input
-    │
-Sync Engine ──► ProviderPort.resourceHandler("DnsRecord")
-    │                    │
-    │                    ▼
-    │              ResourcePort.read(spec)
-    │                    │
-    │                    ▼  (adapter calls provider SDK / REST API)
-    │              raw API response (unknown)
-    │                    │
-    │                    ▼  apiResponseSchema.safeParse()  ← ADAPTER-INTERNAL: validates API contract
-    │              validated API data (typed, coerced)
-    │                    │
-    │                    ▼  adapter maps fields to state shape
-    │              plain state object
-    │                    │
-    ◄────────────────────┘
-    │
-    ▼  stateSchema.safeParse()     ← ENGINE: validates adapter output
-    │  brands, freezes, tolerates extras
-    │
-    ▼  desiredStateSchema.parse() on both spec and state
-    │  deepEqual(desired, actual)?
-    │
-    ▼
-Plan: create | update | no-op
-    │
-    ▼
-ResourcePort.create(spec)  or  ResourcePort.update(id, spec)
-    │                    │
-    │                    ▼  apiResponseSchema.safeParse()  ← ADAPTER-INTERNAL again
-    │                    ▼  adapter maps fields to state shape
-    │                    ▼  stateSchema.safeParse()        ← ENGINE validates again
+```mermaid
+graph TD
+    User["User config"]
+    SpecVal["<b>specSchema.safeParse()</b><br/><i>engine validates user input</i>"]
+    Engine["Sync Engine"]
+    Handler["ProviderPort.resourceHandler('DnsRecord')"]
+    Read["ResourcePort.read(spec)"]
+    API["provider SDK / REST API"]
+    Raw["raw API response<br/><i>unknown</i>"]
+    ApiVal1["<b>apiResponseSchema.safeParse()</b><br/><i>ADAPTER-INTERNAL: validates API contract</i>"]
+    Typed1["validated API data<br/><i>typed, coerced</i>"]
+    Map1["adapter maps fields to state shape"]
+    StateObj["plain state object"]
+    StateVal["<b>stateSchema.safeParse()</b><br/><i>ENGINE: brands, freezes, tolerates extras</i>"]
+    Compare["<b>desiredStateSchema.parse()</b><br/>on both spec and state"]
+    Diff["deepEqual(desired, actual)?"]
+    Plan["Plan: create | update | no-op"]
+    Mutate["ResourcePort.create(spec)<br/>or ResourcePort.update(id, spec)"]
+    ApiVal2["<b>apiResponseSchema.safeParse()</b><br/><i>ADAPTER-INTERNAL again</i>"]
+    Map2["adapter maps fields"]
+    StateVal2["<b>stateSchema.safeParse()</b><br/><i>ENGINE validates again</i>"]
+
+    User --> SpecVal --> Engine --> Handler --> Read --> API --> Raw
+    Raw --> ApiVal1 --> Typed1 --> Map1 --> StateObj --> StateVal
+    StateVal --> Compare --> Diff --> Plan --> Mutate
+    Mutate --> ApiVal2 --> Map2 --> StateVal2
+
+    style SpecVal fill:#e8f5e9,stroke:#4caf50
+    style ApiVal1 fill:#fff3e0,stroke:#ff9800
+    style StateVal fill:#e8f5e9,stroke:#4caf50
+    style ApiVal2 fill:#fff3e0,stroke:#ff9800
+    style StateVal2 fill:#e8f5e9,stroke:#4caf50
 ```
 
 ### Codecs: Normalised Resource Specs Across Providers
@@ -918,24 +914,27 @@ Zod codecs solve this with **bidirectional transforms**. Each provider adapter d
 - **`decode(normalised) → provider-specific`** — before calling `create()`, `update()`, or `read()`, the engine transforms the user's normalised spec into the shape this provider expects.
 - **`encode(provider-specific) → normalised`** — after `read()` returns provider-specific state, the engine transforms it back into the normalised shape so convergence checking can compare apples to apples.
 
-```
-             Normalised spec                       Provider-specific state
-             (user writes this)                     (API returns this)
-                    │                                       │
-    ┌───────────────▼───────────────┐     ┌──────────────────▼──────────────────┐
-    │  kind: "DnsRecord"            │     │  Cloudflare: name, content, proxied  │
-    │  domain: "app.example.com"    │     │  AWS: ResourceRecordSet, AliasTarget │
-    │  type: "CNAME"                │     │  GCP: rrdatas, name, ttl            │
-    │  value: "my-app.pages.dev"    │     │                                     │
-    │  ttl: 300                     │     │                                     │
-    └───────────────┬───────────────┘     └──────────────────┬──────────────────┘
-                    │                                       │
-                    ▼  codec.decode()                        ▼  codec.encode()
-                    │  (spec → provider)                      │  (provider → normalised)
-                    ▼                                       ▼
-              Provider adapter                         Provider adapter
-              calls SDK with                          returns state that
-              provider-specific params                the engine compares
+```mermaid
+graph LR
+    subgraph Normalised["Normalised spec (user writes this)"]
+        NormFields["kind: DnsRecord<br/>domain: app.example.com<br/>type: CNAME<br/>value: my-app.pages.dev<br/>ttl: 300"]
+    end
+
+    subgraph ProviderState["Provider-specific state (API returns this)"]
+        ProvFields["Cloudflare: name, content, proxied<br/>AWS: ResourceRecordSet, AliasTarget<br/>GCP: rrdatas, name, ttl"]
+    end
+
+    Decode["<b>codec.decode()</b><br/><i>spec → provider</i>"]
+    Encode["<b>codec.encode()</b><br/><i>provider → normalised</i>"]
+    Adapter["Provider adapter<br/><i>calls SDK with<br/>provider-specific params</i>"]
+    Compare["Engine<br/><i>compares normalised<br/>state for convergence</i>"]
+
+    NormFields --> Decode --> Adapter
+    ProvFields --> Encode --> Compare
+    Adapter -.->|SDK call| ProvFields
+
+    style Decode fill:#e3f2fd,stroke:#1976d2
+    style Encode fill:#e3f2fd,stroke:#1976d2
 ```
 
 #### Defining a normalised spec schema
