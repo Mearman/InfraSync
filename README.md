@@ -204,7 +204,7 @@ InfraSync uses one type. The mode is a property, not a category. This means:
 
 - The same schema, codec, and adapter handle both cases.
 - You can switch a resource from `"read"` to `"manage"` by changing one field — no rewrite needed.
-- Read-mode resources go through the same validation pipeline (`specSchema.parse()`, `stateSchema.parse()`) as managed resources.
+- Read-mode resources go through the same validation pipeline (`specSchema.safeParse()`, `stateSchema.safeParse()`) as managed resources.
 - The state map is uniform — the engine doesn't need two different lookup mechanisms.
 
 ## Dependency Graph
@@ -362,7 +362,7 @@ resource("cloudflare", "DnsRecord", {
 });
 ```
 
-**3. The engine resolves before validation.** At runtime, the engine walks the spec, replaces every `RefToken` with the concrete value from the state map, then passes the result through `specSchema.parse()`. The `refable()` union's `z.custom` branch handles `RefToken` objects during the brief window between construction and resolution. After resolution, only concrete values reach the inner schema:
+**3. The engine resolves before validation.** At runtime, the engine walks the spec, replaces every `RefToken` with the concrete value from the state map, then passes the result through `specSchema.safeParse()`. The `refable()` union's `z.custom` branch handles `RefToken` objects during the brief window between construction and resolution. After resolution, only concrete values reach the inner schema:
 
 ```typescript
 // Engine's resolve step:
@@ -370,7 +370,12 @@ const resolved = resolveRefs(rawSpec, stateMap);
 // $ref(bucket, "websiteEndpoint")  →  "my-bucket.s3.amazonaws.com"
 
 // Then validate with the inner schema:
-const spec = handler.specSchema.parse(resolved);
+const specResult = handler.specSchema.safeParse(resolved);
+if (!specResult.success) {
+	// report issues and skip
+	continue;
+}
+const spec = specResult.data;
 // z.string() validates "my-bucket.s3.amazonaws.com"  →  ✅
 ```
 
@@ -484,6 +489,7 @@ Handles carry their dependency edges at construction time — the engine doesn't
 // Phases 1–3: Read → plan → apply in DAG order
 
 const stateMap = new Map<string, unknown>();
+const allIssues: { resource: string; issues: z.ZodIssue[] }[] = [];
 
 for (const node of sortedNodes) {
 	const handler = getHandler(node.provider, node.kind);
@@ -492,12 +498,24 @@ for (const node of sortedNodes) {
 	const resolvedSpec = resolveRefs(node.rawSpec, node.refBindings, stateMap);
 
 	// 2. Validate the resolved spec against the schema
-	const spec = handler.specSchema.parse(resolvedSpec);
+	const specResult = handler.specSchema.safeParse(resolvedSpec);
+	if (!specResult.success) {
+		allIssues.push({ resource: node.name, issues: specResult.error.issues });
+		continue;
+	}
+	const spec = specResult.data;
 
 	// 3. Read current state from the provider
 	const rawState = await handler.read(spec);
-	const state =
-		rawState !== undefined ? handler.stateSchema.parse(rawState) : undefined;
+	let state: z.infer<typeof handler.stateSchema> | undefined;
+	if (rawState !== undefined) {
+		const stateResult = handler.stateSchema.safeParse(rawState);
+		if (!stateResult.success) {
+			allIssues.push({ resource: node.name, issues: stateResult.error.issues });
+			continue;
+		}
+		state = stateResult.data; // branded, readonly, coerced
+	}
 
 	stateMap.set(node.name, state);
 
@@ -505,16 +523,36 @@ for (const node of sortedNodes) {
 	if (node.mode === "manage") {
 		if (state === undefined) {
 			const created = await handler.create(spec);
-			stateMap.set(node.name, handler.stateSchema.parse(created));
+			const createdResult = handler.stateSchema.safeParse(created);
+			if (!createdResult.success) {
+				allIssues.push({ resource: node.name, issues: createdResult.error.issues });
+				continue;
+			}
+			stateMap.set(node.name, createdResult.data);
 		} else {
 			const desired = handler.desiredStateSchema.parse(spec);
 			const actual = handler.desiredStateSchema.parse(state);
 			if (!deepEqual(desired, actual)) {
 				const updated = await handler.update((state as any).id, spec);
-				stateMap.set(node.name, handler.stateSchema.parse(updated));
+				const updatedResult = handler.stateSchema.safeParse(updated);
+				if (!updatedResult.success) {
+					allIssues.push({ resource: node.name, issues: updatedResult.error.issues });
+					continue;
+				}
+				stateMap.set(node.name, updatedResult.data);
 			}
 		}
 	}
+}
+
+// Report all collected issues at once
+if (allIssues.length > 0) {
+	for (const { resource, issues } of allIssues) {
+		for (const issue of issues) {
+			console.error(`  ${resource}: ${issue.path.join(".")} — ${issue.message}`);
+		}
+	}
+	process.exit(1);
 }
 ```
 
@@ -572,15 +610,15 @@ InfraSync follows the **ports and adapters** pattern (hexagonal architecture). T
 
 ### Zod as the Schema Backbone
 
-Every type in InfraSync — resource specs, provider state, provider config — is defined as a **Zod schema**. Zod serves as the single source of truth: from each schema you get the TypeScript type (via `z.infer`), runtime validation (via `.parse()`), and field introspection (via `.shape`). There are no separate interface definitions that could drift from the runtime validation logic.
+Every type in InfraSync — resource specs, provider state, provider config — is defined as a **Zod schema**. Zod serves as the single source of truth: from each schema you get the TypeScript type (via `z.infer`), runtime validation (via `safeParse()`), and field introspection (via `.shape`). There are no separate interface definitions that could drift from the runtime validation logic.
 
 This matters because InfraSync sits at the boundary between user-authored configuration (untrusted input) and cloud provider APIs (structured data). Zod validates at every boundary:
 
 ```
-User config ──► specSchema.parse() ──► sync engine ──► stateSchema.parse() ──► plan
-                        ▲                                    ▲
-                 validates resource                   validates provider
-                 shape and values                      API responses
+User config ──► specSchema.safeParse() ──► sync engine ──► stateSchema.safeParse() ──► plan
+                          ▲                                       ▲
+                   validates resource                        validates provider
+                   shape and values                          API responses
 ```
 
 #### What Zod provides
@@ -588,12 +626,31 @@ User config ──► specSchema.parse() ──► sync engine ──► stateSc
 | Concern                   | Without Zod                         | With Zod                                                |
 | ------------------------- | ----------------------------------- | ------------------------------------------------------- |
 | **Type definitions**      | Separate `interface` declarations   | `z.infer<typeof schema>` — always in sync with runtime  |
-| **Input validation**      | Manual guards or trust              | `specSchema.parse()` at every boundary                  |
+| **Input validation**      | Manual guards or trust              | `safeParse()` at every boundary                         |
+| **Error reporting**       | One error at a time                 | `safeParse()` collects all errors across all resources   |
 | **Field introspection**   | String arrays that can drift        | `Object.keys(schema.shape)` — always matches the type   |
 | **Convergence checking**  | Manual field-by-field comparison    | Pick desired-state sub-schema, compare parsed outputs   |
 | **CLI config validation** | Fail at runtime with obscure errors | Fail fast with structured `ZodError` messages           |
 | **Provider config**       | Trust user input                    | Validate credentials, regions, URLs at `connect()` time |
-| **Documentation**         | Manually maintained                 | Generate JSON Schema from Zod for docs/IDE support      |
+| **State immutability**    | Trust that nobody mutates the map   | `z.readonly()` freezes parsed state objects             |
+| **State type safety**     | Could mix up bucket state with DNS  | `z.brand()` makes states nominally typed               |
+| **API type mismatches**   | Adapter manually coerces strings    | `z.coerce` handles stringly-typed API responses         |
+| **Config typos**          | Silently ignored extra fields       | `z.strictObject()` rejects unknown keys                 |
+| **Extra API fields**      | Adapter strips unknown fields       | `z.looseObject()` passes them through                   |
+| **Cross-field rules**     | Manual validation in adapter code   | `z.refine()` on the schema itself                       |
+| **Documentation**         | Manually maintained                 | Generate JSON Schema from Zod for docs/IDE support       |
+
+#### Schema design rules
+
+InfraSync applies specific Zod features to each schema type for different guarantees:
+
+| Schema type | Zod features | Why |
+|-------------|-------------|-----|
+| **Config schemas** | `z.strictObject()` | Reject typos in credential keys — `"apKey"` instead of `"apiKey"` should fail, not silently ignored |
+| **Spec schemas** | `z.object()`, `z.default()`, `z.refine()`, `refable()`, string formats (`z.hostname()`, `z.url()`, `z.cidrv4()`) | Validate resource shape, fill provider defaults, enforce cross-field rules, accept `$ref` tokens |
+| **State schemas** | `z.looseObject()`, `z.coerce`, `z.brand()`, `z.readonly()` | Tolerate extra API fields, handle stringly-typed responses, prevent type mix-ups, freeze against mutation |
+
+The combination of `z.looseObject().brand().readonly()` on every state schema gives three guarantees with one parse call: extra API fields pass through, the type is nominally distinct from other resource states, and the result is frozen.
 
 ### Ports (the contracts)
 
@@ -627,7 +684,7 @@ interface ProviderPort<TConfig extends ZodType> {
 }
 ```
 
-The engine calls `configSchema.parse(rawConfig)` before `connect()`, so the adapter always receives validated, typed config.
+The engine calls `configSchema.safeParse(rawConfig)` before `connect()`. If validation fails, all issues are collected and reported before any API calls are made — the adapter never receives invalid config.
 
 #### `ResourcePort` — the resource-level interface
 
@@ -681,20 +738,43 @@ Notice `isConverged()` is gone — the engine implements convergence generically
 
 #### How the engine validates at boundaries
 
+The engine never uses `.parse()` — always `safeParse()`. This collects all validation errors across all resources before reporting, instead of failing on the first one:
+
 ```typescript
 // Inside the sync engine — before any adapter method is called:
 
 // 1. Validate user config against the spec schema
-const spec = resourceHandler.specSchema.parse(rawResource) as TSpec;
+const specResult = resourceHandler.specSchema.safeParse(rawResource);
+if (!specResult.success) {
+	// Collect all issues for this resource, then continue checking
+	// other resources. Report everything at once.
+	for (const issue of specResult.error.issues) {
+		console.error(
+			`  ${rawResource.name}: ${issue.path.join(".")} — ${issue.message}`,
+		);
+	}
+	continue; // skip this resource, process the rest
+}
+const spec = specResult.data;
 
 // 2. Adapter reads current state
 const state = await resourceHandler.read(spec);
 
-// 3. If state exists, validate it against the state schema
+// 3. If state exists, validate against the state schema
 if (state !== undefined) {
-	const validatedState = resourceHandler.stateSchema.parse(state);
+	const stateResult = resourceHandler.stateSchema.safeParse(state);
+	if (!stateResult.success) {
+		// State schema mismatch — the provider returned unexpected data
+		for (const issue of stateResult.error.issues) {
+			console.error(
+				`  ${rawResource.name} (state): ${issue.path.join(".")} — ${issue.message}`,
+			);
+		}
+		continue;
+	}
+	const validatedState = stateResult.data; // branded, readonly, coerced
 
-	// 4. Engine checks convergence generically — no per-resource logic needed
+	// 4. Engine checks convergence generically
 	const desired = resourceHandler.desiredStateSchema.parse(spec);
 	const actual = resourceHandler.desiredStateSchema.parse(validatedState);
 
@@ -706,12 +786,14 @@ if (state !== undefined) {
 }
 ```
 
+Why `safeParse()` everywhere? A configuration with 20 resources and 3 typos should produce 3 actionable error messages in one run, not require 3 separate runs to find them one at a time.
+
 #### Data flow through the ports
 
 ```
 User config (TypeScript)
     │
-    ▼  specSchema.parse()          ← validates user input
+    ▼  specSchema.safeParse()     ← validates user input, collects all errors
     │
 Sync Engine ──► ProviderPort.resourceHandler("DnsRecord")
     │                    │
@@ -721,7 +803,7 @@ Sync Engine ──► ProviderPort.resourceHandler("DnsRecord")
     │                    ▼  (adapter calls Cloudflare/AWS/GitHub SDK)
     │              raw API response
     │                    │
-    │                    ▼  stateSchema.parse()  ← validates provider response
+    │                    ▼  stateSchema.safeParse()  ← coerces, brands, freezes, tolerates extras
     │              TState | undefined
     │                    │
     ◄────────────────────┘
@@ -774,14 +856,26 @@ A normalised schema is a plain Zod object schema shared across all providers for
 import { z } from "zod";
 
 /** Normalised DNS record spec — works across Cloudflare, AWS, GCP */
-export const dnsRecordSpecSchema = z.object({
-	kind: z.literal("DnsRecord"),
-	domain: z.hostname(), // identity field
-	type: z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"]), // identity field
-	value: z.string().min(1), // desired state field
-	ttl: z.number().int().min(0).default(300), // desired state field (with default)
-	proxied: z.boolean().default(false), // desired state field (ignored by providers that don't support it)
-});
+export const dnsRecordSpecSchema = z
+	.object({
+		kind: z.literal("DnsRecord"),
+		domain: z.hostname(), // identity field
+		type: z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"]), // identity field
+		value: z.string().min(1), // desired state field
+		ttl: z.number().int().min(0).default(300), // desired state field (with default)
+		proxied: z.boolean().default(false), // desired state field (ignored by providers that don't support it)
+	})
+	.refine(
+		(spec) => {
+			// CNAME cannot be at zone apex
+			if (spec.type === "CNAME") {
+				const parts = spec.domain.split(".");
+				return spec.domain !== parts.slice(-2).join(".");
+			}
+			return true;
+		},
+		{ error: "CNAME records cannot be placed at the zone apex", path: ["type"] },
+	);
 export type DnsRecordSpec = z.infer<typeof dnsRecordSpecSchema>;
 
 export const dnsRecordIdentitySchema = dnsRecordSpecSchema.pick({
@@ -805,16 +899,23 @@ Each provider defines a codec that maps between the normalised spec and its own 
 import { z } from "zod";
 import { dnsRecordSpecSchema } from "../../core/schemas/dns-record";
 
-/** Cloudflare's API shape for a DNS record */
-const cloudflareDnsStateSchema = z.object({
-	id: z.string(),
-	zone_id: z.string(),
-	type: z.string(),
-	name: z.string(),
-	content: z.string(),
-	proxied: z.boolean(),
-	ttl: z.number(),
-});
+/** Cloudflare's API shape for a DNS record.
+ *  looseObject: tolerate extra fields like metadata, comment, tags.
+ *  brand: prevent mix-ups with Route53 or GCP state.
+ *  readonly: freeze after parsing.
+ *  coerce: Cloudflare sometimes returns ttl as a string. */
+const cloudflareDnsStateSchema = z
+	.looseObject({
+		id: z.string(),
+		zone_id: z.string(),
+		type: z.string(),
+		name: z.string(),
+		content: z.string(),
+		proxied: z.coerce.boolean(),
+		ttl: z.coerce.number(),
+	})
+	.brand<"CloudflareDnsState">()
+	.readonly();
 
 /** Codec: normalised ↔ Cloudflare */
 export const cloudflareDnsCodec = z.codec(
@@ -848,14 +949,19 @@ export const cloudflareDnsCodec = z.codec(
 import { z } from "zod";
 import { dnsRecordSpecSchema } from "../../core/schemas/dns-record";
 
-/** AWS Route53's API shape for a resource record set */
-const route53RecordStateSchema = z.object({
-	Name: z.string(),
-	Type: z.string(),
-	TTL: z.number().optional(),
-	ResourceRecords: z.array(z.object({ Value: z.string() })).optional(),
-	AliasTarget: z.object({ DNSName: z.string() }).optional(),
-});
+/** AWS Route53's API shape for a resource record set.
+ *  looseObject: Route53 returns many fields we don't model.
+ *  brand: prevents passing this where Cloudflare state is expected. */
+const route53RecordStateSchema = z
+	.looseObject({
+		Name: z.string(),
+		Type: z.string(),
+		TTL: z.coerce.number().optional(),
+		ResourceRecords: z.array(z.object({ Value: z.string() })).optional(),
+		AliasTarget: z.object({ DNSName: z.string() }).optional(),
+	})
+	.brand<"Route53DnsState">()
+	.readonly();
 
 /** Codec: normalised ↔ AWS Route53 */
 export const route53DnsCodec = z.codec(
@@ -1097,7 +1203,7 @@ export class ServiceResource implements ResourcePort<
 	async read(spec: ServiceSpec): Promise<ServiceState | undefined> {
 		const response = await this.client.get(`/services/${spec.name}`);
 		if (response.status === 404) return undefined;
-		// stateSchema.parse() is called by the engine — no need to validate here
+		// stateSchema.safeParse() is called by the engine — no need to validate here
 		return response.json() as Promise<ServiceState>;
 	}
 
@@ -1138,7 +1244,7 @@ export const internalPlatformProvider = defineProvider<typeof configSchema>({
 	client: undefined as InternalPlatformClient | undefined,
 
 	async connect(config: InternalPlatformConfig) {
-		// config has already been validated by configSchema.parse()
+		// config has already been validated by configSchema.safeParse()
 		this.client = new InternalPlatformClient(config.baseUrl, config.apiKey);
 		await this.client.get("/health");
 	},
@@ -1187,19 +1293,19 @@ const result = await sync({
 
 At runtime, the engine:
 
-1. Parses the raw config object through `configSchema` before calling `connect()`.
-2. Parses each resource through `specSchema` before calling `read()`, `create()`, or `update()`.
-3. Parses each API response through `stateSchema` before comparing.
+1. `safeParse()`s the raw config through `configSchema` before calling `connect()`. All issues are collected across all resources before reporting.
+2. `safeParse()`s each resource through `specSchema` before calling `read()`, `create()`, or `update()`. Refinements and defaults are applied.
+3. `safeParse()`s each API response through `stateSchema`. Extra fields pass through (loose), values are coerced (string → number), the result is branded and frozen.
 4. Compares `desiredStateSchema.parse(spec)` against `desiredStateSchema.parse(state)` for convergence.
 
-If any parse fails, the engine produces a structured error with the exact field paths and expected types — no silent failures, no `as` casts hiding mismatches.
+If any safeParse fails, the engine produces structured errors with exact field paths — no silent failures, no `as` casts hiding mismatches, no one-at-a-time error reporting.
 
 #### Checklist for new providers
 
 - [ ] Define Zod schemas (single source of truth for types and validation):
-  - [ ] `configSchema` — credentials, base URL, region, etc.
-  - [ ] `specSchema` — desired configuration for each resource kind
-  - [ ] `stateSchema` — shape returned by the provider API
+  - [ ] `configSchema` — `z.strictObject()` for credentials, base URL, region, etc. Rejects unknown keys.
+  - [ ] `specSchema` — `z.object()` with `z.default()` for optional fields, `z.refine()` for cross-field rules, `refable()` for fields that accept `$ref`, string formats (`z.hostname()`, `z.url()`, `z.cidrv4()`) where appropriate
+  - [ ] `stateSchema` — `z.looseObject().brand().readonly()` with `z.coerce` for stringly-typed fields. Tolerates extra API fields, prevents type mix-ups, freezes against mutation.
   - [ ] `identitySchema` — `specSchema.pick({ ... })` with identity fields only
   - [ ] `desiredStateSchema` — `specSchema.pick({ ... })` with desired-state fields only
 - [ ] Implement `ResourcePort` for each kind:
