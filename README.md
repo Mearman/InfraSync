@@ -619,25 +619,32 @@ This matters because InfraSync has two distinct validation boundaries:
 2. **The engine boundary** — the engine validates the adapter's output against the public state schema. This is the safety net: even if an adapter has a bug, the engine catches malformed state before it enters the state map or gets compared for convergence.
 
 ```mermaid
-graph TD
-    User["User config"]
-    SpecVal["<b>specSchema.safeParse()</b><br/><i>validates resource shape and values</i>"]
-    Engine["Sync engine"]
-    Read["ResourcePort.read(spec)"]
-    Raw["raw API response<br/><i>unknown</i>"]
-    ApiVal["<b>apiResponseSchema.safeParse()</b><br/><i>adapter-internal: validates API contract</i>"]
-    Validated["validated provider data<br/><i>typed, coerced</i>"]
-    Mapped["TState<br/><i>adapter maps fields</i>"]
-    StateVal["<b>stateSchema.safeParse()</b><br/><i>engine validates adapter output</i>"]
-    State["branded, readonly, frozen state"]
-    Plan["<b>plan:</b> create | update | no-op"]
+sequenceDiagram
+    participant User as User config
+    participant Engine as Sync engine
+    participant Adapter as Adapter
+    participant API as Provider API
 
-    User --> SpecVal --> Engine --> Read --> Raw
-    Raw --> ApiVal --> Validated --> Mapped --> StateVal --> State --> Plan
-
-    style SpecVal fill:#e8f5e9,stroke:#4caf50
-    style ApiVal fill:#fff3e0,stroke:#ff9800
-    style StateVal fill:#e8f5e9,stroke:#4caf50
+    User->>Engine: raw resource config
+    rect rgb(232, 245, 233)
+        Note over Engine: specSchema.safeParse()
+        Note over Engine: validates resource shape and values
+    end
+    Engine->>Adapter: read(spec)
+    Adapter->>API: GET /services/{name}
+    API-->>Adapter: raw response (unknown)
+    rect rgb(255, 243, 224)
+        Note over Adapter: apiResponseSchema.safeParse()
+        Note over Adapter: adapter-internal: validates API contract
+        Note over Adapter: coerces types, tolerates extra fields
+    end
+    Note over Adapter: maps API fields to state shape
+    Adapter-->>Engine: TState (plain object)
+    rect rgb(232, 245, 233)
+        Note over Engine: stateSchema.safeParse()
+        Note over Engine: brands, freezes, tolerates extras
+    end
+    Note over Engine: plan: create | update | no-op
 ```
 
 #### What Zod provides
@@ -872,37 +879,65 @@ Why two layers? The adapter catches API contract violations (wrong shape, missin
 #### Data flow through the ports
 
 ```mermaid
-graph TD
-    User["User config"]
-    SpecVal["<b>specSchema.safeParse()</b><br/><i>engine validates user input</i>"]
-    Engine["Sync Engine"]
-    Handler["ProviderPort.resourceHandler('DnsRecord')"]
-    Read["ResourcePort.read(spec)"]
-    API["provider SDK / REST API"]
-    Raw["raw API response<br/><i>unknown</i>"]
-    ApiVal1["<b>apiResponseSchema.safeParse()</b><br/><i>ADAPTER-INTERNAL: validates API contract</i>"]
-    Typed1["validated API data<br/><i>typed, coerced</i>"]
-    Map1["adapter maps fields to state shape"]
-    StateObj["plain state object"]
-    StateVal["<b>stateSchema.safeParse()</b><br/><i>ENGINE: brands, freezes, tolerates extras</i>"]
-    Compare["<b>desiredStateSchema.parse()</b><br/>on both spec and state"]
-    Diff["deepEqual(desired, actual)?"]
-    Plan["Plan: create | update | no-op"]
-    Mutate["ResourcePort.create(spec)<br/>or ResourcePort.update(id, spec)"]
-    ApiVal2["<b>apiResponseSchema.safeParse()</b><br/><i>ADAPTER-INTERNAL again</i>"]
-    Map2["adapter maps fields"]
-    StateVal2["<b>stateSchema.safeParse()</b><br/><i>ENGINE validates again</i>"]
+sequenceDiagram
+    participant User as User config
+    participant Engine as Sync Engine
+    participant Adapter as Adapter
+    participant API as Provider SDK
 
-    User --> SpecVal --> Engine --> Handler --> Read --> API --> Raw
-    Raw --> ApiVal1 --> Typed1 --> Map1 --> StateObj --> StateVal
-    StateVal --> Compare --> Diff --> Plan --> Mutate
-    Mutate --> ApiVal2 --> Map2 --> StateVal2
-
-    style SpecVal fill:#e8f5e9,stroke:#4caf50
-    style ApiVal1 fill:#fff3e0,stroke:#ff9800
-    style StateVal fill:#e8f5e9,stroke:#4caf50
-    style ApiVal2 fill:#fff3e0,stroke:#ff9800
-    style StateVal2 fill:#e8f5e9,stroke:#4caf50
+    User->>Engine: raw resource config
+    rect rgb(232, 245, 233)
+        Note over Engine: specSchema.safeParse()
+        Note over Engine: validates user input
+    end
+    Engine->>Adapter: read(spec)
+    Adapter->>API: GET /services/{name}
+    API-->>Adapter: raw response (unknown)
+    rect rgb(255, 243, 224)
+        Note over Adapter: apiResponseSchema.safeParse()
+        Note over Adapter: ADAPTER-INTERNAL: validates API contract
+    end
+    Note over Adapter: maps fields to state shape
+    Adapter-->>Engine: plain state object
+    rect rgb(232, 245, 233)
+        Note over Engine: stateSchema.safeParse()
+        Note over Engine: brands, freezes, tolerates extras
+    end
+    rect rgb(232, 245, 233)
+        Note over Engine: desiredStateSchema.parse()
+        Note over Engine: deepEqual(desired, actual)?
+    end
+    alt converged
+        Note over Engine: no-op
+    else needs update
+        Engine->>Adapter: update(id, spec)
+        Adapter->>API: PATCH /services/{id}
+        API-->>Adapter: raw response (unknown)
+        rect rgb(255, 243, 224)
+            Note over Adapter: apiResponseSchema.safeParse()
+            Note over Adapter: ADAPTER-INTERNAL again
+        end
+        Note over Adapter: maps fields to state shape
+        Adapter-->>Engine: plain state object
+        rect rgb(232, 245, 233)
+            Note over Engine: stateSchema.safeParse()
+            Note over Engine: ENGINE validates again
+        end
+    else not found
+        Engine->>Adapter: create(spec)
+        Adapter->>API: POST /services
+        API-->>Adapter: raw response (unknown)
+        rect rgb(255, 243, 224)
+            Note over Adapter: apiResponseSchema.safeParse()
+            Note over Adapter: ADAPTER-INTERNAL again
+        end
+        Note over Adapter: maps fields to state shape
+        Adapter-->>Engine: plain state object
+        rect rgb(232, 245, 233)
+            Note over Engine: stateSchema.safeParse()
+            Note over Engine: ENGINE validates again
+        end
+    end
 ```
 
 ### Codecs: Normalised Resource Specs Across Providers
