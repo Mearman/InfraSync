@@ -19,7 +19,7 @@ The pattern emerged from a real project — a script that configured Cloudflare 
 - **Deterministic.** Given the same desired configuration and the same current state, the same plan is produced every time.
 - **TypeScript-native.** Infrastructure is defined with full type safety. No HCL, no DSL, no template strings. Intellisense, refactoring, and type checking all work. Zod schemas are the single source of truth for every type — runtime validation and static types are always in sync.
 - **Programmable first, CLI second.** The core is a library. The CLI is a thin wrapper that loads an infra file and invokes the programmatic API.
-- **Builder-first authoring.** The primary authoring model is nested `Infra` scopes with provider instances and typed resource handles. Declarative fragments are supported as an escape hatch for migration, generated input, and interoperability — not as the main API.
+- **Equal authoring styles.** Infra can be authored functionally with nested `Infra` scopes and typed resource handles, declaratively with resource objects, or as a mixture of both. These styles are first-class peers and fully interoperable.
 - **Serialisable core.** Authoring code compiles to `InfraIR`, a canonical intermediate representation the engine can execute independent of the language frontend.
 - **Provider-agnostic.** The sync engine knows nothing about Cloudflare, AWS, or GCP. Providers are adapters that implement a uniform interface over provider-specific APIs.
 
@@ -33,7 +33,7 @@ pnpm add infrasync
 
 ### Programmatic API
 
-Define infrastructure with nested `Infra` scopes. This is the recommended authoring style. `defineInfra()` creates the root scope. `infra.infra()` creates child scopes. `declarative()` wraps a declarative fragment so it can be composed with builder-written infra when you need an escape hatch. Builder code compiles to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
+Define infrastructure with nested `Infra` scopes, declarative fragments, or any mixture of the two. `defineInfra()` creates the root scope. `infra.infra()` creates child scopes. `declarative()` wraps a declarative fragment so it can participate in the same graph, outputs, refs, and provider instances as builder-written infra. All authoring styles compile to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
 
 ```typescript
 import {
@@ -114,8 +114,8 @@ const infra = defineInfra("prod", (infra) => {
 		});
 	});
 
-	// Declarative fragments are an escape hatch — useful for migration,
-	// generated input, or provider kinds that do not yet have typed helpers.
+	// Declarative fragments are first-class authoring units.
+	// They can live alongside builder-written infra in the same graph.
 	infra.use(
 		declarative("repositories", {
 			resources: [
@@ -222,7 +222,7 @@ type InfraIR = {
 };
 ```
 
-Nested `Infra` scopes, provider instances, builder-written resources, and declarative fragments all compile to the same `InfraIR`. Builder-written infra is the primary authoring path; declarative fragments are a compatibility layer. This is what makes the design serialisable and future-proof for cross-language frontends.
+Nested `Infra` scopes, provider instances, builder-written resources, and declarative fragments all compile to the same `InfraIR`. These are equivalent authoring forms over one canonical model. This is what makes the design serialisable and future-proof for cross-language frontends.
 
 ### 0. Build the dependency graph
 
@@ -431,9 +431,9 @@ const s3BucketPolicySpecSchema = z.object({
 });
 ```
 
-#### Declarative fragments as an escape hatch
+#### Mixing declarative and builder-written infra
 
-Builder-written infra is the default. Declarative fragments exist as an escape hatch when you need to migrate existing configs, ingest generated resources, or bridge unsupported provider shapes. They still compose cleanly with the builder layer:
+Builder-written infra and declarative fragments are equal participants in the same authoring model. Either style can create providers, resources, outputs, and refs that the other style consumes:
 
 ```typescript
 const infra = defineInfra("prod", (infra) => {
@@ -467,7 +467,7 @@ const infra = defineInfra("prod", (infra) => {
 });
 ```
 
-Both forms compile to the same `InfraIR`, so the engine only ever sees one canonical graph. The recommendation is still to prefer builder-written infra wherever possible and use declarative fragments sparingly.
+Both forms compile to the same `InfraIR`, so the engine only ever sees one canonical graph. Interoperability is symmetrical — builder code can consume declarative outputs, and declarative fragments can target provider instances and refs created in builder code.
 ### How the engine builds the DAG from handles
 
 Builder methods like `awsProd.s3Bucket(...)` return internal resource handles. These are not the canonical execution format — they are compilation artefacts the SDK uses before emitting `InfraIR`.
@@ -528,7 +528,7 @@ function buildDag(
 }
 ```
 
-Handles carry their dependency edges at construction time — the compiler does not need to walk builder specs with string matching. Declarative fragments use a fallback path that walks raw specs for ref tokens. That fallback exists for interoperability, not as the preferred authoring mode.
+Handles carry their dependency edges at construction time — the compiler does not need to walk builder specs with string matching. Declarative fragments use a raw-spec walk because their structure is data rather than live handles, but they remain first-class citizens in the compiled graph.
 
 ### Processing in topological order
 
@@ -658,7 +658,7 @@ graph TD
 
 ### Authoring model and `InfraIR`
 
-The public API is builder-first: nested `Infra` scopes, provider instances, typed resource handles, and outputs. Declarative fragments exist as an interoperability layer. The engine does not execute that object model directly. The builder compiles it into a flat, canonical intermediate representation:
+The public API is an authoring model with two equal forms: nested `Infra` scopes with provider instances and typed resource handles, and declarative fragments expressed as data. The engine does not execute either form directly. The compiler normalises both into a flat, canonical intermediate representation:
 
 ```typescript
 type InfraIR = {
@@ -673,7 +673,7 @@ This separation is deliberate:
 - **SDK ergonomics.** TypeScript users get a functional/OOP API with property-based refs (`bucket.ref.websiteEndpoint`) and nested composition (`infra.infra("platform", ...)`).
 - **Serialisability.** The engine only consumes data, not live objects, Proxies, or closures.
 - **Cross-language future.** Other frontends can target the same `InfraIR` without reimplementing engine semantics.
-- **Interoperability.** Declarative fragments can still target the same representation when you need migration or generated input support.
+- **Interoperability.** Functional/builder and declarative authoring compile to the same representation, so they can be mixed freely in one application.
 
 ### Zod as the Schema Backbone
 
@@ -1313,7 +1313,7 @@ Adapters live in `src/providers/<name>/` and are registered with the sync engine
 | **Vercel**     | Planned | [`@vercel/sdk`](https://www.npmjs.com/package/@vercel/sdk) — official type-safe TypeScript SDK (beta), v1.x, covers projects, domains, env vars, DNS, deployments          | `Project`, `Domain`, `EnvironmentVariable`                                                                                                                   |
 | **Supabase**   | Planned | [`supabase-management-js`](https://www.npmjs.com/package/supabase-management-js) — community-maintained under `supabase-community`, auto-generated from OpenAPI spec, v2.x | `Project`, `Database`, `AuthConfig`                                                                                                                          |
 
-Built-in providers may expose rich typed convenience methods such as `awsProd.s3Bucket(...)` or `cf.dnsRecord(...)`. This builder-first surface is the recommended user experience. Custom providers should assume only the generic baseline API: `provider.resource(kind, id, spec)`. Rich typed helpers for custom providers can be layered on later, but the generic form is the stable contract.
+Built-in providers may expose rich typed convenience methods such as `awsProd.s3Bucket(...)` or `cf.dnsRecord(...)`. Custom providers should assume only the generic baseline API: `provider.resource(kind, id, spec)`. Rich typed helpers for custom providers can be layered on later, but the generic form is the stable contract.
 
 ### Writing a Custom Provider
 
@@ -1544,7 +1544,7 @@ Trade-offs from the stateless design:
 src/
   authoring/
     infra.ts               # defineInfra(), nested Infra scopes, outputs, secret sources
-    declarative.ts         # Escape hatch: wrap declarative fragments as Infra scopes
+    declarative.ts         # Wrap declarative fragments as Infra scopes
     compiler.ts            # Compile builder/declarative scopes to InfraIR
     refs.ts                # Symbolic ref proxy surface, RefToken<T>, resolution metadata
     handles.ts             # Internal resource/provider handle types used during compilation
