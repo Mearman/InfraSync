@@ -6,6 +6,28 @@ InfraSync is a TypeScript package and CLI for managing cloud infrastructure with
 
 An alternative to Terraform for teams who want infrastructure-as-code without the operational overhead of state management, while keeping both programmable and declarative styles first-class.
 
+## Implementation Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| IR types | ✅ Done | `InfraIR`, `ProviderInstanceIR`, `ResourceIR`, `RefTokenIR`, `RefBindingIR`, `SecretSourceIR` |
+| Core abstractions | ✅ Done | `ProviderPort`, `ResourcePort`, `ProviderAdapter`, `defineProvider()` |
+| Ref system | ✅ Done | `RefToken<T>`, `refable()` (uses `z.xor()`), `RefBuilder<TRefs>` |
+| Authoring API | ✅ Done | `defineInfra()`, `InfraScope`, `ProviderHandle`, `ResourceHandle` |
+| Declarative fragments | ✅ Done | `declarative()` as first-class authoring unit |
+| Compiler (authoring → IR) | ✅ Done | `compileToIR()`, ref serialisation, secret resolution |
+| DAG builder | ✅ Done | Kahn's algorithm, DFS cycle detection, depth-level grouping |
+| Sync engine | ✅ Done | Plan/apply, ref resolution, deep equality, convergence checking |
+| Cloudflare provider | ✅ Done | DNS records, Access applications, Access policies, Identity providers, Pages custom domains |
+| Typed provider handle | ✅ Done | `createCloudflareHandle()` with typed convenience methods |
+| CLI | ✅ Done | `plan`, `apply`, `drift` commands with config file loading |
+| Build pipeline | ✅ Done | tsup with ESM + DTS, library and CLI entry points |
+| AWS provider | 🔲 Planned | — |
+| GCP provider | 🔲 Planned | — |
+| GitHub provider | 🔲 Planned | — |
+| Vercel provider | 🔲 Planned | — |
+| Supabase provider | 🔲 Planned | — |
+
 ## Why
 
 Terraform's state file is its greatest strength and its greatest liability. State drift, corrupted state, lock contention, and the operational burden of remote backends are problems that stem from one design decision: storing a separate representation of reality alongside reality itself. InfraSync discards that. The provider API is the state.
@@ -40,113 +62,66 @@ Define infrastructure with nested `Infra` scopes, declarative fragments, or any 
 ```typescript
 import {
 	defineInfra,
-	declarative,
-	aws,
-	cloudflare,
-	github,
+	cloudflare as cloudflareAdapter,
+	createCloudflareHandle,
 } from "infrasync";
 
 const infra = defineInfra("prod", (infra) => {
-	const awsProd = infra.provider("awsProd", aws, {
-		region: "eu-west-1",
-		credentials: {
-			accessKeyId: infra.secret.env("AWS_PROD_ACCESS_KEY_ID"),
-			secretAccessKey: infra.secret.env("AWS_PROD_SECRET_ACCESS_KEY"),
-		},
-	});
-
-	const awsStaging = infra.provider("awsStaging", aws, {
-		region: "us-east-1",
-		credentials: {
-			accessKeyId: infra.secret.env("AWS_STAGING_ACCESS_KEY_ID"),
-			secretAccessKey: infra.secret.env("AWS_STAGING_SECRET_ACCESS_KEY"),
-		},
-	});
-
-	const cf = infra.provider("cloudflare", cloudflare, {
+	const cfBase = infra.provider("cf", cloudflareAdapter, {
 		apiToken: infra.secret.env("CLOUDFLARE_API_TOKEN"),
+		accountId: infra.secret.env("CLOUDFLARE_ACCOUNT_ID"),
 	});
 
-	infra.provider("github", github, {
-		token: infra.secret.env("GITHUB_TOKEN"),
-	});
-
-	const platform = infra.infra("platform", () => {
-		const appBucket = awsProd.s3Bucket("appBucket", {
-			bucketName: "my-bucket",
-			region: "eu-west-2",
-			versioning: true,
-			publicAccessBlock: {
-				blockPublicAcls: true,
-				blockPublicPolicy: true,
-				ignorePublicAcls: true,
-				restrictPublicBuckets: true,
-			},
-		});
-
-		cf.dnsRecord("appDns", {
-			domain: "app.example.com",
-			type: "CNAME",
-			value: appBucket.ref.websiteEndpoint,
-			ttl: 300,
-			proxied: false,
-		});
-
-		return {
-			outputs: {
-				websiteEndpoint: appBucket.ref.websiteEndpoint,
-				bucketArn: appBucket.ref.arn,
-			},
-		};
-	});
-
-	infra.infra("data", () => {
-		awsProd.dynamodbTable("sessionsProd", {
-			billingMode: "PAY_PER_REQUEST",
-			hashKey: { name: "pk", type: "S" },
-			sortKey: { name: "sk", type: "S" },
-			pointInTimeRecovery: true,
-		});
-
-		awsStaging.dynamodbTable("sessionsStaging", {
-			billingMode: "PAY_PER_REQUEST",
-			hashKey: { name: "pk", type: "S" },
-			sortKey: { name: "sk", type: "S" },
-			pointInTimeRecovery: true,
-		});
-	});
-
-	// Declarative fragments are first-class authoring units.
-	// They can live alongside functionally authored infra in the same graph.
-	infra.use(
-		declarative("repositories", {
-			resources: [
-				{
-					provider: "github",
-					kind: "Repository",
-					name: "my-project",
-					visibility: "private",
-					defaultBranch: "main",
-					branchProtection: {
-						pattern: "main",
-						requireStatusChecks: ["ci", "lint"],
-						requirePullRequestReviews: true,
-					},
-				},
-			],
-		}),
+	// Typed handle — each method returns a ResourceHandle with typed refs
+	const cf = createCloudflareHandle(
+		cfBase.instanceKey,
+		cfBase.adapterName,
+		cfBase.register,
 	);
+
+	const dnsRecord = cf.dnsRecord("www", {
+		kind: "DnsRecord",
+		domain: "www.example.com",
+		type: "CNAME",
+		value: "target.example.com",
+		ttl: 300,
+		proxied: true,
+	});
+
+	const idp = cf.identityProvider("google", {
+		kind: "IdentityProvider",
+		name: "Google Workspace",
+		type: "google-apps",
+		config: { client_id: "xxx", client_secret: "yyy" },
+	});
+
+	const app = cf.accessApplication("app", {
+		kind: "AccessApplication",
+		domain: "app.example.com",
+		name: "My App",
+		sessionDuration: "24h",
+		autoRedirectToIdentity: true,
+	});
+
+	// At authoring time, app.ref.id is a RefToken<string>.
+	// After IR compilation, the engine resolves it to the actual application ID.
+	cf.accessPolicy("appPolicy", {
+		kind: "AccessPolicy",
+		applicationId: app.ref.id as unknown as string, // TODO: spec should accept RefToken via refable()
+		name: "Allow Team",
+		decision: "allow",
+		include: [{ email: { domain: "example.com" } }],
+	});
 
 	return {
 		outputs: {
-			websiteEndpoint: platform.outputs.websiteEndpoint,
+			recordName: dnsRecord.ref.name,
 		},
 	};
 });
 
-const plan = await infra.plan();
-const result = await infra.apply();
-const ir = infra.toIR(); // serialisable InfraIR
+// Compile to IR for inspection or serialisation
+const ir = infra.toIR();
 ```
 
 ### CLI
