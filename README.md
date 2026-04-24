@@ -31,11 +31,11 @@ pnpm add infrasync
 
 ## Authoring API
 
-InfraSync exposes one authoring model with two equal forms: functional builder code with nested `Infra` scopes, and declarative fragments expressed as data. Both are first-class, both are fully interoperable, and both compile to the same `InfraIR`.
+InfraSync exposes one authoring model with two equal forms: functional authoring with nested `Infra` scopes, and declarative authoring with fragments expressed as data. Both are first-class, both are fully interoperable, and both compile to the same `InfraIR`.
 
 ### Functional and Declarative Authoring
 
-Define infrastructure with nested `Infra` scopes, declarative fragments, or any mixture of the two. `defineInfra()` creates the root scope. `infra.infra()` creates child scopes. `declarative()` wraps a declarative fragment so it can participate in the same graph, outputs, refs, and provider instances as builder-written infra. All authoring styles compile to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
+Define infrastructure with nested `Infra` scopes, declarative fragments, or any mixture of the two. `defineInfra()` creates the root scope. `infra.infra()` creates child scopes. `declarative()` wraps a declarative fragment so it can participate in the same graph, outputs, refs, and provider instances as functionally authored infra. All authoring styles compile to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
 
 ```typescript
 import {
@@ -117,7 +117,7 @@ const infra = defineInfra("prod", (infra) => {
 	});
 
 	// Declarative fragments are first-class authoring units.
-	// They can live alongside builder-written infra in the same graph.
+	// They can live alongside functionally authored infra in the same graph.
 	infra.use(
 		declarative("repositories", {
 			resources: [
@@ -173,7 +173,7 @@ InfraSync operates in four phases. First the authoring API compiles nested `Infr
 
 Providers are first-class builder objects created inside an `Infra` scope. Each instance configures one independent adapter with its own credentials and SDK client.
 
-In the builder API this README uses **camelCase ids** for provider instances, child infra scopes, and resources (`awsProd`, `platform`, `appBucket`). The IR itself is just data, so other frontends may choose different naming conventions, but the TypeScript surface should read like TypeScript.
+In the functional authoring API this README uses **camelCase ids** for provider instances, child infra scopes, and resources (`awsProd`, `platform`, `appBucket`). The IR itself is just data, so other frontends may choose different naming conventions, but the TypeScript surface should read like TypeScript.
 
 
 ```typescript
@@ -224,7 +224,7 @@ type InfraIR = {
 };
 ```
 
-Nested `Infra` scopes, provider instances, builder-written resources, and declarative fragments all compile to the same `InfraIR`. These are equivalent authoring forms over one canonical model. This is what makes the design serialisable and future-proof for cross-language frontends.
+Nested `Infra` scopes, provider instances, functionally authored resources, and declarative fragments all compile to the same `InfraIR`. These are equivalent authoring forms over one canonical model. This is what makes the design serialisable and future-proof for cross-language frontends.
 
 ### Execution engine: build the dependency graph
 
@@ -256,7 +256,7 @@ The plan is executed in topological order. Each create or update is applied, and
 
 ### Resource Model
 
-The builder API is nested and object-oriented, but the canonical model is flat. After compilation each resource in `InfraIR` has a **mode** that controls whether the engine manages it or just reads it:
+The functional authoring API is nested and object-oriented, but the canonical model is flat. After compilation each resource in `InfraIR` has a **mode** that controls whether the engine manages it or just reads it:
 
 | Mode                 | Behaviour                                                                                        |
 | -------------------- | ------------------------------------------------------------------------------------------------ |
@@ -433,9 +433,9 @@ const s3BucketPolicySpecSchema = z.object({
 });
 ```
 
-#### Mixing declarative and builder-written infra
+#### Mixing declarative and functional authoring
 
-Builder-written infra and declarative fragments are equal participants in the same authoring model. Either style can create providers, resources, outputs, and refs that the other style consumes:
+Functionally authored infra and declarative fragments are equal participants in the same authoring model. Either style can create providers, resources, outputs, and refs that the other style consumes:
 
 ```typescript
 const infra = defineInfra("prod", (infra) => {
@@ -469,7 +469,7 @@ const infra = defineInfra("prod", (infra) => {
 });
 ```
 
-Both forms compile to the same `InfraIR`, so the engine only ever sees one canonical graph. Interoperability is symmetrical — builder code can consume declarative outputs, and declarative fragments can target provider instances and refs created in builder code.
+Both forms compile to the same `InfraIR`, so the engine only ever sees one canonical graph. Interoperability is symmetrical — functional authoring can consume declarative outputs, and declarative fragments can target provider instances and refs created in functionally authored infra.
 #### How the compiler and engine build the DAG from handles
 
 Builder methods like `awsProd.s3Bucket(...)` return internal resource handles. These are not the canonical execution format — they are compilation artefacts the SDK uses before emitting `InfraIR`.
@@ -530,7 +530,7 @@ function buildDag(
 }
 ```
 
-Handles carry their dependency edges at construction time — the compiler does not need to walk builder specs with string matching. Declarative fragments use a raw-spec walk because their structure is data rather than live handles, but they remain first-class citizens in the compiled graph.
+Handles carry their dependency edges at construction time — the compiler does not need to walk functionally authored specs with string matching. Declarative fragments use a raw-spec walk because their structure is data rather than live handles, but they remain first-class citizens in the compiled graph.
 
 #### Processing in topological order
 
@@ -672,10 +672,10 @@ type InfraIR = {
 
 This separation is deliberate:
 
-- **SDK ergonomics.** TypeScript users get a functional/OOP API with property-based refs (`bucket.ref.websiteEndpoint`) and nested composition (`infra.infra("platform", ...)`).
+- **SDK ergonomics.** TypeScript users get a functional authoring API with property-based refs (`bucket.ref.websiteEndpoint`) and nested composition (`infra.infra("platform", ...)`).
 - **Serialisability.** The engine only consumes data, not live objects, Proxies, or closures.
 - **Cross-language future.** Other frontends can target the same `InfraIR` without reimplementing engine semantics.
-- **Interoperability.** Functional/builder and declarative authoring compile to the same representation, so they can be mixed freely in one application.
+- **Interoperability.** Functional and declarative authoring compile to the same representation, so they can be mixed freely in one application.
 
 ### Zod as the Schema Backbone
 
@@ -1319,7 +1319,7 @@ Built-in providers may expose rich typed convenience methods such as `awsProd.s3
 
 ### Writing a Custom Provider
 
-Any team can write a provider adapter for an internal platform or a service not yet supported. You define Zod schemas for your config, spec, and state types, implement the two ports, then pass the adapter object to `infra.provider(...)`. The builder API can immediately use the generic `provider.resource(kind, id, spec)` form.
+Any team can write a provider adapter for an internal platform or a service not yet supported. You define Zod schemas for your config, spec, and state types, implement the two ports, then pass the adapter object to `infra.provider(...)`. The functional authoring API can immediately use the generic `provider.resource(kind, id, spec)` form.
 
 #### 1. Define Zod schemas for config, spec, and state
 
@@ -1509,7 +1509,7 @@ If any safeParse fails, the engine produces structured errors with exact field p
   - [ ] `resourceHandler()` — route kind string to the correct `ResourcePort`
 - [ ] Handle provider-specific concerns: pagination, rate limiting, error mapping
 - [ ] Register the provider by passing the adapter object to `infra.provider("instanceId", adapter, config)`
-- [ ] Use `provider.resource(kind, id, spec)` as the baseline builder API for custom providers; typed convenience methods are optional sugar
+- [ ] Use `provider.resource(kind, id, spec)` as the baseline functional authoring API for custom providers; typed convenience methods are optional sugar
 
 ## Comparison with Terraform
 
@@ -1537,7 +1537,7 @@ Trade-offs from the stateless design:
 - **No resource deletion.** Without state, InfraSync cannot know whether a resource was previously managed and should be removed. It only creates and updates. Deletion is a deliberate operation outside its scope — this is a safety feature, not a bug.
 - **API-dependent identity matching.** Resources are matched by identity fields (name, domain, type), not by provider-assigned IDs. If a provider's API cannot reliably list and filter by these fields, matching may be ambiguous.
 - **Rate limits.** Every run queries provider APIs to read current state. For large infrastructures, this may hit rate limits. Terraform avoids this by reading from local state.
-- **No cycles.** The dependency graph must be acyclic. If symbolic refs and `dependsOn` form a cycle, the engine fails at DAG-build time with the cycle path. This is inherent to the declarative graph model underneath the builder API — cycles mean there is no valid processing order.
+- **No cycles.** The dependency graph must be acyclic. If symbolic refs and `dependsOn` form a cycle, the engine fails at DAG-build time with the cycle path. This is inherent to the declarative graph model underneath both authoring forms — cycles mean there is no valid processing order.
 - **Ref paths must be known statically.** The `.ref` surface is derived from the state schema, so only statically known properties are addressable. Dynamic path computation is not supported. This constraint enables compile-time validation and serialisable `RefToken` emission.
 
 ## Project Structure
