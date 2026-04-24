@@ -19,6 +19,7 @@ The pattern emerged from a real project — a script that configured Cloudflare 
 - **Deterministic.** Given the same desired configuration and the same current state, the same plan is produced every time.
 - **TypeScript-native.** Infrastructure is defined with full type safety. No HCL, no DSL, no template strings. Intellisense, refactoring, and type checking all work. Zod schemas are the single source of truth for every type — runtime validation and static types are always in sync.
 - **Programmable first, CLI second.** The core is a library. The CLI is a thin wrapper that loads an infra file and invokes the programmatic API.
+- **Builder-first authoring.** The primary authoring model is nested `Infra` scopes with provider instances and typed resource handles. Declarative fragments are supported as an escape hatch for migration, generated input, and interoperability — not as the main API.
 - **Serialisable core.** Authoring code compiles to `InfraIR`, a canonical intermediate representation the engine can execute independent of the language frontend.
 - **Provider-agnostic.** The sync engine knows nothing about Cloudflare, AWS, or GCP. Providers are adapters that implement a uniform interface over provider-specific APIs.
 
@@ -32,7 +33,7 @@ pnpm add infrasync
 
 ### Programmatic API
 
-Define infrastructure with nested `Infra` scopes. `defineInfra()` creates the root scope. `infra.infra()` creates child scopes. `declarative()` wraps a declarative fragment so it can be composed with builder-written infra. Builder code compiles to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
+Define infrastructure with nested `Infra` scopes. This is the recommended authoring style. `defineInfra()` creates the root scope. `infra.infra()` creates child scopes. `declarative()` wraps a declarative fragment so it can be composed with builder-written infra when you need an escape hatch. Builder code compiles to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
 
 ```typescript
 import {
@@ -113,7 +114,8 @@ const infra = defineInfra("prod", (infra) => {
 		});
 	});
 
-	// Declarative fragments can live alongside builder-written infra.
+	// Declarative fragments are an escape hatch — useful for migration,
+	// generated input, or provider kinds that do not yet have typed helpers.
 	infra.use(
 		declarative("repositories", {
 			resources: [
@@ -220,7 +222,7 @@ type InfraIR = {
 };
 ```
 
-Nested `Infra` scopes, provider instances, builder-written resources, and declarative fragments all compile to the same `InfraIR`. This is what makes the design serialisable and future-proof for cross-language frontends.
+Nested `Infra` scopes, provider instances, builder-written resources, and declarative fragments all compile to the same `InfraIR`. Builder-written infra is the primary authoring path; declarative fragments are a compatibility layer. This is what makes the design serialisable and future-proof for cross-language frontends.
 
 ### 0. Build the dependency graph
 
@@ -429,9 +431,9 @@ const s3BucketPolicySpecSchema = z.object({
 });
 ```
 
-#### Mixing declarative and builder-written infra
+#### Declarative fragments as an escape hatch
 
-Nested `Infra` scopes let you mix styles in the same application. Builder-written resources can reference outputs from declarative fragments, and declarative fragments can target provider instances created in the builder layer:
+Builder-written infra is the default. Declarative fragments exist as an escape hatch when you need to migrate existing configs, ingest generated resources, or bridge unsupported provider shapes. They still compose cleanly with the builder layer:
 
 ```typescript
 const infra = defineInfra("prod", (infra) => {
@@ -465,7 +467,7 @@ const infra = defineInfra("prod", (infra) => {
 });
 ```
 
-Both styles compile to the same `InfraIR`, so the engine only ever sees one canonical graph.
+Both forms compile to the same `InfraIR`, so the engine only ever sees one canonical graph. The recommendation is still to prefer builder-written infra wherever possible and use declarative fragments sparingly.
 ### How the engine builds the DAG from handles
 
 Builder methods like `awsProd.s3Bucket(...)` return internal resource handles. These are not the canonical execution format — they are compilation artefacts the SDK uses before emitting `InfraIR`.
@@ -526,7 +528,7 @@ function buildDag(
 }
 ```
 
-Handles carry their dependency edges at construction time — the compiler does not need to walk builder specs with string matching. For declarative fragments, it falls back to walking raw specs for ref tokens.
+Handles carry their dependency edges at construction time — the compiler does not need to walk builder specs with string matching. Declarative fragments use a fallback path that walks raw specs for ref tokens. That fallback exists for interoperability, not as the preferred authoring mode.
 
 ### Processing in topological order
 
@@ -616,9 +618,9 @@ for (const level of levels) {
 
 This gives you Terraform-style parallelism for free — the DAG tells you exactly which resources can safely run concurrently.
 
-### Declaring the graph declaratively
+### Declarative graph semantics under the builder API
 
-The DAG is **implicit** — you don't declare edges explicitly (though `dependsOn` is available for cases that need it). The graph emerges from the data flow:
+Even though the public authoring API is builder-first, the graph semantics remain declarative. You do not declare edges explicitly (though `dependsOn` is available for cases that need it). The graph emerges from the data flow:
 
 1. Every symbolic ref is an edge: `target → this resource`.
 2. Every entry in `dependsOn` is an edge: `dep → this resource`.
@@ -656,7 +658,7 @@ graph TD
 
 ### Authoring model and `InfraIR`
 
-The public API is a builder: nested `Infra` scopes, provider instances, typed resource handles, declarative fragments, and outputs. The engine does not execute that object model directly. The builder compiles it into a flat, canonical intermediate representation:
+The public API is builder-first: nested `Infra` scopes, provider instances, typed resource handles, and outputs. Declarative fragments exist as an interoperability layer. The engine does not execute that object model directly. The builder compiles it into a flat, canonical intermediate representation:
 
 ```typescript
 type InfraIR = {
@@ -671,7 +673,7 @@ This separation is deliberate:
 - **SDK ergonomics.** TypeScript users get a functional/OOP API with property-based refs (`bucket.ref.websiteEndpoint`) and nested composition (`infra.infra("platform", ...)`).
 - **Serialisability.** The engine only consumes data, not live objects, Proxies, or closures.
 - **Cross-language future.** Other frontends can target the same `InfraIR` without reimplementing engine semantics.
-- **Mixed authoring styles.** Builder-written infra and declarative fragments both compile to the same representation.
+- **Interoperability.** Declarative fragments can still target the same representation when you need migration or generated input support.
 
 ### Zod as the Schema Backbone
 
@@ -1311,7 +1313,7 @@ Adapters live in `src/providers/<name>/` and are registered with the sync engine
 | **Vercel**     | Planned | [`@vercel/sdk`](https://www.npmjs.com/package/@vercel/sdk) — official type-safe TypeScript SDK (beta), v1.x, covers projects, domains, env vars, DNS, deployments          | `Project`, `Domain`, `EnvironmentVariable`                                                                                                                   |
 | **Supabase**   | Planned | [`supabase-management-js`](https://www.npmjs.com/package/supabase-management-js) — community-maintained under `supabase-community`, auto-generated from OpenAPI spec, v2.x | `Project`, `Database`, `AuthConfig`                                                                                                                          |
 
-Built-in providers may expose rich typed convenience methods such as `awsProd.s3Bucket(...)` or `cf.dnsRecord(...)`. Custom providers should assume only the generic baseline API: `provider.resource(kind, id, spec)`. Rich typed helpers for custom providers can be layered on later, but the generic form is the stable contract.
+Built-in providers may expose rich typed convenience methods such as `awsProd.s3Bucket(...)` or `cf.dnsRecord(...)`. This builder-first surface is the recommended user experience. Custom providers should assume only the generic baseline API: `provider.resource(kind, id, spec)`. Rich typed helpers for custom providers can be layered on later, but the generic form is the stable contract.
 
 ### Writing a Custom Provider
 
@@ -1533,7 +1535,7 @@ Trade-offs from the stateless design:
 - **No resource deletion.** Without state, InfraSync cannot know whether a resource was previously managed and should be removed. It only creates and updates. Deletion is a deliberate operation outside its scope — this is a safety feature, not a bug.
 - **API-dependent identity matching.** Resources are matched by identity fields (name, domain, type), not by provider-assigned IDs. If a provider's API cannot reliably list and filter by these fields, matching may be ambiguous.
 - **Rate limits.** Every run queries provider APIs to read current state. For large infrastructures, this may hit rate limits. Terraform avoids this by reading from local state.
-- **No cycles.** The dependency graph must be acyclic. If symbolic refs and `dependsOn` form a cycle, the engine fails at DAG-build time with the cycle path. This is inherent to any declarative DAG — cycles mean there is no valid processing order.
+- **No cycles.** The dependency graph must be acyclic. If symbolic refs and `dependsOn` form a cycle, the engine fails at DAG-build time with the cycle path. This is inherent to the declarative graph model underneath the builder API — cycles mean there is no valid processing order.
 - **Ref paths must be known statically.** The `.ref` surface is derived from the state schema, so only statically known properties are addressable. Dynamic path computation is not supported. This constraint enables compile-time validation and serialisable `RefToken` emission.
 
 ## Project Structure
@@ -1542,7 +1544,7 @@ Trade-offs from the stateless design:
 src/
   authoring/
     infra.ts               # defineInfra(), nested Infra scopes, outputs, secret sources
-    declarative.ts         # Wrap declarative fragments as Infra scopes
+    declarative.ts         # Escape hatch: wrap declarative fragments as Infra scopes
     compiler.ts            # Compile builder/declarative scopes to InfraIR
     refs.ts                # Symbolic ref proxy surface, RefToken<T>, resolution metadata
     handles.ts             # Internal resource/provider handle types used during compilation
