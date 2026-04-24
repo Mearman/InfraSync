@@ -19,8 +19,8 @@ The pattern emerged from a real project — a script that configured Cloudflare 
 - **Deterministic.** Given the same desired configuration and the same current state, the same plan is produced every time.
 - **TypeScript-native.** Infrastructure is defined with full type safety. No HCL, no DSL, no template strings. Intellisense, refactoring, and type checking all work. Zod schemas are the single source of truth for every type — runtime validation and static types are always in sync.
 - **Programmable first, CLI second.** The core is a library. The CLI is a thin wrapper that loads an infra file and invokes the programmatic API.
-- **Equal authoring styles.** Infra can be authored functionally with nested `Infra` scopes and typed resource handles, declaratively with resource objects, or as a mixture of both. These styles are first-class peers and fully interoperable.
-- **Serialisable core.** Authoring code compiles to `InfraIR`, a canonical intermediate representation the engine can execute independent of the language frontend.
+- **Equal authoring styles.** Infra can be authored functionally, declaratively, or as a mixture of both. These styles are first-class peers and fully interoperable.
+- **Serialisable core.** All authoring compiles to `InfraIR`, a canonical intermediate representation the engine executes independent of the language frontend.
 - **Provider-agnostic.** The sync engine knows nothing about Cloudflare, AWS, or GCP. Providers are adapters that implement a uniform interface over provider-specific APIs.
 
 ## Installation
@@ -31,11 +31,11 @@ pnpm add infrasync
 
 ## Authoring API
 
-InfraSync exposes one authoring model with two equal forms: functional authoring with nested `Infra` scopes, and declarative authoring with fragments expressed as data. Both are first-class, both are fully interoperable, and both compile to the same `InfraIR`.
+InfraSync exposes one authoring model with two equal forms: functional authoring with nested `Infra` scopes, and declarative authoring with fragments expressed as data.
 
 ### Functional and Declarative Authoring
 
-Define infrastructure with nested `Infra` scopes, declarative fragments, or any mixture of the two. `defineInfra()` creates the root scope. `infra.infra()` creates child scopes. `declarative()` wraps a declarative fragment so it can participate in the same graph, outputs, refs, and provider instances as functionally authored infra. All authoring styles compile to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
+Define infrastructure with nested `Infra` scopes, declarative fragments, or any mixture of the two. `defineInfra()` creates the root scope. `infra.infra()` creates child scopes. `declarative()` wraps a declarative fragment so it can participate in the same graph, outputs, refs, and provider instances as functionally authored infra.
 
 ```typescript
 import {
@@ -167,11 +167,11 @@ npx infrasync apply --ir infra.ir.json
 
 ## Compilation and Execution
 
-InfraSync operates in four phases. First the authoring API compiles nested `Infra` scopes and declarative fragments into a flat, serialisable `InfraIR`. Then the execution engine reads current state, plans changes, and applies them. Every resource goes through the read phase. Only resources in `"manage"` mode proceed to plan and apply.
+InfraSync operates in four phases. First the authoring API compiles nested `Infra` scopes and declarative fragments into `InfraIR`. Then the execution engine reads current state, plans changes, and applies them. Every resource goes through the read phase. Only resources in `"manage"` mode proceed to plan and apply.
 
 ### Authoring-time provider instances
 
-Providers are first-class builder objects created inside an `Infra` scope. Each instance configures one independent adapter with its own credentials and SDK client.
+Providers are first-class authoring objects created inside an `Infra` scope. Each instance configures one independent adapter with its own credentials and SDK client.
 
 In the functional authoring API this README uses **camelCase ids** for provider instances, child infra scopes, and resources (`awsProd`, `platform`, `appBucket`). The IR itself is just data, so other frontends may choose different naming conventions, but the TypeScript surface should read like TypeScript.
 
@@ -224,7 +224,7 @@ type InfraIR = {
 };
 ```
 
-Nested `Infra` scopes, provider instances, functionally authored resources, and declarative fragments all compile to the same `InfraIR`. These are equivalent authoring forms over one canonical model. This is what makes the design serialisable and future-proof for cross-language frontends.
+Nested `Infra` scopes, provider instances, functionally authored resources, and declarative fragments all compile to the same `InfraIR`. That shared target is what makes the design serialisable and future-proof for cross-language frontends.
 
 ### Execution engine: build the dependency graph
 
@@ -305,7 +305,7 @@ Edges in the DAG come from two sources:
 | Edge source     | Authoring syntax                                              | Creates attribute binding?                   |
 | --------------- | ------------------------------------------------------------- | -------------------------------------------- |
 | **Symbolic ref**| `resource.ref.path` inside any spec field                     | Yes — the resolved value flows into the spec |
-| **`dependsOn`** | `dependsOn: [otherResource]` or an equivalent builder helper  | No — ordering only, no attribute binding     |
+| **`dependsOn`** | `dependsOn: [otherResource]` or an equivalent authoring helper | No — ordering only, no attribute binding     |
 
 A symbolic ref creates both a dependency edge and an attribute binding. `dependsOn` creates only an edge — useful when there is no attribute reference but the provider API still requires ordering.
 
@@ -469,7 +469,7 @@ const infra = defineInfra("prod", (infra) => {
 });
 ```
 
-Both forms compile to the same `InfraIR`, so the engine only ever sees one canonical graph. Interoperability is symmetrical — functional authoring can consume declarative outputs, and declarative fragments can target provider instances and refs created in functionally authored infra.
+Interoperability is symmetrical — functional authoring can consume declarative outputs, and declarative fragments can target provider instances and refs created in functionally authored infra.
 #### How the compiler and engine build the DAG from handles
 
 Builder methods like `awsProd.s3Bucket(...)` return internal resource handles. These are not the canonical execution format — they are compilation artefacts the SDK uses before emitting `InfraIR`.
@@ -660,7 +660,7 @@ graph TD
 
 ### Why the engine consumes `InfraIR`
 
-The public API is an authoring model with two equal forms: nested `Infra` scopes with provider instances and typed resource handles, and declarative fragments expressed as data. The engine does not execute either form directly. The compiler normalises both into a flat, canonical intermediate representation:
+The engine does not execute either authoring form directly. The compiler normalises both into a flat, canonical intermediate representation:
 
 ```typescript
 type InfraIR = {
@@ -672,10 +672,10 @@ type InfraIR = {
 
 This separation is deliberate:
 
-- **SDK ergonomics.** TypeScript users get a functional authoring API with property-based refs (`bucket.ref.websiteEndpoint`) and nested composition (`infra.infra("platform", ...)`).
+- **SDK ergonomics.** TypeScript users get nested composition and property-based refs (`bucket.ref.websiteEndpoint`).
 - **Serialisability.** The engine only consumes data, not live objects, Proxies, or closures.
 - **Cross-language future.** Other frontends can target the same `InfraIR` without reimplementing engine semantics.
-- **Interoperability.** Functional and declarative authoring compile to the same representation, so they can be mixed freely in one application.
+- **Interoperability.** Functional and declarative authoring remain interchangeable because they compile to the same representation.
 
 ### Zod as the Schema Backbone
 
@@ -1547,7 +1547,7 @@ src/
   authoring/
     infra.ts               # defineInfra(), nested Infra scopes, outputs, secret sources
     declarative.ts         # Wrap declarative fragments as Infra scopes
-    compiler.ts            # Compile builder/declarative scopes to InfraIR
+    compiler.ts            # Compile functional/declarative scopes to InfraIR
     refs.ts                # Symbolic ref proxy surface, RefToken<T>, resolution metadata
     handles.ts             # Internal resource/provider handle types used during compilation
   ir/
