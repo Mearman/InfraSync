@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [
+    "commitlint.config.ts",
+    "eslint.config.ts",
+    "lint-staged.config.ts",
+    "types",
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": ["dist", "node_modules"]
+}
