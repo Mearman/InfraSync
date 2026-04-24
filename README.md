@@ -32,7 +32,7 @@ pnpm add infrasync
 
 ### Programmatic API
 
-Define infrastructure with nested `Infra` scopes. Builder code compiles to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
+Define infrastructure with nested `Infra` scopes. `defineInfra()` creates the root scope. `infra.infra()` creates child scopes. `declarative()` wraps a declarative fragment so it can be composed with builder-written infra. Builder code compiles to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
 
 ```typescript
 import {
@@ -167,7 +167,10 @@ InfraSync operates in four phases. First the authoring API compiles nested `Infr
 
 ### Provider instances
 
-Providers are first-class builder objects created inside an `Infra` scope. Each instance configures one independent adapter with its own credentials and SDK client:
+Providers are first-class builder objects created inside an `Infra` scope. Each instance configures one independent adapter with its own credentials and SDK client.
+
+In the builder API this README uses **camelCase ids** for provider instances, child infra scopes, and resources (`awsProd`, `platform`, `appBucket`). The IR itself is just data, so other frontends may choose different naming conventions, but the TypeScript surface should read like TypeScript.
+
 
 ```typescript
 const awsProd = infra.provider("awsProd", aws, {
@@ -263,7 +266,7 @@ Each compiled `ResourceIR` has:
 | Property             | Description                                                                                                                      |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `name`               | Unique identifier within the configuration. Used as the DAG node key and as the target for symbolic refs.                         |
-| `provider`           | Which provider **instance** to route this resource to (e.g. `"aws-prod"`, `"cf-company"`, `"github"`)                          |
+| `provider`           | Which provider **instance** to route this resource to (e.g. `"awsProd"`, `"cfCompany"`, `"github"`)                             |
 | `kind`               | The resource type within that provider (e.g. `DnsRecord`, `S3Bucket`, `Repository`)                                              |
 | `mode`               | `"manage"` (default) or `"read"`                                                                                                 |
 | `dependsOn`          | Optional explicit dependency edges — resources that must be processed before this one, even if no symbolic ref connects them.    |
@@ -473,7 +476,7 @@ Builder methods like `awsProd.s3Bucket(...)` return internal resource handles. T
 interface ResourceHandle<TSpec, TState> {
 	/** Unique name — the DAG node key */
 	readonly name: string;
-	/** Provider instance key (e.g. "aws-prod", "cf-company") */
+	/** Provider instance key (e.g. "awsProd", "cfCompany") */
 	readonly provider: string;
 	readonly kind: string;
 	readonly mode: "manage" | "read";
@@ -774,7 +777,7 @@ interface ProviderPort<TConfig extends ZodType> {
 }
 ```
 
-The engine creates one `ProviderPort` instance per entry in the `providers` map. Each instance calls `configSchema.safeParse(rawConfig)` before `connect()`. If validation fails, all issues are collected and reported before any API calls are made — the adapter never receives invalid config. Multiple entries with the same adapter type (e.g. `"aws-prod"` and `"aws-staging"`) each get independent adapter instances with separate SDK clients.
+The engine creates one `ProviderPort` instance per provider instance entry in `InfraIR`. Each instance calls `configSchema.safeParse(rawConfig)` before `connect()`. If validation fails, all issues are collected and reported before any API calls are made — the adapter never receives invalid config. Multiple entries with the same adapter type (e.g. `"awsProd"` and `"awsStaging"`) each get independent adapter instances with separate SDK clients.
 
 #### `ResourcePort` — the resource-level interface
 
@@ -872,7 +875,7 @@ async read(spec: ServiceSpec): Promise<ServiceState | undefined> {
 	const result = apiResponseSchema.safeParse(raw);
 	if (!result.success) {
 		// API contract violation — structured error with field paths
-		throw new ProviderApiError("internal-platform", "read", result.error.issues);
+		throw new ProviderApiError("internalPlatform", "read", result.error.issues);
 	}
 	const data = result.data; // fully typed, coerced, extra fields available
 
@@ -1278,7 +1281,7 @@ The engine decodes each spec through the target provider's codec before calling 
 | Without codecs                                                                        | With codecs                                                                    |
 | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Each provider defines its own spec schema — different field names, different shapes   | One normalised spec schema per resource kind, shared across all providers      |
-| Switching providers means rewriting resource specs                                    | Change `provider: "cloudflare"` to `provider: "aws-prod"` — the spec stays the same |
+| Switching providers means rewriting resource specs                                    | Change `provider: "cloudflare"` to `provider: "awsProd"` — the spec stays the same |
 | Convergence checking must handle provider-specific shapes                             | Engine compares normalised state, so convergence logic is provider-agnostic    |
 | Provider-specific quirks (trailing dots, different enum values) leak into user config | Codecs absorb quirks — user writes clean, normalised values                    |
 
@@ -1308,9 +1311,11 @@ Adapters live in `src/providers/<name>/` and are registered with the sync engine
 | **Vercel**     | Planned | [`@vercel/sdk`](https://www.npmjs.com/package/@vercel/sdk) — official type-safe TypeScript SDK (beta), v1.x, covers projects, domains, env vars, DNS, deployments          | `Project`, `Domain`, `EnvironmentVariable`                                                                                                                   |
 | **Supabase**   | Planned | [`supabase-management-js`](https://www.npmjs.com/package/supabase-management-js) — community-maintained under `supabase-community`, auto-generated from OpenAPI spec, v2.x | `Project`, `Database`, `AuthConfig`                                                                                                                          |
 
+Built-in providers may expose rich typed convenience methods such as `awsProd.s3Bucket(...)` or `cf.dnsRecord(...)`. Custom providers should assume only the generic baseline API: `provider.resource(kind, id, spec)`. Rich typed helpers for custom providers can be layered on later, but the generic form is the stable contract.
+
 ### Writing a Custom Provider
 
-Any team can write a provider adapter for an internal platform or a service not yet supported. You define Zod schemas for your config, spec, and state types, implement the two ports, and register the adapter in your configuration.
+Any team can write a provider adapter for an internal platform or a service not yet supported. You define Zod schemas for your config, spec, and state types, implement the two ports, then pass the adapter object to `infra.provider(...)`. The builder API can immediately use the generic `provider.resource(kind, id, spec)` form.
 
 #### 1. Define Zod schemas for config, spec, and state
 
@@ -1423,7 +1428,7 @@ import { ServiceResource } from "./service-resource";
 import { InternalPlatformClient } from "./client";
 
 export const internalPlatformProvider = defineProvider<typeof configSchema>({
-	name: "internal-platform",
+	name: "internalPlatform",
 	configSchema,
 
 	client: undefined as InternalPlatformClient | undefined,
@@ -1471,7 +1476,7 @@ const infra = defineInfra("internal", (infra) => {
 
 At runtime, the engine:
 
-1. `safeParse()`s the raw config through `configSchema` before calling `connect()`. Each provider instance gets its own adapter and client — `"aws-prod"` and `"aws-staging"` each receive independent SDK clients with separate credentials. All issues are collected across all resources before reporting.
+1. `safeParse()`s the raw config through `configSchema` before calling `connect()`. Each provider instance gets its own adapter and client — `"awsProd"` and `"awsStaging"` each receive independent SDK clients with separate credentials. All issues are collected across all resources before reporting.
 2. `safeParse()`s each resource through `specSchema` before calling `read()`, `create()`, or `update()`. Refinements and defaults are applied.
 3. `safeParse()`s each API response through `stateSchema`. Extra fields pass through (loose), values are coerced (string → number), the result is branded and frozen.
 4. Compares `desiredStateSchema.parse(spec)` against `desiredStateSchema.parse(state)` for convergence.
@@ -1499,7 +1504,8 @@ If any safeParse fails, the engine produces structured errors with exact field p
   - [ ] `supportedKinds()` — list resource kind strings
   - [ ] `resourceHandler()` — route kind string to the correct `ResourcePort`
 - [ ] Handle provider-specific concerns: pagination, rate limiting, error mapping
-- [ ] Register via `customProviders` in the sync configuration
+- [ ] Register the provider by passing the adapter object to `infra.provider("instanceId", adapter, config)`
+- [ ] Use `provider.resource(kind, id, spec)` as the baseline builder API for custom providers; typed convenience methods are optional sugar
 
 ## Comparison with Terraform
 
