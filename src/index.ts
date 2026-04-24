@@ -86,6 +86,11 @@ export {
   cloudflareConfigSchema,
   cloudflare,
 } from "./providers/cloudflare/index.js";
+export { createCloudflareHandle } from "./providers/cloudflare/handle.js";
+export type {
+  CloudflareProviderHandle,
+  ResourceRegistrar,
+} from "./providers/cloudflare/handle.js";
 export type { CloudflareConfig } from "./providers/cloudflare/index.js";
 export { buildDnsRecordRefs } from "./providers/cloudflare/dns-record.js";
 export type { DnsRecordRefs } from "./providers/cloudflare/dns-record.js";

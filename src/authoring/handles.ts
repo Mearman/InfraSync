@@ -231,6 +231,17 @@ export interface ProviderHandle {
   readonly adapterName: string;
 
   /**
+   * Register a resource handle with the authoring scope.
+   * Used by typed provider handle wrappers (e.g. `createCloudflareHandle`)
+   * to register typed resources without going through the generic `resource()` method.
+   */
+  /**
+   * Register a resource handle with the authoring scope.
+   * Used by typed provider handle wrappers (e.g. `createCloudflareHandle`)
+   * to register typed resources without going through the generic `resource()` method.
+   */
+  readonly register: (handle: ResourceHandle<unknown, unknown>) => void;
+  /**
    * Create a resource on this provider instance with generic refs.
    *
    * For custom providers, use this method. For built-in providers, use
@@ -253,14 +264,14 @@ export interface ProviderHandle {
 // ─── ProviderHandle implementation ───────────────────────────────────────────
 
 class ProviderHandleImpl implements ProviderHandle {
-  private readonly registerResource: (handle: ResourceHandle) => void;
+  readonly register: (handle: ResourceHandle<unknown, unknown>) => void;
 
   constructor(
     readonly instanceKey: string,
     readonly adapterName: string,
-    registerResource: (handle: ResourceHandle) => void,
+    registerResource: (handle: ResourceHandle<unknown, unknown>) => void,
   ) {
-    this.registerResource = registerResource;
+    this.register = registerResource;
   }
 
   resource<TSpec>(
@@ -277,7 +288,7 @@ class ProviderHandleImpl implements ProviderHandle {
       options,
       buildGenericRefs,
     );
-    this.registerResource(handle);
+    this.register(handle);
     return handle;
   }
 }
@@ -288,7 +299,7 @@ class ProviderHandleImpl implements ProviderHandle {
 export function createProviderHandle(
   instanceKey: string,
   adapterName: string,
-  registerResource: (handle: ResourceHandle) => void,
+  registerResource: (handle: ResourceHandle<unknown, unknown>) => void,
 ): ProviderHandle {
   return new ProviderHandleImpl(instanceKey, adapterName, registerResource);
 }

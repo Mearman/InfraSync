@@ -124,7 +124,7 @@ function collectResources(scope: InfraScope): ResourceIR[] {
 
 // ─── Handle compilation ──────────────────────────────────────────────────────
 
-function compileHandle(handle: ResourceHandle): ResourceIR {
+function compileHandle(handle: ResourceHandle<unknown, unknown>): ResourceIR {
   const serializedSpec = serializeSpec(handle.rawSpec);
   const dependsOn = Array.from(handle.explicitDeps, (dep) => dep.name);
 

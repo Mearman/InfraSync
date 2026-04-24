@@ -68,7 +68,7 @@ export interface ProviderRegistration {
  */
 export class InfraScope {
   readonly providers = new Map<string, ProviderRegistration>();
-  readonly resources: ResourceHandle[] = [];
+  readonly resources: ResourceHandle<unknown, unknown>[] = [];
   readonly children: InfraScope[] = [];
   readonly fragments: DeclarativeFragment[] = [];
 
