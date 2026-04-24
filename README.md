@@ -38,7 +38,8 @@ import { sync, resource, $ref } from "infrasync";
 
 // resource() returns a typed handle bound to the provider's state schema.
 // This handle is what makes $ref type-safe.
-const appBucket = resource("aws", "S3Bucket", {
+// The first argument is a provider INSTANCE key — not the adapter type.
+const appBucket = resource("aws-prod", "S3Bucket", {
 	name: "app-bucket",
 	bucketName: "my-bucket",
 	region: "eu-west-2",
@@ -53,17 +54,29 @@ const appBucket = resource("aws", "S3Bucket", {
 
 const result = await sync({
 	providers: {
-		cloudflare: {
-			apiToken: process.env.CLOUDFLARE_API_TOKEN,
-		},
-		aws: {
-			region: "eu-west-2",
+		// Each key is a provider INSTANCE — a unique name you choose.
+		// The `adapter` field tells the engine which adapter handles it.
+		// When the instance key matches an adapter name, `adapter` can be omitted.
+		"aws-prod": {
+			adapter: "aws",
+			region: "eu-west-1",
 			credentials: {
-				accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-				secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+				accessKeyId: process.env.AWS_PROD_ACCESS_KEY_ID,
+				secretAccessKey: process.env.AWS_PROD_SECRET_ACCESS_KEY,
 			},
 		},
-		github: {
+		"aws-staging": {
+			adapter: "aws",
+			region: "us-east-1",
+			credentials: {
+				accessKeyId: process.env.AWS_STAGING_ACCESS_KEY_ID,
+				secretAccessKey: process.env.AWS_STAGING_SECRET_ACCESS_KEY,
+			},
+		},
+		cloudflare: {  // adapter: "cloudflare" inferred from key
+			apiToken: process.env.CLOUDFLARE_API_TOKEN,
+		},
+		github: {  // adapter: "github" inferred from key
 			token: process.env.GITHUB_TOKEN,
 		},
 	},
@@ -79,7 +92,16 @@ const result = await sync({
 			proxied: false,
 		},
 		{
-			provider: "aws",
+			provider: "aws-prod",
+			kind: "DynamodbTable",
+			name: "sessions",
+			billingMode: "PAY_PER_REQUEST",
+			hashKey: { name: "pk", type: "S" },
+			sortKey: { name: "sk", type: "S" },
+			pointInTimeRecovery: true,
+		},
+		{
+			provider: "aws-staging",
 			kind: "DynamodbTable",
 			name: "sessions",
 			billingMode: "PAY_PER_REQUEST",
@@ -139,6 +161,50 @@ npx infrasync drift --config infra.config.ts
 
 InfraSync operates in three phases. Every resource goes through the read phase. Only resources in `"manage"` mode proceed to plan and apply.
 
+### Provider instances
+
+The `providers` map keys are **instance keys** — unique names you choose. Each entry configures one independent adapter instance with its own credentials and SDK client:
+
+```typescript
+providers: {
+    // Instance key        Adapter type       Instance-specific config
+    "aws-prod":    { adapter: "aws",        region: "eu-west-1", credentials: { ... } },
+    "aws-staging": { adapter: "aws",        region: "us-east-1", credentials: { ... } },
+    "cf-company":  { adapter: "cloudflare", apiToken: process.env.CF_COMPANY_TOKEN },
+    "cf-client":   { adapter: "cloudflare", apiToken: process.env.CF_CLIENT_TOKEN },
+    cloudflare:    { apiToken: process.env.CF_TOKEN },  // adapter: "cloudflare" inferred
+    github:        { token: process.env.GITHUB_TOKEN }, // adapter: "github" inferred
+}
+```
+
+**Instance key ≠ adapter type.** `"aws-prod"` and `"aws-staging"` both use the AWS adapter, but they get independent SDK clients with separate credentials. Resources reference the instance key:
+
+```typescript
+resource("aws-prod", "S3Bucket", { ... });    // production AWS account
+resource("aws-staging", "S3Bucket", { ... }); // staging AWS account
+```
+
+Cross-instance `$ref` references work like any other — the DAG resolves values across provider boundaries:
+
+```typescript
+const prodBucket = resource("aws-prod", "S3Bucket", { ... });
+
+// DNS record on Cloudflare pointing to the production bucket
+resource("cf-company", "DnsRecord", {
+    domain: "app.example.com",
+    type: "CNAME",
+    value: $ref(prodBucket, "websiteEndpoint"),
+});
+```
+
+**Adapter inference.** When the instance key matches a built-in adapter name, the `adapter` field can be omitted. The engine resolves adapter types in this order:
+
+1. Explicit `adapter` field in the provider config
+2. Custom providers registered via `customProviders` matched by name
+3. Built-in adapters matched by name
+
+This means `cloudflare: { apiToken: ... }` is shorthand for `cloudflare: { adapter: "cloudflare", apiToken: ... }`.
+
 ### 0. Build the dependency graph
 
 Before any provider API calls, the engine scans every resource for `$ref` tokens and `dependsOn` declarations, then builds a directed acyclic graph (DAG). Each `$ref("name", ...)` creates an edge from the referenced resource to the referencing resource. Topological sort determines processing order — configuration array order is irrelevant.
@@ -147,7 +213,7 @@ If the graph contains a cycle, the engine fails immediately with a clear error s
 
 ### 1. Read
 
-Resources are processed in topological order. For each resource, InfraSync routes the query to the named provider adapter, which calls the provider API to discover the current state. No local state file is consulted — the provider is the sole source of truth.
+Resources are processed in topological order. For each resource, InfraSync resolves the provider instance key to the correct adapter, which calls the provider API to discover the current state. No local state file is consulted — the provider is the sole source of truth.
 
 Read state is collected into a **state map** keyed by resource name. As each resource's state is stored, any `$ref` tokens in downstream resources that point to it are resolved with the concrete value. By the time a resource is processed, all of its dependencies have been read and their `$ref` values resolved.
 
@@ -183,7 +249,7 @@ Each resource has:
 | Property             | Description                                                                                                                      |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `name`               | Unique identifier within the configuration. Used as the DAG node key and as the target for `$ref`.                               |
-| `provider`           | Which provider adapter to route this resource to (e.g. `"cloudflare"`, `"aws"`, `"github"`)                                      |
+| `provider`           | Which provider **instance** to route this resource to (e.g. `"aws-prod"`, `"cf-company"`, `"github"`)                          |
 | `kind`               | The resource type within that provider (e.g. `DnsRecord`, `S3Bucket`, `Repository`)                                              |
 | `mode`               | `"manage"` (default) or `"read"`                                                                                                 |
 | `dependsOn`          | Optional explicit dependency edges — names of resources that must be processed before this one, even if no `$ref` connects them. |
@@ -233,14 +299,14 @@ import { sync, resource, $ref } from "infrasync";
 
 // resource() returns a ResourceHandle<TSpec, TState>.
 // TState is inferred from the provider's state schema for this kind.
-const mediaBucket = resource("aws", "S3Bucket", {
+const mediaBucket = resource("aws-prod", "S3Bucket", {
 	name: "media-bucket",
 	mode: "read",
 	bucketName: "my-media-bucket",
 	region: "eu-west-2",
 });
 
-const mediaPolicy = resource("aws", "S3BucketPolicy", {
+const mediaPolicy = resource("aws-prod", "S3BucketPolicy", {
 	name: "media-policy",
 	bucketName: "my-media-bucket",
 	policy: {
@@ -274,7 +340,7 @@ There are three layers of type safety for attribute references.
 **1. The path is valid.** `$ref()` accepts only paths that exist on the target's state schema:
 
 ```typescript
-const bucket = resource("aws", "S3Bucket", { /* spec */ });
+const bucket = resource("aws-prod", "S3Bucket", { /* spec */ });
 // typeof bucket = ResourceHandle<S3BucketSpec, S3BucketState>
 
 function $ref<TState, TPath extends DeepPath<TState>>(
@@ -410,7 +476,7 @@ await sync({
 		mediaDns,
 		// Inline — nothing references this, no handle needed
 		{
-			provider: "aws",
+			provider: "aws-prod",
 			kind: "DynamodbTable",
 			name: "sessions",
 			billingMode: "PAY_PER_REQUEST",
@@ -432,6 +498,7 @@ The `resources` array accepts both `ResourceHandle` and plain resource objects. 
 interface ResourceHandle<TSpec, TState> {
 	/** Unique name — the DAG node key */
 	readonly name: string;
+	/** Provider instance key (e.g. "aws-prod", "cf-company") */
 	readonly provider: string;
 	readonly kind: string;
 	readonly mode: "manage" | "read";
@@ -492,7 +559,7 @@ const stateMap = new Map<string, unknown>();
 const allIssues: { resource: string; issues: z.ZodIssue[] }[] = [];
 
 for (const node of sortedNodes) {
-	const handler = getHandler(node.provider, node.kind);
+	const handler = getHandler(node.providerInstance, node.kind);
 
 	// 1. Resolve all $ref tokens using the state map
 	const resolvedSpec = resolveRefs(node.rawSpec, node.refBindings, stateMap);
@@ -713,7 +780,7 @@ interface ProviderPort<TConfig extends ZodType> {
 }
 ```
 
-The engine calls `configSchema.safeParse(rawConfig)` before `connect()`. If validation fails, all issues are collected and reported before any API calls are made — the adapter never receives invalid config.
+The engine creates one `ProviderPort` instance per entry in the `providers` map. Each instance calls `configSchema.safeParse(rawConfig)` before `connect()`. If validation fails, all issues are collected and reported before any API calls are made — the adapter never receives invalid config. Multiple entries with the same adapter type (e.g. `"aws-prod"` and `"aws-staging"`) each get independent adapter instances with separate SDK clients.
 
 #### `ResourcePort` — the resource-level interface
 
@@ -1185,10 +1252,10 @@ export class CloudflareDnsRecord implements ResourcePort<
 const result = await sync({
   providers: {
     cloudflare: { apiToken: process.env.CLOUDFLARE_API_TOKEN },
-    aws: { region: "eu-west-2", credentials: { ... } },
+    "aws-prod": { adapter: "aws", region: "eu-west-2", credentials: { ... } },
   },
   resources: [
-    // Same spec shape — only the provider field changes
+    // Same spec shape — only the provider instance changes
     {
       provider: "cloudflare",
       kind: "DnsRecord",
@@ -1199,7 +1266,7 @@ const result = await sync({
       proxied: true,               // Cloudflare-specific, ignored by AWS codec
     },
     {
-      provider: "aws",
+      provider: "aws-prod",
       kind: "DnsRecord",
       domain: "api.example.com",
       type: "CNAME",
@@ -1218,7 +1285,7 @@ The engine decodes each spec through the target provider's codec before calling 
 | Without codecs                                                                        | With codecs                                                                    |
 | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Each provider defines its own spec schema — different field names, different shapes   | One normalised spec schema per resource kind, shared across all providers      |
-| Switching providers means rewriting resource specs                                    | Change `provider: "cloudflare"` to `provider: "aws"` — the spec stays the same |
+| Switching providers means rewriting resource specs                                    | Change `provider: "cloudflare"` to `provider: "aws-prod"` — the spec stays the same |
 | Convergence checking must handle provider-specific shapes                             | Engine compares normalised state, so convergence logic is provider-agnostic    |
 | Provider-specific quirks (trailing dots, different enum values) leak into user config | Codecs absorb quirks — user writes clean, normalised values                    |
 
@@ -1398,6 +1465,7 @@ import { internalPlatformProvider } from "./providers/internal-platform";
 const result = await sync({
 	providers: {
 		"internal-platform": {
+			adapter: "internal-platform",
 			baseUrl: "https://infra.internal",
 			apiKey: process.env.INTERNAL_API_KEY,
 		},
@@ -1418,7 +1486,7 @@ const result = await sync({
 
 At runtime, the engine:
 
-1. `safeParse()`s the raw config through `configSchema` before calling `connect()`. All issues are collected across all resources before reporting.
+1. `safeParse()`s the raw config through `configSchema` before calling `connect()`. Each provider instance gets its own adapter and client — `"aws-prod"` and `"aws-staging"` each receive independent SDK clients with separate credentials. All issues are collected across all resources before reporting.
 2. `safeParse()`s each resource through `specSchema` before calling `read()`, `create()`, or `update()`. Refinements and defaults are applied.
 3. `safeParse()`s each API response through `stateSchema`. Extra fields pass through (loose), values are coerced (string → number), the result is branded and frozen.
 4. Compares `desiredStateSchema.parse(spec)` against `desiredStateSchema.parse(state)` for convergence.
@@ -1462,6 +1530,7 @@ If any safeParse fails, the engine produces structured errors with exact field p
 | **Data sources**        | Same resource type with `mode: "read"`    | Separate `data` blocks                     |
 | **Cross-provider refs** | `$ref()` with DAG resolution              | `data` sources + implicit dependency graph |
 | **Multi-provider**      | Resources from any provider in one config | Same (provider plugin system)              |
+| **Multi-account**       | Multiple instances of the same provider with different credentials | Same (provider aliases in Terraform 0.12+) |
 | **Learning curve**      | TypeScript knowledge transfers            | HCL and Terraform-specific concepts        |
 | **Orphan handling**     | No state → no orphans                     | `terraform state rm` for cleanup           |
 | **Concurrency**         | Provider API rate limits only             | State lock contention                      |
