@@ -12,7 +12,62 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// ─── Ref builder ─────────────────────────────────────────────────────────────
+
+/**
+ * A function that constructs the typed ref surface for a resource.
+ * Each adapter resource kind provides one — it builds a plain object whose
+ * properties are RefToken instances for every referenceable state field.
+ *
+ * Built-in providers define specific ref types (e.g. S3BucketRefs).
+ * Generic providers use `buildGenericRefs` which returns a GenericRefs
+ * with a `.ref(path)` method for untyped access.
+ *
+ * ```typescript
+ * // Built-in: typed ref surface with autocomplete
+ * interface S3BucketRefs {
+ *   readonly arn: RefToken<string>;
+ *   readonly websiteEndpoint: RefToken<string>;
+ * }
+ * const buildS3BucketRefs: RefBuilder<S3BucketRefs> = (name) => ({
+ *   arn: new RefToken(name, "arn"),
+ *   websiteEndpoint: new RefToken(name, "websiteEndpoint"),
+ * });
+ * ```
+ */
+export type RefBuilder<TRefs> = (resourceName: string) => TRefs;
+
+// ─── Generic refs (custom provider fallback) ─────────────────────────────────
+
+/**
+ * Fallback ref surface for custom/generic providers.
+ * Provides a `.ref(path)` method for untyped string-path access.
+ * Built-in providers get typed ref objects with property access instead.
+ *
+ * ```typescript
+ * // Custom provider — no typed ref surface
+ * const handle = provider.resource("Service", "api", spec);
+ * handle.ref.ref("statusUrl"); // RefToken
+ * ```
+ */
+export interface GenericRefs {
+  readonly ref: (path: string) => RefToken;
+}
+
+/** Build a GenericRefs for a custom provider resource. */
+export const buildGenericRefs: RefBuilder<GenericRefs> = (resourceName) => ({
+  ref: (path: string) => new RefToken(resourceName, path),
+});
+
 // ─── Resource options ────────────────────────────────────────────────────────
+
+/**
+ * Minimal structural type for dependsOn entries.
+ * Only requires `name` — avoids variance issues with generic ResourceHandle.
+ */
+interface Dependable {
+  readonly name: string;
+}
 
 /** Options that control resource behaviour at authoring time. */
 export interface ResourceOptions {
@@ -20,7 +75,7 @@ export interface ResourceOptions {
   readonly mode?: "manage" | "read";
 
   /** Explicit dependency edges — resources that must be processed before this one */
-  readonly dependsOn?: readonly ResourceHandle[];
+  readonly dependsOn?: readonly Dependable[];
 }
 
 // ─── ResourceHandle ──────────────────────────────────────────────────────────
@@ -28,13 +83,15 @@ export interface ResourceOptions {
 /**
  * Internal resource handle created during authoring.
  *
+ * `TRefs` is the typed ref surface — a plain object whose properties are
+ * RefToken instances for every referenceable state field. Built-in providers
+ * define specific ref types (e.g. `S3BucketRefs`); generic providers use
+ * `GenericRefs` with a `.ref(path)` fallback method.
+ *
  * Not the canonical execution format — these are compilation artefacts the SDK
- * uses before emitting InfraIR. The handle carries dependency identity,
- * extracted ref bindings, and explicit dependsOn edges.
+ * uses before emitting InfraIR.
  */
-export interface ResourceHandle<TSpec = unknown, TState = unknown> {
-  /** @internal Phantom type — used by built-in provider method overloads for typed ref accessors */
-  readonly _stateType: TState;
+export interface ResourceHandle<TSpec = unknown, TRefs = GenericRefs> {
   /** Unique name within the configuration — the DAG node key */
   readonly name: string;
 
@@ -54,33 +111,30 @@ export interface ResourceHandle<TSpec = unknown, TState = unknown> {
   readonly refBindings: readonly RefBindingIR[];
 
   /** Handles listed in dependsOn */
-  readonly explicitDeps: ReadonlySet<ResourceHandle>;
+  readonly explicitDeps: ReadonlySet<Dependable>;
 
   /**
-   * Create a symbolic reference to a field in this resource's state.
+   * Typed ref surface for this resource.
    *
-   * The returned RefToken carries the path string for the engine to resolve
-   * at execution time. For typed handles (built-in providers), overloaded
-   * signatures on the provider methods provide compile-time path validation.
-   *
+   * Built-in providers expose typed properties:
    * ```typescript
-   * bucket.ref("websiteEndpoint"); // RefToken
-   * handle.ref("someField");       // RefToken
+   * bucket.ref.websiteEndpoint // ✅ RefToken<string> — autocomplete, compile-time validated
+   * bucket.ref.nonexistent     // ❌ compile error
+   * ```
+   *
+   * Custom providers expose a `.ref(path)` method:
+   * ```typescript
+   * handle.ref.ref("statusUrl") // RefToken
    * ```
    */
-  ref(path: string): RefToken;
+  readonly ref: TRefs;
 }
 
 // ─── ResourceHandle implementation ───────────────────────────────────────────
 
-class ResourceHandleImpl<TSpec, TState> implements ResourceHandle<
-  TSpec,
-  TState
-> {
+class ResourceHandleImpl<TSpec, TRefs> implements ResourceHandle<TSpec, TRefs> {
   readonly refBindings: readonly RefBindingIR[];
-  readonly explicitDeps: ReadonlySet<ResourceHandle>;
-  /** @internal Phantom type — satisfies interface, never read at runtime */
-  declare readonly _stateType: TState;
+  readonly explicitDeps: ReadonlySet<Dependable>;
 
   constructor(
     readonly name: string,
@@ -89,26 +143,31 @@ class ResourceHandleImpl<TSpec, TState> implements ResourceHandle<
     readonly mode: "manage" | "read",
     readonly rawSpec: TSpec,
     options: ResourceOptions | undefined,
+    readonly ref: TRefs,
   ) {
     this.refBindings = extractRefBindings(rawSpec);
     this.explicitDeps = new Set(options?.dependsOn ?? []);
   }
-
-  ref(path: string): RefToken {
-    return new RefToken(this.name, path);
-  }
 }
 
 /**
- * Create a resource handle. Called by ProviderHandle when a resource is defined.
+ * Create a resource handle with a typed ref surface.
+ *
+ * @param name - Unique resource name
+ * @param provider - Provider instance key
+ * @param kind - Resource kind
+ * @param spec - Raw spec (may contain RefToken values)
+ * @param options - Mode and dependency declarations
+ * @param buildRefs - Ref builder function from the adapter
  */
-export function createResourceHandle<TSpec, TState>(
+export function createResourceHandle<TSpec, TRefs>(
   name: string,
   provider: string,
   kind: string,
   spec: TSpec,
   options: ResourceOptions | undefined,
-): ResourceHandle<TSpec, TState> {
+  buildRefs: RefBuilder<TRefs>,
+): ResourceHandle<TSpec, TRefs> {
   return new ResourceHandleImpl(
     name,
     provider,
@@ -116,6 +175,7 @@ export function createResourceHandle<TSpec, TState>(
     options?.mode ?? "manage",
     spec,
     options,
+    buildRefs(name),
   );
 }
 
@@ -159,9 +219,9 @@ function extractRefBindings(spec: unknown, pathPrefix = ""): RefBindingIR[] {
  * Authoring-time handle for a provider instance.
  *
  * Created by `infra.provider()`. Has a generic `.resource()` method for
- * creating resources. Built-in adapters may extend this with typed methods
- * like `.s3Bucket()` or `.dnsRecord()` — those are layered on when specific
- * provider modules are implemented.
+ * creating resources with `GenericRefs`. Built-in adapters extend this with
+ * typed methods like `.s3Bucket()` or `.dnsRecord()` that provide specific
+ * ref types — those are layered on when provider modules are implemented.
  */
 export interface ProviderHandle {
   /** Provider instance key (e.g. "awsProd", "cfCompany") */
@@ -171,19 +231,23 @@ export interface ProviderHandle {
   readonly adapterName: string;
 
   /**
-   * Create a resource on this provider instance.
+   * Create a resource on this provider instance with generic refs.
    *
-   * @param kind - Resource kind (e.g. "S3Bucket", "DnsRecord")
+   * For custom providers, use this method. For built-in providers, use
+   * the typed convenience methods (e.g. `.s3Bucket()`) that return
+   * handles with typed ref surfaces.
+   *
+   * @param kind - Resource kind (e.g. "Service", "CustomResource")
    * @param id - Unique resource name within the configuration
    * @param spec - Resource specification — may contain RefToken values
    * @param options - Mode and explicit dependency declarations
    */
-  resource<TSpec, TState = unknown>(
+  resource<TSpec>(
     kind: string,
     id: string,
     spec: TSpec,
     options?: ResourceOptions,
-  ): ResourceHandle<TSpec, TState>;
+  ): ResourceHandle<TSpec>;
 }
 
 // ─── ProviderHandle implementation ───────────────────────────────────────────
@@ -199,18 +263,19 @@ class ProviderHandleImpl implements ProviderHandle {
     this.registerResource = registerResource;
   }
 
-  resource<TSpec, TState = unknown>(
+  resource<TSpec>(
     kind: string,
     id: string,
     spec: TSpec,
     options?: ResourceOptions,
-  ): ResourceHandle<TSpec, TState> {
-    const handle = createResourceHandle<TSpec, TState>(
+  ): ResourceHandle<TSpec> {
+    const handle = createResourceHandle(
       id,
       this.instanceKey,
       kind,
       spec,
       options,
+      buildGenericRefs,
     );
     this.registerResource(handle);
     return handle;

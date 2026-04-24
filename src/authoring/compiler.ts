@@ -31,8 +31,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * ```typescript
  * const infra = defineInfra("prod", (infra) => {
  *   const awsProd = infra.provider("awsProd", aws, config);
- *   awsProd.resource("S3Bucket", "bucket", spec);
- *   return { outputs: { ... } };
+ *   const bucket = awsProd.s3Bucket("bucket", spec);
+ *   return { outputs: { endpoint: bucket.ref.websiteEndpoint } };
  * });
  *
  * const ir = infra.toIR();

@@ -26,10 +26,13 @@ export type {
 } from "./core/provider.js";
 
 // ─── Authoring: handles ──────────────────────────────────────────────────────
+export { buildGenericRefs } from "./authoring/handles.js";
 export type {
   ResourceHandle,
   ProviderHandle,
   ResourceOptions,
+  RefBuilder,
+  GenericRefs,
 } from "./authoring/handles.js";
 
 // ─── Authoring: infra ────────────────────────────────────────────────────────
