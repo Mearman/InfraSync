@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { ZodType, ZodObject } from "zod";
 
 // ─── ResourcePort ────────────────────────────────────────────────────────────
@@ -6,16 +5,15 @@ import type { ZodType, ZodObject } from "zod";
 /**
  * The resource-level port that each resource kind within a provider implements.
  *
- * Spec and state are Zod schemas — the engine validates at every boundary:
- * - specSchema.safeParse() validates user config before any API call
- * - stateSchema.safeParse() validates adapter output before it enters the state map
+ * All method parameters use `unknown` rather than `z.infer<TSchema>`. This is
+ * intentional — it solves a contravariance problem. The engine stores adapters
+ * in a dynamic registry (Map<string, ProviderAdapter>) and calls methods
+ * without knowing the specific schema types at compile time. Each adapter
+ * validates its inputs internally using `specSchema.safeParse()` / `stateSchema.safeParse()`,
+ * following the same two-boundary validation pattern the engine uses.
  *
- * Adapters also validate raw API responses internally against a private
- * apiResponseSchema (not visible here) and throw ProviderApiError on failure.
- *
- * The engine handles convergence generically — it parses both spec and state
- * through desiredStateSchema and compares the results. Adapters don't need
- * their own comparison logic.
+ * The generic parameters still carry type information for the schema properties,
+ * which is valuable for adapter authors who import and use the schemas directly.
  */
 export interface ResourcePort<
   TSpecSchema extends ZodType = ZodType,
@@ -45,19 +43,36 @@ export interface ResourcePort<
   readonly desiredStateSchema: ZodObject<Record<string, ZodType>>;
 
   /**
+   * Extract the provider-assigned ID from a state object.
+   * Used by the engine to pass the correct ID to `update()`.
+   *
+   * Each adapter knows which field in its state schema contains the
+   * provider's unique identifier (e.g. Cloudflare's record UUID,
+   * AWS's resource ARN).
+   */
+  getStateId(state: unknown): string;
+
+  /**
    * Query the provider API for resources matching the identity fields in spec.
    * Returns undefined if the resource does not exist.
+   *
+   * Adapters should validate `spec` through `specSchema.safeParse()` internally.
    */
-  read(spec: z.infer<TSpecSchema>): Promise<z.infer<TStateSchema> | undefined>;
+  read(spec: unknown): Promise<unknown>;
 
-  /** Create a resource that does not yet exist */
-  create(spec: z.infer<TSpecSchema>): Promise<z.infer<TStateSchema>>;
+  /**
+   * Create a resource that does not yet exist.
+   *
+   * Adapters should validate `spec` through `specSchema.safeParse()` internally.
+   */
+  create(spec: unknown): Promise<unknown>;
 
-  /** Update an existing resource to match desired state */
-  update(
-    id: string,
-    spec: z.infer<TSpecSchema>,
-  ): Promise<z.infer<TStateSchema>>;
+  /**
+   * Update an existing resource to match desired state.
+   *
+   * Adapters should validate `spec` through `specSchema.safeParse()` internally.
+   */
+  update(id: string, spec: unknown): Promise<unknown>;
 }
 
 // ─── ProviderPort ────────────────────────────────────────────────────────────
@@ -65,12 +80,10 @@ export interface ResourcePort<
 /**
  * The provider-level port that each provider adapter implements.
  *
- * Manages connection lifecycle and routes resource operations to the correct
- * handler for each resource kind.
- *
- * The engine creates one ProviderPort instance per provider instance entry in
- * InfraIR. Multiple entries with the same adapter type (e.g. "awsProd" and
- * "awsStaging") each get independent adapter instances with separate SDK clients.
+ * `connect()` accepts `unknown` rather than `z.infer<TConfig>` to solve a
+ * contravariance problem — the engine stores adapters in a dynamic registry
+ * and calls methods without compile-time knowledge of specific config types.
+ * Each adapter validates config internally using `configSchema.safeParse()`.
  */
 export interface ProviderPort<TConfig extends ZodType = ZodType> {
   /** Unique adapter name (e.g. "cloudflare", "aws") */
@@ -79,8 +92,11 @@ export interface ProviderPort<TConfig extends ZodType = ZodType> {
   /** Zod schema for this provider's configuration (credentials, region, etc.) */
   readonly configSchema: TConfig;
 
-  /** Initialise the provider client — validate credentials, configure SDK */
-  connect(config: z.infer<TConfig>): Promise<void>;
+  /**
+   * Initialise the provider client.
+   * Adapters should validate `config` through `configSchema.safeParse()` internally.
+   */
+  connect(config: unknown): Promise<void>;
 
   /** Gracefully close connections, release resources */
   disconnect(): Promise<void>;
@@ -98,9 +114,6 @@ export interface ProviderPort<TConfig extends ZodType = ZodType> {
  * A provider adapter descriptor — a plain object carrying the adapter name
  * and a factory function. The engine calls `create()` to produce a fresh
  * ProviderPort instance for each provider instance in the configuration.
- *
- * Using a plain object instead of a function with attached properties avoids
- * all type assertions — no Object.defineProperty mutation needed.
  */
 export interface ProviderAdapter<TConfig extends ZodType = ZodType> {
   /** Adapter name, available without calling the factory */

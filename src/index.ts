@@ -25,6 +25,27 @@ export type {
   ProviderAdapter,
 } from "./core/provider.js";
 
+// ─── DAG ─────────────────────────────────────────────────────────────────────
+export { buildDag, topologicalSortByLevel } from "./core/dag.js";
+export type { DagNode } from "./core/dag.js";
+
+// ─── Resource utilities ──────────────────────────────────────────────────────
+export {
+  deepEqual,
+  resolveRefs,
+  resolveConfigSecrets,
+  collectZodIssues,
+} from "./core/resource.js";
+export type { ResourceIssue } from "./core/resource.js";
+
+// ─── Plan ────────────────────────────────────────────────────────────────────
+export { computePlan } from "./core/plan.js";
+export type { PlanAction, PlanEntry } from "./core/plan.js";
+
+// ─── Sync engine ─────────────────────────────────────────────────────────────
+export { SyncEngine } from "./core/sync.js";
+export type { SyncOptions, SyncResult, ResourceOutcome } from "./core/sync.js";
+
 // ─── Authoring: handles ──────────────────────────────────────────────────────
 export { buildGenericRefs } from "./authoring/handles.js";
 export type {
