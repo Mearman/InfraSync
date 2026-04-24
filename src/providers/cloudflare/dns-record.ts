@@ -9,6 +9,7 @@ import {
   dnsRecordDesiredStateSchema,
 } from "../../core/schemas/dns-record.js";
 import { ProviderApiError } from "../../core/errors.js";
+import { getStateId } from "./helpers.js";
 
 // ─── Ref type ────────────────────────────────────────────────────────────────
 
@@ -126,18 +127,7 @@ export class DnsRecordResource implements ResourcePort<
 
   constructor(private readonly client: Cloudflare) {}
 
-  getStateId(state: unknown): string {
-    if (typeof state === "object" && state !== null && "id" in state) {
-      const obj = state;
-      if ("id" in obj && typeof obj.id === "string") return obj.id;
-    }
-    throw new ProviderApiError("cloudflare", "getStateId", [
-      {
-        path: ["id"],
-        message: "State object does not contain a valid 'id' field",
-      },
-    ]);
-  }
+  getStateId = getStateId;
 
   async read(spec: unknown): Promise<unknown> {
     const parsed = dnsRecordSpecSchema.safeParse(spec);

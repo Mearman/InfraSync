@@ -84,6 +84,7 @@ export type { DnsRecordSpec } from "./core/schemas/dns-record.js";
 export {
   CloudflareProvider,
   cloudflareConfigSchema,
+  cloudflare,
 } from "./providers/cloudflare/index.js";
 export type { CloudflareConfig } from "./providers/cloudflare/index.js";
 export { buildDnsRecordRefs } from "./providers/cloudflare/dns-record.js";

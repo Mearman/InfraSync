@@ -1,5 +1,10 @@
 import Cloudflare from "cloudflare";
-import type { ProviderPort, ResourcePort } from "../../core/provider.js";
+import type {
+  ProviderPort,
+  ResourcePort,
+  ProviderAdapter,
+} from "../../core/provider.js";
+import { defineProvider } from "../../core/provider.js";
 import { z } from "zod";
 import { DnsRecordResource } from "./dns-record.js";
 import { AccessApplicationResource } from "./access-app.js";
@@ -16,7 +21,22 @@ export const cloudflareConfigSchema = z.strictObject({
 
 export type CloudflareConfig = z.infer<typeof cloudflareConfigSchema>;
 
-// ─── Cloudflare provider ─────────────────────────────────────────────────────
+// ─── Adapter descriptor ────────────────────────────────────────────────────
+
+/**
+ * The Cloudflare adapter descriptor. Pass this to `infra.provider()`:
+ *
+ * ```typescript
+ * import { cloudflare } from "infrasync/providers/cloudflare";
+ *
+ * const cf = infra.provider("cf", cloudflare, {
+ *   apiToken: infra.secret.env("CLOUDFLARE_API_TOKEN"),
+ *   accountId: "your-account-id",
+ * });
+ * ```
+ */
+export const cloudflare: ProviderAdapter<typeof cloudflareConfigSchema> =
+  defineProvider("cloudflare", () => new CloudflareProvider());
 
 export class CloudflareProvider implements ProviderPort<
   typeof cloudflareConfigSchema
