@@ -4,7 +4,7 @@ import type {
   PolicyUpdateParams,
 } from "cloudflare/resources/zero-trust/access/policies.js";
 import type { ResourcePort } from "../../core/provider.js";
-import { RefToken } from "../../core/refs.js";
+import { RefToken, refable } from "../../core/refs.js";
 import type { RefBuilder } from "../../authoring/handles.js";
 import { z } from "zod";
 import { ProviderApiError } from "../../core/errors.js";
@@ -40,7 +40,7 @@ const accessRuleArraySchema = z.array(z.unknown());
 export const accessPolicySpecSchema = z.object({
   kind: z.literal("AccessPolicy"),
   /** The Access Application ID this policy belongs to (for listing) */
-  applicationId: z.string().min(1),
+  applicationId: refable(z.string().min(1)),
   name: z.string().min(1),
   decision: z.enum(["allow", "deny", "non_identity", "bypass"]),
   include: accessRuleArraySchema,
@@ -49,6 +49,22 @@ export const accessPolicySpecSchema = z.object({
 });
 
 export type AccessPolicySpec = z.infer<typeof accessPolicySpecSchema>;
+
+/**
+ * Schema for the resolved spec after ref resolution.
+ * By the time we call the Cloudflare SDK, all RefTokens have been replaced
+ * with concrete values. This schema strips the refable union from
+ * applicationId so the adapter gets a plain string.
+ */
+const resolvedSpecSchema = z.object({
+  kind: z.literal("AccessPolicy"),
+  applicationId: z.string().min(1),
+  name: z.string().min(1),
+  decision: z.enum(["allow", "deny", "non_identity", "bypass"]),
+  include: accessRuleArraySchema,
+  exclude: accessRuleArraySchema.optional(),
+  require: accessRuleArraySchema.optional(),
+});
 
 const accessPolicyStateSchema = z
   .looseObject({
@@ -180,7 +196,7 @@ export class AccessPolicyResource implements ResourcePort<
   getStateId = getStateId;
 
   async read(spec: unknown): Promise<unknown> {
-    const parsed = accessPolicySpecSchema.safeParse(spec);
+    const parsed = resolvedSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError("cloudflare", "read", parsed.error.issues);
     }
@@ -202,7 +218,7 @@ export class AccessPolicyResource implements ResourcePort<
   }
 
   async create(spec: unknown): Promise<unknown> {
-    const parsed = accessPolicySpecSchema.safeParse(spec);
+    const parsed = resolvedSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError("cloudflare", "create", parsed.error.issues);
     }
@@ -222,7 +238,7 @@ export class AccessPolicyResource implements ResourcePort<
   }
 
   async update(id: string, spec: unknown): Promise<unknown> {
-    const parsed = accessPolicySpecSchema.safeParse(spec);
+    const parsed = resolvedSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError("cloudflare", "update", parsed.error.issues);
     }

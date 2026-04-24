@@ -103,11 +103,10 @@ const infra = defineInfra("prod", (infra) => {
 		autoRedirectToIdentity: true,
 	});
 
-	// At authoring time, app.ref.id is a RefToken<string>.
-	// After IR compilation, the engine resolves it to the actual application ID.
+	// RefToken<string> — the engine resolves to the actual ID before execution
 	cf.accessPolicy("appPolicy", {
 		kind: "AccessPolicy",
-		applicationId: app.ref.id as unknown as string, // TODO: spec should accept RefToken via refable()
+		applicationId: app.ref.id,
 		name: "Allow Team",
 		decision: "allow",
 		include: [{ email: { domain: "example.com" } }],

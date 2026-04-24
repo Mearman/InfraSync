@@ -4,7 +4,7 @@ import type {
   ApplicationUpdateParams,
 } from "cloudflare/resources/zero-trust/access/applications/applications.js";
 import type { ResourcePort } from "../../core/provider.js";
-import { RefToken } from "../../core/refs.js";
+import { RefToken, refable } from "../../core/refs.js";
 import type { RefBuilder } from "../../authoring/handles.js";
 import { z } from "zod";
 import { ProviderApiError } from "../../core/errors.js";
@@ -39,7 +39,7 @@ export const accessApplicationSpecSchema = z.object({
   sessionDuration: z.string().optional(),
   autoRedirectToIdentity: z.boolean().optional(),
   appLauncherVisible: z.boolean().optional(),
-  allowedIdps: z.array(z.string()).optional(),
+  allowedIdps: z.array(refable(z.string())).optional(),
 });
 
 export type AccessApplicationSpec = z.infer<typeof accessApplicationSpecSchema>;
