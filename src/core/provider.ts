@@ -92,32 +92,49 @@ export interface ProviderPort<TConfig extends ZodType = ZodType> {
   resourceHandler(kind: string): ResourcePort;
 }
 
-// ─── Factory type and defineProvider ─────────────────────────────────────────
+// ─── ProviderAdapter (plain object, no assertions) ───────────────────────────
 
 /**
- * A factory that creates a fresh ProviderPort instance.
+ * A provider adapter descriptor — a plain object carrying the adapter name
+ * and a factory function. The engine calls `create()` to produce a fresh
+ * ProviderPort instance for each provider instance in the configuration.
  *
- * The engine calls this once per provider instance in InfraIR, so each
- * instance gets its own adapter with independent state and SDK clients.
+ * Using a plain object instead of a function with attached properties avoids
+ * all type assertions — no Object.defineProperty mutation needed.
  */
-export type ProviderAdapterFactory<TConfig extends ZodType = ZodType> =
-  () => ProviderPort<TConfig>;
+export interface ProviderAdapter<TConfig extends ZodType = ZodType> {
+  /** Adapter name, available without calling the factory */
+  readonly adapterName: string;
+  /** Create a fresh ProviderPort instance */
+  readonly create: () => ProviderPort<TConfig>;
+}
 
 /**
- * Define a provider adapter. Returns a factory function that the engine
- * calls to create fresh instances for each provider instance in the configuration.
+ * Define a provider adapter by name and factory function.
+ *
+ * Returns a plain `ProviderAdapter` object — no function mutation or
+ * type assertions needed.
  *
  * Usage:
  *
  * ```typescript
- * export const cloudflare = defineProvider(() => new CloudflareProvider());
+ * export const cloudflare = defineProvider("cloudflare", () => new CloudflareProvider());
+ * export const aws = defineProvider("aws", () => new AwsProvider());
  * ```
  *
- * The factory pattern ensures that `infra.provider("awsProd", aws, config)` and
- * `infra.provider("awsStaging", aws, config)` each get their own adapter instance.
+ * Multiple instances of the same adapter get independent SDK clients:
+ *
+ * ```typescript
+ * const awsProd = infra.provider("awsProd", aws, { region: "eu-west-1" });
+ * const awsStaging = infra.provider("awsStaging", aws, { region: "us-east-1" });
+ * ```
  */
 export function defineProvider<TConfig extends ZodType>(
-  factory: ProviderAdapterFactory<TConfig>,
-): ProviderAdapterFactory<TConfig> {
-  return factory;
+  adapterName: string,
+  factory: () => ProviderPort<TConfig>,
+): ProviderAdapter<TConfig> {
+  return {
+    adapterName,
+    create: factory,
+  };
 }

@@ -12,13 +12,7 @@ export type {
 export { ProviderApiError, DagCycleError } from "./core/errors.js";
 
 // ─── Refs ────────────────────────────────────────────────────────────────────
-export {
-  isRefToken,
-  createRefToken,
-  refable,
-  refTokenToIR,
-} from "./core/refs.js";
-export type { RefToken } from "./core/refs.js";
+export { RefToken, isRefToken, refable, refTokenToIR } from "./core/refs.js";
 
 // ─── SDK alignment ───────────────────────────────────────────────────────────
 export { assertSdkCoverage } from "./core/assert-sdk.js";
@@ -28,5 +22,28 @@ export { defineProvider } from "./core/provider.js";
 export type {
   ProviderPort,
   ResourcePort,
-  ProviderAdapterFactory,
+  ProviderAdapter,
 } from "./core/provider.js";
+
+// ─── Authoring: handles ──────────────────────────────────────────────────────
+export type {
+  ResourceHandle,
+  ProviderHandle,
+  ResourceOptions,
+} from "./authoring/handles.js";
+
+// ─── Authoring: infra ────────────────────────────────────────────────────────
+export { InfraScope } from "./authoring/infra.js";
+export type {
+  SecretHelper,
+  DeclarativeResource,
+  DeclarativeFragment,
+  ProviderRegistration,
+} from "./authoring/infra.js";
+
+// ─── Authoring: declarative ──────────────────────────────────────────────────
+export { declarative } from "./authoring/declarative.js";
+
+// ─── Authoring: compiler ─────────────────────────────────────────────────────
+export { defineInfra, compileToIR } from "./authoring/compiler.js";
+export type { InfraResult } from "./authoring/compiler.js";

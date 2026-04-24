@@ -61,6 +61,7 @@ export function assertSdkCoverage<TSdk extends Record<string, unknown>>(): <
   // Intentionally empty — this function is a compile-time-only assertion.
   // It produces no runtime code; its purpose is to surface type errors
   // when a Zod schema drifts from the SDK response type it wraps.
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  return () => {};
+  return () => {
+    // Compile-time assertion only — intentionally empty at runtime
+  };
 }
