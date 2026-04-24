@@ -29,9 +29,11 @@ The pattern emerged from a real project — a script that configured Cloudflare 
 pnpm add infrasync
 ```
 
-## Usage
+## Authoring API
 
-### Programmatic API
+InfraSync exposes one authoring model with two equal forms: functional builder code with nested `Infra` scopes, and declarative fragments expressed as data. Both are first-class, both are fully interoperable, and both compile to the same `InfraIR`.
+
+### Functional and Declarative Authoring
 
 Define infrastructure with nested `Infra` scopes, declarative fragments, or any mixture of the two. `defineInfra()` creates the root scope. `infra.infra()` creates child scopes. `declarative()` wraps a declarative fragment so it can participate in the same graph, outputs, refs, and provider instances as builder-written infra. All authoring styles compile to a serialisable `InfraIR`, so the same core model can later be targeted from other languages.
 
@@ -163,11 +165,11 @@ npx infrasync drift --config infra.config.ts
 npx infrasync apply --ir infra.ir.json
 ```
 
-## How It Works
+## Compilation and Execution
 
-InfraSync operates in four phases. First the authoring API compiles nested `Infra` scopes into a flat, serialisable `InfraIR`. Then the engine reads current state, plans changes, and applies them. Every resource goes through the read phase. Only resources in `"manage"` mode proceed to plan and apply.
+InfraSync operates in four phases. First the authoring API compiles nested `Infra` scopes and declarative fragments into a flat, serialisable `InfraIR`. Then the execution engine reads current state, plans changes, and applies them. Every resource goes through the read phase. Only resources in `"manage"` mode proceed to plan and apply.
 
-### Provider instances
+### Authoring-time provider instances
 
 Providers are first-class builder objects created inside an `Infra` scope. Each instance configures one independent adapter with its own credentials and SDK client.
 
@@ -210,7 +212,7 @@ cf.dnsRecord("appDns", {
 });
 ```
 
-### -1. Compile nested Infra scopes to `InfraIR`
+### Compilation to `InfraIR`
 
 The public API is nested and compositional. The engine is not. Before any provider work begins, InfraSync compiles the authoring tree into a canonical, flat intermediate representation:
 
@@ -224,19 +226,19 @@ type InfraIR = {
 
 Nested `Infra` scopes, provider instances, builder-written resources, and declarative fragments all compile to the same `InfraIR`. These are equivalent authoring forms over one canonical model. This is what makes the design serialisable and future-proof for cross-language frontends.
 
-### 0. Build the dependency graph
+### Execution engine: build the dependency graph
 
 Before any provider API calls, the compiler scans every resource spec for symbolic refs and `dependsOn` declarations, then builds a directed acyclic graph (DAG). Each ref token creates an edge from the referenced resource to the referencing resource. Topological sort determines processing order — authoring order is irrelevant.
 
 If the graph contains a cycle, the engine fails immediately with a clear error showing the cycle path.
 
-### 1. Read
+### Execution engine: read
 
 Resources are processed in topological order. For each resource, InfraSync resolves the provider instance key to the correct adapter, which calls the provider API to discover the current state. No local state file is consulted — the provider is the sole source of truth.
 
 Read state is collected into a **state map** keyed by resource name. As each resource's state is stored, any symbolic refs in downstream resources that point to it are resolved with the concrete value. By the time a resource is processed, all of its dependencies have been read and their refs resolved.
 
-### 2. Plan
+### Execution engine: plan
 
 For resources in `"manage"` mode only — the desired configuration is compared against the current state. A plan is generated containing:
 
@@ -248,11 +250,11 @@ Resources in `"read"` mode are skipped — no plan is generated for them.
 
 Planning is deterministic: the same desired config and the same current state always produce the same plan.
 
-### 3. Apply
+### Execution engine: apply
 
 The plan is executed in topological order. Each create or update is applied, and the resulting state is stored back into the state map so that dependent resources see the updated values. Results are reported per-resource with success/failure status.
 
-## Resource Model
+### Resource Model
 
 The builder API is nested and object-oriented, but the canonical model is flat. After compilation each resource in `InfraIR` has a **mode** that controls whether the engine manages it or just reads it:
 
@@ -277,11 +279,11 @@ Each compiled `ResourceIR` has:
 
 InfraSync uses **identity fields** to find existing resources (not provider-assigned IDs — those are opaque and provider-specific). If a matching resource exists, its desired state fields are compared and updated only when drifted. If no match is found, the resource is created.
 
-## Read-Mode Resources
+### Read-Mode Resources
 
 Read-mode resources are InfraSync's equivalent of Terraform's data sources — but without a separate concept. Any resource can be read-only by setting `mode: "read"`. The engine queries the provider API, validates the response, and stores the state. Other resources can then reference that state via symbolic refs such as `bucket.ref.websiteEndpoint`.
 
-### Why a single resource type, not two
+#### Why a single resource type, not two
 
 Terraform separates `resource` and `data` into distinct blocks with different syntax and semantics. This forces you to know upfront whether something is managed or queried, and it prevents you from changing your mind without rewriting the config.
 
@@ -292,11 +294,11 @@ InfraSync uses one type. The mode is a property, not a category. This means:
 - Read-mode resources go through the same validation pipeline (`specSchema.safeParse()`, `stateSchema.safeParse()`) as managed resources.
 - The state map is uniform — the engine doesn't need two different lookup mechanisms.
 
-## Dependency Graph
+### Dependency Graph
 
 InfraSync builds a **directed acyclic graph (DAG)** from the configuration. Processing order is derived from the graph topology, not from the array order of resources. You can organise your configuration in whatever order makes sense for readability — the engine determines the correct execution order.
 
-### Edge sources
+#### Edge sources
 
 Edges in the DAG come from two sources:
 
@@ -307,7 +309,7 @@ Edges in the DAG come from two sources:
 
 A symbolic ref creates both a dependency edge and an attribute binding. `dependsOn` creates only an edge — useful when there is no attribute reference but the provider API still requires ordering.
 
-### Type-safe references with `.ref`
+#### Type-safe references with `.ref`
 
 The problem with string-based references is that TypeScript cannot verify either the path or the resolved type. InfraSync's public API avoids string paths entirely. Provider methods return typed resource handles, and each handle exposes a `.ref` namespace derived from the resource's state schema.
 
@@ -468,7 +470,7 @@ const infra = defineInfra("prod", (infra) => {
 ```
 
 Both forms compile to the same `InfraIR`, so the engine only ever sees one canonical graph. Interoperability is symmetrical — builder code can consume declarative outputs, and declarative fragments can target provider instances and refs created in builder code.
-### How the engine builds the DAG from handles
+#### How the compiler and engine build the DAG from handles
 
 Builder methods like `awsProd.s3Bucket(...)` return internal resource handles. These are not the canonical execution format — they are compilation artefacts the SDK uses before emitting `InfraIR`.
 
@@ -530,7 +532,7 @@ function buildDag(
 
 Handles carry their dependency edges at construction time — the compiler does not need to walk builder specs with string matching. Declarative fragments use a raw-spec walk because their structure is data rather than live handles, but they remain first-class citizens in the compiled graph.
 
-### Processing in topological order
+#### Processing in topological order
 
 ```typescript
 // Phases 1–3: Read → plan → apply in DAG order
@@ -603,7 +605,7 @@ if (allIssues.length > 0) {
 }
 ```
 
-### Parallel processing
+#### Parallel processing
 
 Resources at the same depth in the DAG have no dependencies between them and can be processed concurrently. For example, if three DNS records all depend on the same bucket but not on each other, all three can be read and applied in parallel after the bucket is processed.
 
@@ -618,7 +620,7 @@ for (const level of levels) {
 
 This gives you Terraform-style parallelism for free — the DAG tells you exactly which resources can safely run concurrently.
 
-### Declarative graph semantics under the builder API
+#### Declarative graph semantics across both authoring forms
 
 Even though the public authoring API has both functional and declarative forms, the graph semantics remain declarative. You do not declare edges explicitly (though `dependsOn` is available for cases that need it). The graph emerges from the data flow:
 
@@ -629,7 +631,7 @@ Even though the public authoring API has both functional and declarative forms, 
 
 This is the same approach Terraform uses (implicit edges from interpolation references), but expressed as a TypeScript function call rather than a string interpolation.
 
-## Architecture: Ports and Adapters
+## Provider Adapters and Engine Architecture
 
 InfraSync follows the **ports and adapters** pattern (hexagonal architecture). The sync engine is the core domain. It defines **ports** — interfaces that describe what it needs from the outside world — and each provider is an **adapter** that implements those ports for a specific platform. The engine never imports an AWS SDK, a Cloudflare SDK, or any provider-specific dependency. It only calls through the port interfaces.
 
@@ -656,7 +658,7 @@ graph TD
     GH --> GHSDK
 ```
 
-### Authoring model and `InfraIR`
+### Why the engine consumes `InfraIR`
 
 The public API is an authoring model with two equal forms: nested `Infra` scopes with provider instances and typed resource handles, and declarative fragments expressed as data. The engine does not execute either form directly. The compiler normalises both into a flat, canonical intermediate representation:
 
