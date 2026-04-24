@@ -1,10 +1,10 @@
 # InfraSync
 
-Idempotent, deterministic, stateless infrastructure management for TypeScript.
+Idempotent, deterministic, stateless infrastructure management for TypeScript — with equal functional and declarative authoring.
 
-InfraSync is a TypeScript package and CLI for managing cloud infrastructure with nestable TypeScript `Infra` scopes — without a state file. Authoring code compiles to a serialisable `InfraIR`, then each run reads the current state from the provider, compares it against your desired configuration, and applies only the changes needed. No stored state to corrupt, no lock files to stale, no remote backend to configure.
+InfraSync is a TypeScript package and CLI for managing cloud infrastructure without a state file. Infrastructure can be authored with nested `Infra` scopes, declarative fragments, or any mixture of the two. Both forms compile to a serialisable `InfraIR`, then each run reads the current state from the provider, compares it against your desired configuration, and applies only the changes needed. No stored state to corrupt, no lock files to stale, no remote backend to configure.
 
-An alternative to Terraform for teams who want infrastructure-as-code without the operational overhead of state management.
+An alternative to Terraform for teams who want infrastructure-as-code without the operational overhead of state management, while keeping both programmable and declarative styles first-class.
 
 ## Why
 
@@ -620,7 +620,7 @@ This gives you Terraform-style parallelism for free — the DAG tells you exactl
 
 ### Declarative graph semantics under the builder API
 
-Even though the public authoring API is builder-first, the graph semantics remain declarative. You do not declare edges explicitly (though `dependsOn` is available for cases that need it). The graph emerges from the data flow:
+Even though the public authoring API has both functional and declarative forms, the graph semantics remain declarative. You do not declare edges explicitly (though `dependsOn` is available for cases that need it). The graph emerges from the data flow:
 
 1. Every symbolic ref is an edge: `target → this resource`.
 2. Every entry in `dependsOn` is an edge: `dep → this resource`.
