@@ -612,13 +612,32 @@ InfraSync follows the **ports and adapters** pattern (hexagonal architecture). T
 
 Every type in InfraSync — resource specs, provider state, provider config — is defined as a **Zod schema**. Zod serves as the single source of truth: from each schema you get the TypeScript type (via `z.infer`), runtime validation (via `safeParse()`), and field introspection (via `.shape`). There are no separate interface definitions that could drift from the runtime validation logic.
 
-This matters because InfraSync sits at the boundary between user-authored configuration (untrusted input) and cloud provider APIs (structured data). Zod validates at every boundary:
+This matters because InfraSync has two distinct validation boundaries:
+
+1. **The adapter boundary** — the adapter receives `unknown` from a provider API and validates it against a private API response schema. This catches API contract violations (rate limit responses where objects were expected, missing fields, changed shapes) at the source, with full context about what the API actually returned.
+2. **The engine boundary** — the engine validates the adapter's output against the public state schema. This is the safety net: even if an adapter has a bug, the engine catches malformed state before it enters the state map or gets compared for convergence.
 
 ```
-User config ──► specSchema.safeParse() ──► sync engine ──► stateSchema.safeParse() ──► plan
-                          ▲                                       ▲
-                   validates resource                        validates provider
-                   shape and values                          API responses
+User config ──► specSchema.safeParse() ──► sync engine ──► ResourcePort.read()
+                          ▲                                              │
+                   validates resource                                    ▼
+                   shape and values                          raw API response (unknown)
+                                                                  │
+                                         ┌───────────────────────┘
+                                         │
+                                         ▼  apiResponseSchema.safeParse()  ← adapter-internal
+                                         validated provider data
+                                         │
+                                         ▼  adapter maps fields
+                                         TState (plain object)
+                                         │
+                          ┌──────────────┘
+                          ▼
+                    stateSchema.safeParse()  ← engine validates adapter output
+                    branded, readonly, frozen state
+                          │
+                          ▼
+                    plan: create | update | no-op
 ```
 
 #### What Zod provides
@@ -644,11 +663,14 @@ User config ──► specSchema.safeParse() ──► sync engine ──► sta
 
 InfraSync applies specific Zod features to each schema type for different guarantees:
 
-| Schema type | Zod features | Why |
-|-------------|-------------|-----|
-| **Config schemas** | `z.strictObject()` | Reject typos in credential keys — `"apKey"` instead of `"apiKey"` should fail, not silently ignored |
-| **Spec schemas** | `z.object()`, `z.default()`, `z.refine()`, `refable()`, string formats (`z.hostname()`, `z.url()`, `z.cidrv4()`) | Validate resource shape, fill provider defaults, enforce cross-field rules, accept `$ref` tokens |
-| **State schemas** | `z.looseObject()`, `z.coerce`, `z.brand()`, `z.readonly()` | Tolerate extra API fields, handle stringly-typed responses, prevent type mix-ups, freeze against mutation |
+| Schema type | Scope | Zod features | Why |
+|-------------|-------|-------------|-----|
+| **Config schemas** | Public | `z.strictObject()` | Reject typos in credential keys — `"apKey"` instead of `"apiKey"` should fail, not be silently ignored |
+| **Spec schemas** | Public | `z.object()`, `z.default()`, `z.refine()`, `refable()`, string formats (`z.hostname()`, `z.url()`, `z.cidrv4()`) | Validate resource shape, fill provider defaults, enforce cross-field rules, accept `$ref` tokens |
+| **State schemas** | Public | `z.looseObject()`, `z.coerce`, `z.brand()`, `z.readonly()` | Tolerate extra fields, coerce types, prevent type mix-ups, freeze against mutation |
+| **API response schemas** | Adapter-internal | `z.looseObject()`, `z.coerce`, string formats (`z.iso.datetime()`, `z.uuid()`) | Validate raw API responses at the source, catch contract violations with full error context |
+
+"Public" schemas are exposed on the `ResourcePort` and validated by the engine. "Adapter-internal" schemas live inside the adapter implementation — the engine never sees them.
 
 The combination of `z.looseObject().brand().readonly()` on every state schema gives three guarantees with one parse call: extra API fields pass through, the type is nominally distinct from other resource states, and the result is frozen.
 
@@ -720,7 +742,15 @@ interface ResourcePort<
 	 */
 	readonly desiredStateSchema: ZodObject<any>;
 
-	/** Query the provider API for resources matching the identity fields in spec */
+	/**
+	 * Query the provider API for resources matching the identity fields in spec.
+	 *
+	 * Adapters validate the raw API response against a private apiResponseSchema
+	 * (adapter-internal), then map fields into the shape expected by stateSchema.
+	 * The engine then validates the return value through stateSchema.safeParse().
+	 *
+	 * Returns undefined if the resource does not exist.
+	 */
 	read(spec: z.infer<TSpecSchema>): Promise<z.infer<TStateSchema> | undefined>;
 
 	/** Create a resource that does not yet exist */
@@ -736,48 +766,99 @@ interface ResourcePort<
 
 Notice `isConverged()` is gone — the engine implements convergence generically by parsing both state and spec through `desiredStateSchema` and comparing the results. Adapters no longer need to write field-by-field comparison logic.
 
+The adapter has **two validation responsibilities**:
+
+1. **Validate raw API responses** against a private `apiResponseSchema` using `safeParse()`. This catches API contract violations at the source — the adapter author gets structured errors showing exactly which fields the API returned incorrectly. If validation fails, the adapter throws a `ProviderApiError` that the engine catches and adds to `allIssues`.
+2. **Map fields** from the API response shape to the state schema shape. Every field access is typed because the API response was validated — no `as` casts needed.
+
+The engine then validates the adapter's return value through `stateSchema.safeParse()` as a safety net. If the adapter has a mapping bug (wrong field, missing field), the engine catches it before the bad data enters the state map.
+
+This two-layer approach means neither the adapter nor the engine trusts its input — each validates independently at its own boundary.
+
 #### How the engine validates at boundaries
 
-The engine never uses `.parse()` — always `safeParse()`. This collects all validation errors across all resources before reporting, instead of failing on the first one:
+Validation happens at two boundaries: inside the adapter (raw API response) and inside the engine (adapter output).
+
+**Adapter boundary** — validates raw API responses with a private schema:
 
 ```typescript
-// Inside the sync engine — before any adapter method is called:
+// Inside the adapter — the engine never sees this schema
+const apiResponseSchema = z.looseObject({
+	service_id: z.string(),
+	service_name: z.string(),
+	config: z.object({
+		image: z.string(),
+		replicas: z.coerce.number(),
+		env_vars: z.record(z.string(), z.string()),
+	}),
+	state: z.enum(["running", "stopped", "deploying"]),
+	created_at: z.iso.datetime(),   // extra field — not in state schema
+	updated_at: z.iso.datetime(),   // extra field — not in state schema
+});
+
+async read(spec: ServiceSpec): Promise<ServiceState | undefined> {
+	const response = await this.client.get(`/services/${spec.name}`);
+	if (response.status === 404) return undefined;
+
+	const raw = await response.json(); // unknown
+	const result = apiResponseSchema.safeParse(raw);
+	if (!result.success) {
+		// API contract violation — structured error with field paths
+		throw new ProviderApiError("internal-platform", "read", result.error.issues);
+	}
+	const data = result.data; // fully typed, coerced, extra fields available
+
+	// Map from API shape to state shape — every field access is typed
+	return {
+		id: data.service_id,
+		name: data.service_name,
+		image: data.config.image,
+		replicas: data.config.replicas,
+		env: data.config.env_vars,
+		status: data.state,
+	};
+}
+```
+
+**Engine boundary** — validates adapter output with the public state schema:
+
+```typescript
+// Inside the sync engine — validates what the adapter returns
 
 // 1. Validate user config against the spec schema
 const specResult = resourceHandler.specSchema.safeParse(rawResource);
 if (!specResult.success) {
-	// Collect all issues for this resource, then continue checking
-	// other resources. Report everything at once.
-	for (const issue of specResult.error.issues) {
-		console.error(
-			`  ${rawResource.name}: ${issue.path.join(".")} — ${issue.message}`,
-		);
-	}
-	continue; // skip this resource, process the rest
+	allIssues.push({ resource: rawResource.name, issues: specResult.error.issues });
+	continue;
 }
 const spec = specResult.data;
 
-// 2. Adapter reads current state
-const state = await resourceHandler.read(spec);
-
-// 3. If state exists, validate against the state schema
-if (state !== undefined) {
-	const stateResult = resourceHandler.stateSchema.safeParse(state);
-	if (!stateResult.success) {
-		// State schema mismatch — the provider returned unexpected data
-		for (const issue of stateResult.error.issues) {
-			console.error(
-				`  ${rawResource.name} (state): ${issue.path.join(".")} — ${issue.message}`,
-			);
+// 2. Adapter reads current state (throws ProviderApiError on API contract violation)
+let state: z.infer<typeof resourceHandler.stateSchema> | undefined;
+try {
+	const rawState = await resourceHandler.read(spec);
+	if (rawState !== undefined) {
+		// 3. Engine validates adapter output against the public state schema
+		const stateResult = resourceHandler.stateSchema.safeParse(rawState);
+		if (!stateResult.success) {
+			// Adapter returned data that doesn't match the state contract
+			allIssues.push({ resource: rawResource.name, issues: stateResult.error.issues });
+			continue;
 		}
+		state = stateResult.data; // branded, readonly, coerced
+	}
+} catch (err) {
+	if (err instanceof ProviderApiError) {
+		allIssues.push({ resource: rawResource.name, issues: err.issues });
 		continue;
 	}
-	const validatedState = stateResult.data; // branded, readonly, coerced
+	throw err;
+}
 
-	// 4. Engine checks convergence generically
+// 4. Engine checks convergence generically
+if (state !== undefined) {
 	const desired = resourceHandler.desiredStateSchema.parse(spec);
-	const actual = resourceHandler.desiredStateSchema.parse(validatedState);
-
+	const actual = resourceHandler.desiredStateSchema.parse(state);
 	if (deepEqual(desired, actual)) {
 		// no-op — resource is converged
 	} else {
@@ -786,27 +867,33 @@ if (state !== undefined) {
 }
 ```
 
-Why `safeParse()` everywhere? A configuration with 20 resources and 3 typos should produce 3 actionable error messages in one run, not require 3 separate runs to find them one at a time.
+Why two layers? The adapter catches API contract violations (wrong shape, missing fields, type changes) with full context about what the API actually returned. The engine catches adapter bugs (wrong field mapping, missing fields) before bad data enters the state map. Neither trusts its input — each validates independently.
 
 #### Data flow through the ports
 
 ```
 User config (TypeScript)
     │
-    ▼  specSchema.safeParse()     ← validates user input, collects all errors
+    ▼  specSchema.safeParse()     ← engine validates user input
     │
 Sync Engine ──► ProviderPort.resourceHandler("DnsRecord")
     │                    │
     │                    ▼
     │              ResourcePort.read(spec)
     │                    │
-    │                    ▼  (adapter calls Cloudflare/AWS/GitHub SDK)
-    │              raw API response
+    │                    ▼  (adapter calls provider SDK / REST API)
+    │              raw API response (unknown)
     │                    │
-    │                    ▼  stateSchema.safeParse()  ← coerces, brands, freezes, tolerates extras
-    │              TState | undefined
+    │                    ▼  apiResponseSchema.safeParse()  ← ADAPTER-INTERNAL: validates API contract
+    │              validated API data (typed, coerced)
+    │                    │
+    │                    ▼  adapter maps fields to state shape
+    │              plain state object
     │                    │
     ◄────────────────────┘
+    │
+    ▼  stateSchema.safeParse()     ← ENGINE: validates adapter output
+    │  brands, freezes, tolerates extras
     │
     ▼  desiredStateSchema.parse() on both spec and state
     │  deepEqual(desired, actual)?
@@ -816,6 +903,10 @@ Plan: create | update | no-op
     │
     ▼
 ResourcePort.create(spec)  or  ResourcePort.update(id, spec)
+    │                    │
+    │                    ▼  apiResponseSchema.safeParse()  ← ADAPTER-INTERNAL again
+    │                    ▼  adapter maps fields to state shape
+    │                    ▼  stateSchema.safeParse()        ← ENGINE validates again
 ```
 
 ### Codecs: Normalised Resource Specs Across Providers
