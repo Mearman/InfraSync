@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "zod";
 import { refable } from "../refs.js";
 
 // ─── Normalised spec schema ──────────────────────────────────────────────────
@@ -15,13 +15,13 @@ import { refable } from "../refs.js";
 const dnsRecordBaseSchema = z.object({
   kind: z.literal("DnsRecord"),
   /** Fully qualified domain name (identity field) */
-  domain: z.string().min(1),
+  domain: z.string().trim().min(1),
   /** DNS record type (identity field) */
   type: z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"]),
   /** Record value — may be a ref to another resource's state */
-  value: refable(z.string().min(1)),
+  value: refable(z.string().trim().min(1)),
   /** Time-to-live in seconds */
-  ttl: z.number().int().min(0).default(300),
+  ttl: z.int().min(0).default(300),
   /** Whether the record is proxied through the provider's CDN (Cloudflare-only) */
   proxied: z.boolean().default(false),
 });

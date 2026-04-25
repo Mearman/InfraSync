@@ -2,7 +2,7 @@ import Cloudflare from "cloudflare";
 import type { ResourcePort } from "../../core/provider.js";
 import { RefToken } from "../../core/refs.js";
 import type { RefBuilder } from "../../authoring/handles.js";
-import { z } from "zod";
+import * as z from "zod";
 import { ProviderApiError } from "../../core/errors.js";
 import { getStateId } from "./helpers.js";
 
@@ -27,34 +27,34 @@ export const buildPagesCustomDomainRefs: RefBuilder<PagesCustomDomainRefs> = (
 export const pagesCustomDomainSpecSchema = z.object({
   kind: z.literal("PagesCustomDomain"),
   /** The Pages project name (identity field) */
-  projectName: z.string().min(1),
+  projectName: z.string().trim().min(1),
   /** The custom domain to attach (identity field) */
-  domain: z.string().min(1),
+  domain: z.string().trim().min(1),
 });
 
 export type PagesCustomDomainSpec = z.infer<typeof pagesCustomDomainSpecSchema>;
 
 const pagesCustomDomainStateSchema = z
   .looseObject({
-    id: z.string(),
-    name: z.string(),
-    domain_id: z.string().optional(),
-    status: z.string(),
-    zone_tag: z.string().optional(),
-    certificate_authority: z.string().optional(),
-    created_on: z.string().optional(),
+    id: z.string().trim(),
+    name: z.string().trim(),
+    domain_id: z.string().trim().optional(),
+    status: z.string().trim(),
+    zone_tag: z.string().trim().optional(),
+    certificate_authority: z.string().trim().optional(),
+    created_on: z.string().trim().optional(),
   })
   .brand<"CloudflarePagesDomainState">()
   .readonly();
 
 const apiResponseSchema = z.looseObject({
-  id: z.string(),
-  name: z.string(),
-  domain_id: z.string().optional(),
-  status: z.string(),
-  zone_tag: z.string().optional(),
-  certificate_authority: z.string().optional(),
-  created_on: z.string().optional(),
+  id: z.string().trim(),
+  name: z.string().trim(),
+  domain_id: z.string().trim().optional(),
+  status: z.string().trim(),
+  zone_tag: z.string().trim().optional(),
+  certificate_authority: z.string().trim().optional(),
+  created_on: z.string().trim().optional(),
 });
 
 const identitySchema = pagesCustomDomainSpecSchema.pick({

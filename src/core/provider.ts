@@ -1,4 +1,4 @@
-import type { ZodType, ZodObject } from "zod";
+import type * as z from "zod";
 
 // ─── ResourcePort ────────────────────────────────────────────────────────────
 
@@ -16,8 +16,8 @@ import type { ZodType, ZodObject } from "zod";
  * which is valuable for adapter authors who import and use the schemas directly.
  */
 export interface ResourcePort<
-  TSpecSchema extends ZodType = ZodType,
-  TStateSchema extends ZodType = ZodType,
+  TSpecSchema extends z.ZodType = z.ZodType,
+  TStateSchema extends z.ZodType = z.ZodType,
 > {
   /** The resource kind this handler manages (e.g. "DnsRecord", "S3Bucket") */
   readonly kind: string;
@@ -33,14 +33,14 @@ export interface ResourcePort<
    * Used by the engine to look up existing resources.
    * Must be a subset of specSchema — use specSchema.pick({ ... }).
    */
-  readonly identitySchema: ZodObject<Record<string, ZodType>>;
+  readonly identitySchema: z.ZodObject<Record<string, z.ZodType>>;
 
   /**
    * Sub-schema containing only desired-state fields.
    * Used by the engine for convergence checking.
    * Must be a subset of specSchema — use specSchema.pick({ ... }).
    */
-  readonly desiredStateSchema: ZodObject<Record<string, ZodType>>;
+  readonly desiredStateSchema: z.ZodObject<Record<string, z.ZodType>>;
 
   /**
    * Extract the provider-assigned ID from a state object.
@@ -85,7 +85,7 @@ export interface ResourcePort<
  * and calls methods without compile-time knowledge of specific config types.
  * Each adapter validates config internally using `configSchema.safeParse()`.
  */
-export interface ProviderPort<TConfig extends ZodType = ZodType> {
+export interface ProviderPort<TConfig extends z.ZodType = z.ZodType> {
   /** Unique adapter name (e.g. "cloudflare", "aws") */
   readonly name: string;
 
@@ -115,7 +115,7 @@ export interface ProviderPort<TConfig extends ZodType = ZodType> {
  * and a factory function. The engine calls `create()` to produce a fresh
  * ProviderPort instance for each provider instance in the configuration.
  */
-export interface ProviderAdapter<TConfig extends ZodType = ZodType> {
+export interface ProviderAdapter<TConfig extends z.ZodType = z.ZodType> {
   /** Adapter name, available without calling the factory */
   readonly adapterName: string;
   /** Create a fresh ProviderPort instance */
@@ -142,7 +142,7 @@ export interface ProviderAdapter<TConfig extends ZodType = ZodType> {
  * const awsStaging = infra.provider("awsStaging", aws, { region: "us-east-1" });
  * ```
  */
-export function defineProvider<TConfig extends ZodType>(
+export function defineProvider<TConfig extends z.ZodType>(
   adapterName: string,
   factory: () => ProviderPort<TConfig>,
 ): ProviderAdapter<TConfig> {

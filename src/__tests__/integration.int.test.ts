@@ -6,7 +6,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { z } from "zod";
+import * as z from "zod";
 import { defineInfra } from "../authoring/compiler.js";
 import { declarative } from "../authoring/declarative.js";
 import { RefToken, refable } from "../core/refs.js";
@@ -22,25 +22,25 @@ import { DagCycleError } from "../core/errors.js";
 
 const mockSpecSchema = z.object({
   kind: z.literal("MockResource"),
-  name: z.string().min(1),
+  name: z.string().trim().min(1),
   /** Uses refable so tests can pass RefToken values without type assertions. */
-  value: refable(z.string()).optional(),
-  tags: z.record(z.string(), z.string()).optional(),
+  value: refable(z.string().trim()).optional(),
+  tags: z.record(z.string(), z.string().trim()).optional(),
 });
 
 const resolvedSpecSchema = z.object({
   kind: z.literal("MockResource"),
-  name: z.string().min(1),
-  value: z.string().optional(),
-  tags: z.record(z.string(), z.string()).optional(),
+  name: z.string().trim().min(1),
+  value: z.string().trim().optional(),
+  tags: z.record(z.string(), z.string().trim()).optional(),
 });
 
 const mockStateSchema = z
   .looseObject({
-    id: z.string(),
-    name: z.string(),
-    value: z.string().optional(),
-    status: z.string(),
+    id: z.string().trim(),
+    name: z.string().trim(),
+    value: z.string().trim().optional(),
+    status: z.string().trim(),
   })
   .brand<"MockState">()
   .readonly();
@@ -126,7 +126,9 @@ class MockResourceHandler implements ResourcePort<
 /** Mock provider that uses an in-memory store. */
 class MockProvider implements ProviderPort {
   readonly name = "mock";
-  readonly configSchema = z.strictObject({ region: z.string().optional() });
+  readonly configSchema = z.strictObject({
+    region: z.string().trim().optional(),
+  });
 
   private store = new Map<string, MockStoreEntry>();
 

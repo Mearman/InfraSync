@@ -2,7 +2,7 @@ import Cloudflare from "cloudflare";
 import type { ResourcePort } from "../../core/provider.js";
 import { RefToken } from "../../core/refs.js";
 import type { RefBuilder } from "../../authoring/handles.js";
-import { z } from "zod";
+import * as z from "zod";
 import {
   dnsRecordSpecSchema,
   dnsRecordIdentitySchema,
@@ -35,11 +35,11 @@ export const buildDnsRecordRefs: RefBuilder<DnsRecordRefs> = (
 
 const dnsRecordStateSchema = z
   .looseObject({
-    id: z.string(),
-    zone_id: z.string(),
-    type: z.string(),
-    name: z.string(),
-    content: z.string().optional(),
+    id: z.string().trim(),
+    zone_id: z.string().trim(),
+    type: z.string().trim(),
+    name: z.string().trim(),
+    content: z.string().trim().optional(),
     proxied: z.coerce.boolean(),
     ttl: z.coerce.number(),
   })
@@ -49,15 +49,15 @@ const dnsRecordStateSchema = z
 // ─── API response schema (adapter-internal) ──────────────────────────────────
 
 const apiResponseSchema = z.looseObject({
-  id: z.string(),
-  zone_id: z.string(),
-  type: z.string(),
-  name: z.string(),
-  content: z.string().optional(),
+  id: z.string().trim(),
+  zone_id: z.string().trim(),
+  type: z.string().trim(),
+  name: z.string().trim(),
+  content: z.string().trim().optional(),
   proxied: z.coerce.boolean(),
   ttl: z.coerce.number(),
-  created_on: z.string().optional(),
-  modified_on: z.string().optional(),
+  created_on: z.string().trim().optional(),
+  modified_on: z.string().trim().optional(),
   proxiable: z.boolean().optional(),
   meta: z.unknown().optional(),
 });
@@ -72,10 +72,10 @@ const apiResponseSchema = z.looseObject({
  */
 const resolvedSpecSchema = z.object({
   kind: z.literal("DnsRecord"),
-  domain: z.string().min(1),
+  domain: z.string().trim().min(1),
   type: z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"]),
-  value: z.string().min(1),
-  ttl: z.number().int().min(0),
+  value: z.string().trim().min(1),
+  ttl: z.int().min(0),
   proxied: z.boolean(),
 });
 

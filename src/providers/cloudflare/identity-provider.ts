@@ -6,7 +6,7 @@ import type {
 import type { ResourcePort } from "../../core/provider.js";
 import { RefToken } from "../../core/refs.js";
 import type { RefBuilder } from "../../authoring/handles.js";
-import { z } from "zod";
+import * as z from "zod";
 import { ProviderApiError } from "../../core/errors.js";
 import { getStateId } from "./helpers.js";
 
@@ -39,7 +39,7 @@ const idpConfigSchema = z.record(z.string(), z.unknown());
 
 export const identityProviderSpecSchema = z.object({
   kind: z.literal("IdentityProvider"),
-  name: z.string().min(1),
+  name: z.string().trim().min(1),
   type: z.enum([
     "oidc",
     "saml",
@@ -63,18 +63,18 @@ export type IdentityProviderSpec = z.infer<typeof identityProviderSpecSchema>;
 
 const identityProviderStateSchema = z
   .looseObject({
-    id: z.string(),
-    name: z.string(),
-    type: z.string(),
+    id: z.string().trim(),
+    name: z.string().trim(),
+    type: z.string().trim(),
     scim_config: z.unknown().optional(),
   })
   .brand<"CloudflareIdpState">()
   .readonly();
 
 const apiResponseSchema = z.looseObject({
-  id: z.string(),
-  name: z.string(),
-  type: z.string(),
+  id: z.string().trim(),
+  name: z.string().trim(),
+  type: z.string().trim(),
   scim_config: z.unknown().optional(),
 });
 

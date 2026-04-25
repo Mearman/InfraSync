@@ -6,7 +6,7 @@ import type {
 import type { ResourcePort } from "../../core/provider.js";
 import { RefToken, refable } from "../../core/refs.js";
 import type { RefBuilder } from "../../authoring/handles.js";
-import { z } from "zod";
+import * as z from "zod";
 import { ProviderApiError } from "../../core/errors.js";
 import { getStateId } from "./helpers.js";
 
@@ -40,8 +40,8 @@ const accessRuleArraySchema = z.array(z.unknown());
 export const accessPolicySpecSchema = z.object({
   kind: z.literal("AccessPolicy"),
   /** The Access Application ID this policy belongs to (for listing) */
-  applicationId: refable(z.string().min(1)),
-  name: z.string().min(1),
+  applicationId: refable(z.string().trim().min(1)),
+  name: z.string().trim().min(1),
   decision: z.enum(["allow", "deny", "non_identity", "bypass"]),
   include: accessRuleArraySchema,
   exclude: accessRuleArraySchema.optional(),
@@ -58,8 +58,8 @@ export type AccessPolicySpec = z.infer<typeof accessPolicySpecSchema>;
  */
 const resolvedSpecSchema = z.object({
   kind: z.literal("AccessPolicy"),
-  applicationId: z.string().min(1),
-  name: z.string().min(1),
+  applicationId: z.string().trim().min(1),
+  name: z.string().trim().min(1),
   decision: z.enum(["allow", "deny", "non_identity", "bypass"]),
   include: accessRuleArraySchema,
   exclude: accessRuleArraySchema.optional(),
@@ -68,27 +68,27 @@ const resolvedSpecSchema = z.object({
 
 const accessPolicyStateSchema = z
   .looseObject({
-    id: z.string(),
-    name: z.string(),
-    decision: z.string(),
+    id: z.string().trim(),
+    name: z.string().trim(),
+    decision: z.string().trim(),
     include: z.array(z.unknown()),
     exclude: z.array(z.unknown()).optional(),
     require: z.array(z.unknown()).optional(),
-    created_at: z.string().optional(),
-    updated_at: z.string().optional(),
+    created_at: z.string().trim().optional(),
+    updated_at: z.string().trim().optional(),
   })
   .brand<"CloudflareAccessPolicyState">()
   .readonly();
 
 const apiResponseSchema = z.looseObject({
-  id: z.string(),
-  name: z.string(),
-  decision: z.string(),
+  id: z.string().trim(),
+  name: z.string().trim(),
+  decision: z.string().trim(),
   include: z.array(z.unknown()),
   exclude: z.array(z.unknown()).optional(),
   require: z.array(z.unknown()).optional(),
-  created_at: z.string().optional(),
-  updated_at: z.string().optional(),
+  created_at: z.string().trim().optional(),
+  updated_at: z.string().trim().optional(),
 });
 
 const identitySchema = accessPolicySpecSchema.pick({

@@ -1,5 +1,4 @@
-import { z } from "zod";
-import type { ZodType } from "zod";
+import * as z from "zod";
 
 // ─── Diagnostic type for compile-time errors ─────────────────────────────────
 
@@ -47,7 +46,7 @@ interface SdkMismatch<TSdk, TSchema> {
  * For custom/internal providers without SDK types, this function is not needed —
  * the apiResponseSchema itself is the contract.
  */
-export function assertSdkCoverage<TSdk>(): <S extends ZodType>(
+export function assertSdkCoverage<TSdk>(): <S extends z.ZodType>(
   _schema: [keyof z.infer<S>] extends [keyof TSdk]
     ? z.infer<S> extends Pick<
         TSdk & Record<string, unknown>,

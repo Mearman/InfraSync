@@ -5,7 +5,7 @@ import type {
   ProviderAdapter,
 } from "../../core/provider.js";
 import { defineProvider } from "../../core/provider.js";
-import { z } from "zod";
+import * as z from "zod";
 import { DnsRecordResource } from "./dns-record.js";
 import { AccessApplicationResource } from "./access-app.js";
 import { AccessPolicyResource } from "./access-policy.js";
@@ -15,8 +15,8 @@ import { PagesCustomDomainResource } from "./pages-domain.js";
 // ─── Config schema ───────────────────────────────────────────────────────────
 
 export const cloudflareConfigSchema = z.strictObject({
-  apiToken: z.string().min(1),
-  accountId: z.string().min(1),
+  apiToken: z.string().trim().min(1),
+  accountId: z.string().trim().min(1),
 });
 
 export type CloudflareConfig = z.infer<typeof cloudflareConfigSchema>;

@@ -6,7 +6,7 @@ import type {
 import type { ResourcePort } from "../../core/provider.js";
 import { RefToken, refable } from "../../core/refs.js";
 import type { RefBuilder } from "../../authoring/handles.js";
-import { z } from "zod";
+import * as z from "zod";
 import { ProviderApiError } from "../../core/errors.js";
 import { getStateId } from "./helpers.js";
 
@@ -33,46 +33,46 @@ export const buildAccessApplicationRefs: RefBuilder<AccessApplicationRefs> = (
 export const accessApplicationSpecSchema = z.object({
   kind: z.literal("AccessApplication"),
   /** The domain and path that Access will secure (identity field) */
-  domain: z.string().min(1),
+  domain: z.string().trim().min(1),
   type: z.literal("self_hosted").default("self_hosted"),
-  name: z.string().min(1),
-  sessionDuration: z.string().optional(),
+  name: z.string().trim().min(1),
+  sessionDuration: z.string().trim().optional(),
   autoRedirectToIdentity: z.boolean().optional(),
   appLauncherVisible: z.boolean().optional(),
-  allowedIdps: z.array(refable(z.string())).optional(),
+  allowedIdps: z.array(refable(z.string().trim())).optional(),
 });
 
 export type AccessApplicationSpec = z.infer<typeof accessApplicationSpecSchema>;
 
 const accessApplicationStateSchema = z
   .looseObject({
-    id: z.string(),
-    domain: z.string(),
-    type: z.string(),
-    name: z.string(),
-    aud: z.string().optional(),
-    session_duration: z.string().optional(),
+    id: z.string().trim(),
+    domain: z.string().trim(),
+    type: z.string().trim(),
+    name: z.string().trim(),
+    aud: z.string().trim().optional(),
+    session_duration: z.string().trim().optional(),
     auto_redirect_to_identity: z.boolean().optional(),
     app_launcher_visible: z.boolean().optional(),
     allowed_idps: z.array(z.unknown()).optional(),
-    created_at: z.string().optional(),
-    updated_at: z.string().optional(),
+    created_at: z.string().trim().optional(),
+    updated_at: z.string().trim().optional(),
   })
   .brand<"CloudflareAccessAppState">()
   .readonly();
 
 const apiResponseSchema = z.looseObject({
-  id: z.string(),
-  domain: z.string(),
-  type: z.string(),
-  name: z.string(),
-  aud: z.string().optional(),
-  session_duration: z.string().optional(),
+  id: z.string().trim(),
+  domain: z.string().trim(),
+  type: z.string().trim(),
+  name: z.string().trim(),
+  aud: z.string().trim().optional(),
+  session_duration: z.string().trim().optional(),
   auto_redirect_to_identity: z.boolean().optional(),
   app_launcher_visible: z.boolean().optional(),
   allowed_idps: z.array(z.unknown()).optional(),
-  created_at: z.string().optional(),
-  updated_at: z.string().optional(),
+  created_at: z.string().trim().optional(),
+  updated_at: z.string().trim().optional(),
 });
 
 const identitySchema = accessApplicationSpecSchema.pick({ domain: true });

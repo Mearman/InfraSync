@@ -1,4 +1,4 @@
-import type { ZodType } from "zod";
+import type * as z from "zod";
 import type { SecretSourceIR } from "../ir/types.js";
 import type { ProviderAdapter } from "../core/provider.js";
 import { createProviderHandle } from "./handles.js";
@@ -81,7 +81,7 @@ export class InfraScope {
    * @param adapter - Adapter descriptor from defineProvider()
    * @param config - Provider config — may contain SecretSourceIR values
    */
-  provider<TConfig extends ZodType>(
+  provider<TConfig extends z.ZodType>(
     key: string,
     adapter: ProviderAdapter<TConfig>,
     config: Record<string, unknown>,
