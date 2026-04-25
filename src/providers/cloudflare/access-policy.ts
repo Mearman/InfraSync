@@ -35,7 +35,7 @@ export const buildAccessPolicyRefs: RefBuilder<AccessPolicyRefs> = (
  * that the value is an array of plain objects but don't enforce the SDK's
  * full union at the schema level. The SDK itself validates at the API boundary.
  */
-const accessRuleArraySchema = z.array(z.unknown());
+const accessRuleArraySchema = z.array(z.json());
 
 export const accessPolicySpecSchema = z.object({
   kind: z.literal("AccessPolicy"),
@@ -71,9 +71,9 @@ const accessPolicyStateSchema = z
     id: z.string().trim(),
     name: z.string().trim(),
     decision: z.string().trim(),
-    include: z.array(z.unknown()),
-    exclude: z.array(z.unknown()).optional(),
-    require: z.array(z.unknown()).optional(),
+    include: z.array(z.json()),
+    exclude: z.array(z.json()).optional(),
+    require: z.array(z.json()).optional(),
     created_at: z.string().trim().optional(),
     updated_at: z.string().trim().optional(),
   })
@@ -84,9 +84,9 @@ const apiResponseSchema = z.looseObject({
   id: z.string().trim(),
   name: z.string().trim(),
   decision: z.string().trim(),
-  include: z.array(z.unknown()),
-  exclude: z.array(z.unknown()).optional(),
-  require: z.array(z.unknown()).optional(),
+  include: z.array(z.json()),
+  exclude: z.array(z.json()).optional(),
+  require: z.array(z.json()).optional(),
   created_at: z.string().trim().optional(),
   updated_at: z.string().trim().optional(),
 });

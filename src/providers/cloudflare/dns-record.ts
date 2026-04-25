@@ -59,7 +59,7 @@ const apiResponseSchema = z.looseObject({
   created_on: z.string().trim().optional(),
   modified_on: z.string().trim().optional(),
   proxiable: z.boolean().optional(),
-  meta: z.unknown().optional(),
+  meta: z.json().optional(),
 });
 
 // ─── SDK parameter schema ────────────────────────────────────────────────────

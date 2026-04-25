@@ -35,7 +35,7 @@ export const buildIdentityProviderRefs: RefBuilder<IdentityProviderRefs> = (
  * (e.g. `AccessOIDC.Config`). Our spec accepts arbitrary objects — the exact
  * fields depend on the IdP type. The SDK validates at the API boundary.
  */
-const idpConfigSchema = z.record(z.string(), z.unknown());
+const idpConfigSchema = z.record(z.string(), z.json());
 
 export const identityProviderSpecSchema = z.object({
   kind: z.literal("IdentityProvider"),
@@ -66,7 +66,7 @@ const identityProviderStateSchema = z
     id: z.string().trim(),
     name: z.string().trim(),
     type: z.string().trim(),
-    scim_config: z.unknown().optional(),
+    scim_config: z.json().optional(),
   })
   .brand<"CloudflareIdpState">()
   .readonly();
@@ -75,7 +75,7 @@ const apiResponseSchema = z.looseObject({
   id: z.string().trim(),
   name: z.string().trim(),
   type: z.string().trim(),
-  scim_config: z.unknown().optional(),
+  scim_config: z.json().optional(),
 });
 
 const identitySchema = identityProviderSpecSchema.pick({ name: true });

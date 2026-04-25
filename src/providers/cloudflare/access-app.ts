@@ -54,7 +54,7 @@ const accessApplicationStateSchema = z
     session_duration: z.string().trim().optional(),
     auto_redirect_to_identity: z.boolean().optional(),
     app_launcher_visible: z.boolean().optional(),
-    allowed_idps: z.array(z.unknown()).optional(),
+    allowed_idps: z.array(z.json()).optional(),
     created_at: z.string().trim().optional(),
     updated_at: z.string().trim().optional(),
   })
@@ -70,7 +70,7 @@ const apiResponseSchema = z.looseObject({
   session_duration: z.string().trim().optional(),
   auto_redirect_to_identity: z.boolean().optional(),
   app_launcher_visible: z.boolean().optional(),
-  allowed_idps: z.array(z.unknown()).optional(),
+  allowed_idps: z.array(z.json()).optional(),
   created_at: z.string().trim().optional(),
   updated_at: z.string().trim().optional(),
 });
