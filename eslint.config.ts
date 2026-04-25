@@ -6,10 +6,10 @@ import json from "@eslint/json";
 import markdown from "@eslint/markdown";
 import eslintConfigPrettier from "eslint-config-prettier/flat";
 import eslintPluginPrettier from "eslint-plugin-prettier";
+import eslintPluginZod from "eslint-plugin-zod";
 import tseslint from "typescript-eslint";
 
 const tsconfigRootDir = dirname(fileURLToPath(import.meta.url));
-
 // ─── Custom rules ────────────────────────────────────────────────────────────
 
 /**
@@ -150,7 +150,16 @@ export default defineConfig(
       "@typescript-eslint/require-await": "off",
     },
   },
+  eslintPluginZod.configs.recommended,
   eslintConfigPrettier,
+  // Override: we use z.array(z.unknown()) intentionally for SDK bridge types
+  // where the full union cannot be expressed at the Zod schema level.
+  {
+    files: ["**/*.{ts,tsx}"],
+    rules: {
+      "zod/no-unknown-schema": "warn",
+    },
+  },
   {
     files: ["**/*.json"],
     language: "json/json",
