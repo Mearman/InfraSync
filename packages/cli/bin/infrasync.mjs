@@ -7,4 +7,4 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
 });
 
-jiti.import("../src/cli/index.js");
+jiti.import("../src/index.js");

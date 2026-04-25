@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import { loadConfig } from "./loader.js";
+import { loadIR } from "./ir-loader.js";
 import { buildRegistry } from "./registry.js";
 import { plan } from "./commands/plan.js";
 import { apply } from "./commands/apply.js";
@@ -52,7 +53,7 @@ Commands:
 
 Options:
   -c, --config <path>   Path to infra config file (default: infra.config.ts)
-      --ir <path>       Path to serialised InfraIR JSON file
+      --ir <path>       Path to serialised InfraIR JSON file (no adapter resolution)
   -h, --help            Show this help message
 
 Examples:
@@ -89,22 +90,69 @@ if (command !== "apply" && command !== "plan" && command !== "drift") {
 // ─── IR file path (low-level) ────────────────────────────────────────────────
 
 if (args.values.ir !== undefined) {
-  // TODO: Load IR from JSON file and execute directly
-  console.error("--ir flag is not yet implemented");
-  process.exit(1);
+  runWithIR(command, args.values.ir).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Fatal: ${message}`);
+    process.exit(1);
+  });
+} else {
+  // ─── Config file loading ───────────────────────────────────────────────────
+
+  const configPath = resolve(args.values.config ?? "infra.config.ts");
+
+  run(command, configPath).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Fatal: ${message}`);
+    process.exit(1);
+  });
 }
 
-// ─── Config file loading ─────────────────────────────────────────────────────
+// ─── IR file execution ───────────────────────────────────────────────────────
 
-const configPath = resolve(args.values.config ?? "infra.config.ts");
+/**
+ * Execute a command using a raw InfraIR JSON file.
+ *
+ * Bypasses config file loading and compilation — the IR is already
+ * in its final form. Useful for CI pipelines, testing, or external
+ * tooling that generates IR.
+ */
+async function runWithIR(
+  command: "apply" | "plan" | "drift",
+  irPath: string,
+): Promise<void> {
+  console.log(`Loading IR from ${irPath}...`);
+  const ir = await loadIR(irPath);
 
-run(command, configPath).catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
-  console.error(`Fatal: ${message}`);
-  process.exit(1);
-});
+  const resourceCount = String(ir.resources.length);
+  const providerCount = String(ir.providers.length);
+  console.log(
+    `Loaded "${ir.name}" with ${resourceCount} resource(s) and ${providerCount} provider instance(s)\n`,
+  );
 
-// ─── Main execution ──────────────────────────────────────────────────────────
+  // No adapters from a config file — all adapters must be registered
+  // by the resources themselves or provided externally.
+  const adapters = new Map(builtinAdapters);
+
+  switch (command) {
+    case "plan": {
+      const result = await plan(ir, adapters);
+      printPlan(result);
+      break;
+    }
+    case "apply": {
+      const result = await apply(ir, adapters);
+      printApply(result);
+      break;
+    }
+    case "drift": {
+      const result = await drift(ir, adapters);
+      printDrift(result);
+      break;
+    }
+  }
+}
+
+// ─── Config file execution ────────────────────────────────────────────────────
 
 async function run(
   command: "apply" | "plan" | "drift",
