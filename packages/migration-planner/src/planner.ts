@@ -205,44 +205,87 @@ function filterIgnoredChanges(
  */
 /**
  * Compute mitigation strategy from attribute diffs and TF lifecycle metadata.
+ *
+ * Resolution order (first match wins):
+ *   1. replace_triggered_by — if a destructive diff matches a triggered path,
+ *      force CBD regardless of other rules
+ *   2. prevent_destroy — blocks all automated replacement (unless overridden
+ *      by replace_triggered_by, matching Terraform behaviour)
+ *   3. create_before_destroy lifecycle — promotes to CBD
+ *   4. Plugin rule mitigations — CBD if any rule requests it, in-place-replace
+ *      if all destructive diffs support it
+ *   5. Default: destroy-before-create (not automated, requires confirmation)
  */
 function computeMitigation(
   diffs: readonly AttributeDiff[],
   tfResource: TerraformResourceIR,
 ): MitigationStrategy | undefined {
   const destructiveDiffs = diffs.filter((d) => d.safety === "destructive");
-  if (destructiveDiffs.length === 0) return undefined;
+  const hasDestructive = destructiveDiffs.length > 0;
 
-  // Check if TF lifecycle specifies create_before_destroy
   const lifecycle = tfResource.config?.meta.lifecycle;
-  if (lifecycle?.preventDestroy === true) {
+  const replaceTriggeredBy = lifecycle?.replaceTriggeredBy;
+  const preventDestroy = lifecycle?.preventDestroy === true;
+  const createBeforeDestroy = lifecycle?.createBeforeDestroy === true;
+
+  // 1. replace_triggered_by — check ALL diffs, not just destructive.
+  // In Terraform, replace_triggered_by forces replacement regardless of safety.
+  if (replaceTriggeredBy !== undefined && replaceTriggeredBy.length > 0) {
+    const triggered = isTriggeredByReplace(diffs, replaceTriggeredBy);
+    if (triggered) {
+      return {
+        automated: true,
+        strategy: "create-before-destroy",
+        preservesData: true,
+        requiresDowntime: false,
+        description:
+          "Resource has replace_triggered_by matching changed attributes — forces create-before-destroy replacement",
+      };
+    }
+  }
+
+  // If no destructive diffs and no replace_triggered_by match, no mitigation needed
+  if (!hasDestructive) return undefined;
+
+  // Collect plugin rule mitigations for destructive diffs
+  const mitigations = destructiveDiffs
+    .map((d) => d.mitigation)
+    .filter((m): m is NonNullable<typeof m> => m !== undefined);
+
+  // 2. prevent_destroy — blocks automated replacement
+  if (preventDestroy) {
     return {
       automated: false,
       strategy: "none",
       preservesData: false,
       requiresDowntime: true,
       description:
-        "Resource has prevent_destroy enabled — destruction is blocked",
+        "Resource has prevent_destroy enabled — destruction is blocked. Requires manual override.",
     };
   }
 
-  // Check if any destructive diff has a mitigation from plugin rules
-  const mitigations = destructiveDiffs
-    .map((d) => d.mitigation)
-    .filter((m): m is NonNullable<typeof m> => m !== undefined);
-
-  // Prefer create-before-destroy if available
-  if (
-    mitigations.includes("create-before-destroy") ||
-    lifecycle?.createBeforeDestroy === true
-  ) {
+  // 3. create_before_destroy lifecycle
+  if (createBeforeDestroy) {
     return {
       automated: true,
       strategy: "create-before-destroy",
       preservesData: true,
       requiresDowntime: false,
       description:
-        "Destructive changes can be automated using create-before-destroy strategy — new resource created before old is destroyed",
+        "Resource has create_before_destroy enabled — new resource created before old is destroyed",
+    };
+  }
+
+  // 4. Plugin rule mitigations
+  // CBD if any rule requests it
+  if (mitigations.includes("create-before-destroy")) {
+    return {
+      automated: true,
+      strategy: "create-before-destroy",
+      preservesData: true,
+      requiresDowntime: false,
+      description:
+        "Destructive changes can be automated using create-before-destroy strategy (from plugin rule)",
     };
   }
 
@@ -261,7 +304,7 @@ function computeMitigation(
     };
   }
 
-  // Default: destroy-before-create (requires confirmation)
+  // 5. Default: destroy-before-create (not automated, requires confirmation)
   return {
     automated: false,
     strategy: "destroy-before-create",
@@ -270,6 +313,34 @@ function computeMitigation(
     description:
       "Destructive changes require destroy-before-create — data loss possible, manual intervention recommended",
   };
+}
+
+/**
+ * Check if any destructive diff path matches a replace_triggered_by entry.
+ *
+ * replace_triggered_by paths are relative to the resource (e.g. ["tags",
+ * "type"]). Diff paths use "spec." prefix, so we strip it for matching.
+ * Supports exact match and prefix match (e.g. "tags" matches "tags.foo").
+ */
+function isTriggeredByReplace(
+  destructiveDiffs: readonly AttributeDiff[],
+  replaceTriggeredBy: readonly string[],
+): boolean {
+  const triggeredSet = new Set(replaceTriggeredBy);
+
+  for (const diff of destructiveDiffs) {
+    const relativePath = diff.path.replace(/^spec\./, "");
+    for (const triggered of triggeredSet) {
+      if (
+        relativePath === triggered ||
+        relativePath.startsWith(`${triggered}.`)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 function normaliseForComparison(

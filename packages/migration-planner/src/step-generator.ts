@@ -53,7 +53,7 @@ export function generateSteps(
         break;
       case "replace-create":
         createSteps.push(builder);
-        // Generate paired replace-destroy step
+        // CBD: generate paired replace-destroy step (depends on the create)
         deleteSteps.push({
           id: `${builder.id}-destroy`,
           action: "replace-destroy",
@@ -71,7 +71,23 @@ export function generateSteps(
         });
         break;
       case "replace-destroy":
+        // DBC: destroy step comes first, generate paired create step (depends on the destroy)
         deleteSteps.push(builder);
+        createSteps.push({
+          id: `${builder.id}-create`,
+          action: "replace-create",
+          target: builder.target,
+          resourceType: builder.resourceType,
+          resourceName: builder.resourceName,
+          description: describeReplaceDestroyCreateFollowup(
+            builder.resourceType,
+            builder.resourceName,
+          ),
+          safety: builder.safety,
+          dependsOn: [builder.id],
+          payload: builder.payload,
+          requiresConfirmation: true,
+        });
         break;
       case "delete":
         deleteSteps.push(builder);
@@ -152,10 +168,32 @@ function buildStepBuilder(
     };
   }
 
-  // Destructive with automated mitigation → replace-create + replace-destroy
+  // Forced replacement from replace_triggered_by — generates CBD steps
+  // even for non-destructive (safe/risky) changes
+  if (
+    change.mitigation?.strategy === "create-before-destroy" &&
+    change.safety !== "destructive"
+  ) {
+    const target = resolveTarget(change, direction);
+    return {
+      id: `step-${String(index)}`,
+      action: "replace-create",
+      target,
+      resourceType: resolveType(change),
+      resourceName: resolveName(change),
+      description: `Forced replacement (replace_triggered_by) of ${resolveType(change)} "${resolveName(change)}" — CBD strategy`,
+      safety: change.safety,
+      dependsOn: [],
+      payload: change,
+      requiresConfirmation: false,
+    };
+  }
+
+  // Destructive with automated CBD mitigation → replace-create + replace-destroy
   if (
     change.safety === "destructive" &&
-    change.mitigation?.automated === true
+    change.mitigation?.automated === true &&
+    change.mitigation.strategy === "create-before-destroy"
   ) {
     const target = resolveTarget(change, direction);
     return {
@@ -172,7 +210,48 @@ function buildStepBuilder(
     };
   }
 
-  // Destructive without automated mitigation → manual intervention
+  // Destructive with automated in-place-replace → update step (no replacement)
+  if (
+    change.safety === "destructive" &&
+    change.mitigation?.automated === true &&
+    change.mitigation.strategy === "in-place-replace"
+  ) {
+    return {
+      id: `step-${String(index)}`,
+      action: "update",
+      target: resolveTarget(change, direction),
+      resourceType: resolveType(change),
+      resourceName: resolveName(change),
+      description: describeInPlaceReplace(change),
+      safety: change.safety,
+      dependsOn: [],
+      payload: change,
+      requiresConfirmation: false,
+    };
+  }
+
+  // Destructive with DBC (destroy-before-create) → replace-destroy + replace-create
+  // with requiresConfirmation. Ordering: destroy first, then create.
+  if (
+    change.safety === "destructive" &&
+    change.mitigation?.strategy === "destroy-before-create"
+  ) {
+    const target = resolveTarget(change, direction);
+    return {
+      id: `step-${String(index)}`,
+      action: "replace-destroy",
+      target,
+      resourceType: resolveType(change),
+      resourceName: resolveName(change),
+      description: describeReplaceDestroyCreate(change),
+      safety: change.safety,
+      dependsOn: [],
+      payload: change,
+      requiresConfirmation: true,
+    };
+  }
+
+  // Destructive with prevent_destroy (strategy: none) → manual intervention
   if (change.safety === "destructive") {
     return {
       id: `step-${String(index)}`,
@@ -269,6 +348,27 @@ function describeReplaceDestroy(
   resourceName: string,
 ): string {
   return `Replace-destroy ${resourceType} "${resourceName}" — removes old resource after replacement is ready`;
+}
+
+function describeInPlaceReplace(change: ResourceChange): string {
+  const name = resolveName(change);
+  const type = resolveType(change);
+  const diffCount = String(change.attributeDiffs.length);
+  return `In-place replace ${type} "${name}" (${diffCount} change(s)) — destructive attributes replaced without full resource recreation`;
+}
+
+function describeReplaceDestroyCreate(change: ResourceChange): string {
+  const name = resolveName(change);
+  const type = resolveType(change);
+  const diffCount = String(change.attributeDiffs.length);
+  return `Replace-destroy ${type} "${name}" (DBC, ${diffCount} destructive change(s)) — old resource destroyed before new is created. Data loss possible.`;
+}
+
+function describeReplaceDestroyCreateFollowup(
+  resourceType: string,
+  resourceName: string,
+): string {
+  return `Replace-create ${resourceType} "${resourceName}" (DBC followup) — creates new resource after old was destroyed`;
 }
 
 function describeManualIntervention(change: ResourceChange): string {
