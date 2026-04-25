@@ -7,6 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { exportTfConfigJson } from "../export-config-json.js";
+import { cloudflareResourceMappers } from "../cloudflare-mappers.js";
 import type { InfraIR } from "@infrasync/core/schemas";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -339,4 +340,109 @@ test("duplicate resource names produce last-wins (Terraform semantics)", () => {
   const dnsType = obj(resource.cloudflare_dns_record, "dns type");
   const record = obj(dnsType.thing, "thing");
   assert.equal(record.type, "CNAME");
+});
+
+// ─── Cloudflare resource mappers ─────────────────────────────────────────────
+
+test("cloudflare mapper: DnsRecord → cloudflare_record with spec transform", () => {
+  const ir: InfraIR = {
+    name: "cf-test",
+    providers: [{ key: "cf", adapterName: "cloudflare", config: {} }],
+    resources: [
+      {
+        name: "www",
+        provider: "cf",
+        kind: "DnsRecord",
+        mode: "manage",
+        spec: {
+          kind: "DnsRecord",
+          domain: "www.example.com",
+          type: "CNAME",
+          value: "target.example.com",
+          ttl: 300,
+          proxied: true,
+        },
+        dependsOn: [],
+        refBindings: [],
+      },
+    ],
+  };
+
+  const result = exportTfConfigJson(ir, {
+    resourceMappers: { cloudflare: cloudflareResourceMappers },
+  });
+  const tf = parseTfJson(result.content);
+  const resource = obj(tf.resource, "resource");
+
+  // Kind "DnsRecord" should map to "cloudflare_record" (not "cloudflare_dns_record")
+  assert.ok(
+    !("cloudflare_dns_record" in resource),
+    "Should not use default snake_case name",
+  );
+  const cfRecord = obj(resource.cloudflare_record, "cloudflare_record");
+  const www = obj(cfRecord.www, "www record");
+
+  // Spec fields should be mapped: domain→name, value→content, zone extracted
+  assert.equal(www.name, "www.example.com");
+  assert.equal(www.type, "CNAME");
+  assert.equal(www.content, "target.example.com");
+  assert.equal(www.ttl, 300);
+  assert.equal(www.proxied, true);
+  assert.equal(www.zone_id, "example.com");
+});
+
+test("cloudflare mapper: AccessApplication → cloudflare_access_application", () => {
+  const ir: InfraIR = {
+    name: "cf-test",
+    providers: [{ key: "cf", adapterName: "cloudflare", config: {} }],
+    resources: [
+      {
+        name: "my-app",
+        provider: "cf",
+        kind: "AccessApplication",
+        mode: "manage",
+        spec: { domain: "app.example.com" },
+        dependsOn: [],
+        refBindings: [],
+      },
+    ],
+  };
+
+  const result = exportTfConfigJson(ir, {
+    resourceMappers: { cloudflare: cloudflareResourceMappers },
+  });
+  const tf = parseTfJson(result.content);
+  const resource = obj(tf.resource, "resource");
+  assert.ok("cloudflare_access_application" in resource);
+});
+
+test("cloudflare mapper: without mappers, uses default snake_case convention", () => {
+  const ir: InfraIR = {
+    name: "cf-test",
+    providers: [{ key: "cf", adapterName: "cloudflare", config: {} }],
+    resources: [
+      {
+        name: "www",
+        provider: "cf",
+        kind: "DnsRecord",
+        mode: "manage",
+        spec: {
+          domain: "www.example.com",
+          type: "CNAME",
+          value: "target.example.com",
+          ttl: 300,
+          proxied: false,
+        },
+        dependsOn: [],
+        refBindings: [],
+      },
+    ],
+  };
+
+  const result = exportTfConfigJson(ir);
+  const tf = parseTfJson(result.content);
+  const resource = obj(tf.resource, "resource");
+
+  // Without mappers, falls back to cloudflare_dns_record
+  assert.ok("cloudflare_dns_record" in resource);
 });

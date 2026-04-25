@@ -33,9 +33,25 @@ const DEFAULT_PROVIDER_SOURCES: Readonly<Record<string, string>> = {
 
 // ─── Export options ───────────────────────────────────────────────────────────
 
+/** Maps an InfraSync resource kind to a Terraform resource type and spec transform. */
+export interface ResourceMapper {
+  /** InfraSync resource kind (e.g. "DnsRecord") */
+  readonly kind: string;
+  /** Terraform resource type (e.g. "cloudflare_record") */
+  readonly tfType: string;
+  /** Transform spec fields to Terraform attribute names. */
+  readonly mapSpec?:
+    | ((spec: Readonly<Record<string, unknown>>) => Record<string, unknown>)
+    | undefined;
+}
+
 export interface TfConfigJsonExportOptions {
   /** Override provider source mappings (adapter name → registry source). */
   readonly providerSources?: Readonly<Record<string, string>> | undefined;
+  /** Per-adapter resource mappers (adapter name → mappers). */
+  readonly resourceMappers?:
+    | Readonly<Record<string, readonly ResourceMapper[]>>
+    | undefined;
 }
 
 // ─── Export result ────────────────────────────────────────────────────────────
@@ -155,16 +171,24 @@ export function exportTfConfigJson(
     }
 
     // Convert InfraSync resource kind to Terraform resource type.
-    // Convention: adapter prefix + underscore + kind (e.g. "cloudflare_record")
-    const tfType = `${adapterName}_${toSnakeCase(resource.kind)}`;
+    // First check for explicit mapper, then fall back to convention.
+    const mapper = options.resourceMappers?.[adapterName]?.find(
+      (m) => m.kind === resource.kind,
+    );
+    const tfType =
+      mapper?.tfType ?? `${adapterName}_${toSnakeCase(resource.kind)}`;
     const tfName = toSnakeCase(resource.name);
 
     // Track for ref resolution
     resourceAddresses.set(resource.name, { type: tfType, name: tfName });
 
     // Resolve spec values — translate RefTokens to Terraform expressions
+    const rawSpec =
+      mapper?.mapSpec !== undefined
+        ? mapper.mapSpec(resource.spec)
+        : resource.spec;
     const resolvedSpec = resolveSpecValues(
-      resource.spec,
+      rawSpec,
       resourceAddresses,
       reporter,
     );

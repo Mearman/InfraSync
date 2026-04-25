@@ -13,6 +13,7 @@ import { runTerraformShowJson } from "./commands/terraform-show-json.js";
 import type { InfraIR } from "@infrasync/core/types";
 import { importTfConfigJson } from "@infrasync/adapter-terraform-config-json/import-config-json";
 import { exportTfConfigJson } from "@infrasync/adapter-terraform-config-json/export-config-json";
+import { cloudflareResourceMappers } from "@infrasync/adapter-terraform-config-json/cloudflare-mappers";
 import {
   importStateJson,
   importPlanJson,
@@ -300,11 +301,20 @@ async function runExportTfConfigCommand(): Promise<void> {
 
   const exportOptions: {
     providerSources?: Record<string, string>;
+    resourceMappers?: Record<
+      string,
+      import("@infrasync/adapter-terraform-config-json/export-config-json").ResourceMapper[]
+    >;
   } = {};
 
   if (Object.keys(providerSourceOverrides).length > 0) {
     exportOptions.providerSources = providerSourceOverrides;
   }
+
+  // Always include built-in Cloudflare mappers
+  exportOptions.resourceMappers = {
+    cloudflare: [...cloudflareResourceMappers],
+  };
 
   const result = exportTfConfigJson(ir, exportOptions);
 
