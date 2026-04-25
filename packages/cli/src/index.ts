@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import { loadConfig } from "./loader.js";
-import { loadIR } from "./ir-loader.js";
+import { loadAdapters, loadIR } from "./ir-loader.js";
 import { buildRegistry } from "./registry.js";
 import { plan } from "./commands/plan.js";
 import { apply } from "./commands/apply.js";
@@ -28,7 +28,12 @@ const args = parseArgs({
     },
     ir: {
       type: "string",
-      description: "Path to a serialised InfraIR JSON file (low-level)",
+      description: "Path to a serialised InfraIR JSON file",
+    },
+    adapters: {
+      type: "string",
+      description:
+        "Path to a module exporting provider adapters (used with --ir)",
     },
     help: {
       type: "boolean",
@@ -52,14 +57,16 @@ Commands:
   drift   Show drift between desired and actual state
 
 Options:
-  -c, --config <path>   Path to infra config file (default: infra.config.ts)
-      --ir <path>       Path to serialised InfraIR JSON file (no adapter resolution)
-  -h, --help            Show this help message
+  -c, --config <path>       Path to infra config file (default: infra.config.ts)
+      --ir <path>           Path to serialised InfraIR JSON file
+      --adapters <path>     Path to adapters module (required with --ir)
+  -h, --help                Show this help message
 
 Examples:
   infrasync apply --config infra.config.ts
   infrasync plan
   infrasync drift
+  infrasync apply --ir infra.ir.json --adapters ./adapters.ts
 `);
 }
 
@@ -90,11 +97,20 @@ if (command !== "apply" && command !== "plan" && command !== "drift") {
 // ─── IR file path (low-level) ────────────────────────────────────────────────
 
 if (args.values.ir !== undefined) {
-  runWithIR(command, args.values.ir).catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`Fatal: ${message}`);
+  if (args.values.adapters === undefined) {
+    console.error(
+      "Error: --adapters is required when using --ir. Provide a path to a module that exports provider adapters.",
+    );
+    console.error("Run 'infrasync --help' for usage.");
     process.exit(1);
-  });
+  }
+  runWithIR(command, args.values.ir, args.values.adapters).catch(
+    (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`Fatal: ${message}`);
+      process.exit(1);
+    },
+  );
 } else {
   // ─── Config file loading ───────────────────────────────────────────────────
 
@@ -119,19 +135,23 @@ if (args.values.ir !== undefined) {
 async function runWithIR(
   command: "apply" | "plan" | "drift",
   irPath: string,
+  adaptersPath: string,
 ): Promise<void> {
   console.log(`Loading IR from ${irPath}...`);
   const ir = await loadIR(irPath);
+
+  console.log(`Loading adapters from ${adaptersPath}...`);
+  const adapterRecord = await loadAdapters(adaptersPath);
+  const adapters = new Map(builtinAdapters);
+  for (const [name, adapter] of Object.entries(adapterRecord)) {
+    adapters.set(name, adapter);
+  }
 
   const resourceCount = String(ir.resources.length);
   const providerCount = String(ir.providers.length);
   console.log(
     `Loaded "${ir.name}" with ${resourceCount} resource(s) and ${providerCount} provider instance(s)\n`,
   );
-
-  // No adapters from a config file — all adapters must be registered
-  // by the resources themselves or provided externally.
-  const adapters = new Map(builtinAdapters);
 
   switch (command) {
     case "plan": {
