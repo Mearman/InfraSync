@@ -76,9 +76,11 @@ Define infrastructure with nested `Infra` scopes, declarative fragments, or any 
 ```typescript
 import {
 	defineInfra,
+} from "@infrasync/core/compiler";
+import {
 	cloudflare as cloudflareAdapter,
 	createCloudflareHandle,
-} from "@infrasync/core/compiler";
+} from "@infrasync/cloudflare";
 
 const infra = defineInfra("prod", (infra) => {
 	const cfBase = infra.provider("cf", cloudflareAdapter, {
@@ -1538,31 +1540,35 @@ import type { InternalPlatformConfig } from "./schemas";
 import { ServiceResource } from "./service-resource";
 import { InternalPlatformClient } from "./client";
 
-export const internalPlatformProvider = defineProvider<typeof configSchema>({
-	name: "internalPlatform",
-	configSchema,
-
-	client: undefined as InternalPlatformClient | undefined,
+class InternalPlatformProvider implements ProviderPort<typeof configSchema> {
+	readonly name = "internalPlatform";
+	readonly configSchema = configSchema;
+	private client: InternalPlatformClient | undefined;
 
 	async connect(config: InternalPlatformConfig) {
 		// config has already been validated by configSchema.safeParse()
 		this.client = new InternalPlatformClient(config.baseUrl, config.apiKey);
 		await this.client.get("/health");
-	},
+	}
 
 	async disconnect() {
 		this.client = undefined;
-	},
+	}
 
 	supportedKinds() {
 		return ["Service"];
-	},
+	}
 
 	resourceHandler(kind: string) {
 		if (kind === "Service") return new ServiceResource(this.client!);
 		throw new Error(`Unsupported resource kind: ${kind}`);
-	},
-});
+	}
+}
+
+export const internalPlatformProvider = defineProvider(
+	"internalPlatform",
+	() => new InternalPlatformProvider(),
+);
 ```
 
 #### 4. Register and use
