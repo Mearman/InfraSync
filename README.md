@@ -389,9 +389,9 @@ Each compiled `ResourceIR` has:
 | `provider`           | Which provider **instance** to route this resource to (e.g. `"awsProd"`, `"cfCompany"`, `"github"`)                             |
 | `kind`               | The resource type within that provider (e.g. `DnsRecord`, `S3Bucket`, `Repository`)                                              |
 | `mode`               | `"manage"` (default) or `"read"`                                                                                                 |
+| `spec`               | Raw spec object — may contain `RefTokenIR` or `SecretSourceIR` values. Identity and desired-state fields live inside spec.       |
 | `dependsOn`          | Optional explicit dependency edges — resources that must be processed before this one, even if no symbolic ref connects them.    |
-| Identity fields      | Fields used to match against existing resources (e.g. `domain` for an app, `name` for a bucket)                                  |
-| Desired state fields | Fields that should be enforced (e.g. `versioning` for a bucket, `content` for a DNS record). May contain symbolic refs.          |
+| `refBindings`        | Optional symbolic ref bindings extracted from the spec at compile time. Each maps a spec path to a target resource and state path. |
 
 InfraSync uses **identity fields** to find existing resources (not provider-assigned IDs — those are opaque and provider-specific). If a matching resource exists, its desired state fields are compared and updated only when drifted. If no match is found, the resource is created.
 
@@ -586,67 +586,51 @@ const infra = defineInfra("prod", (infra) => {
 ```
 
 Interoperability is symmetrical — functional authoring can consume declarative outputs, and declarative fragments can target provider instances and refs created in functionally authored infra.
-#### How the compiler and engine build the DAG from handles
+#### How the compiler and engine build the DAG from compiled IR
 
-Builder methods like `awsProd.s3Bucket(...)` return internal resource handles. These are not the canonical execution format — they are compilation artefacts the SDK uses before emitting `InfraIR`.
+Builder methods like `awsProd.s3Bucket(...)` return internal resource handles during authoring. The compiler extracts dependency edges from these handles and emits them into `InfraIR`. The engine then builds the DAG from the compiled IR, not from live handles:
 
 ```typescript
-// The resource handle carries dependency identity during compilation
-
-interface ResourceHandle<TSpec, TState> {
-	/** Unique name — the DAG node key */
+// ResourceIR — the compiled format the engine consumes
+interface ResourceIR {
 	readonly name: string;
-	/** Provider instance key (e.g. "awsProd", "cfCompany") */
 	readonly provider: string;
 	readonly kind: string;
 	readonly mode: "manage" | "read";
-	readonly rawSpec: TSpec;
-
-	/**
-	 * Refs extracted from the spec at construction time.
-	 * Each entry maps a spec field path to a [targetHandle, statePath] pair.
-	 */
-	readonly refs: ReadonlyMap<string, [ResourceHandle<any, any>, string]>;
-
-	/** Handles listed in dependsOn */
-	readonly explicitDeps: ReadonlySet<ResourceHandle<any, any>>;
+	readonly spec: Record<string, unknown>; // may contain RefTokenIR values
+	readonly dependsOn?: readonly string[];
+	readonly refBindings?: readonly RefBindingIR[];
 }
 
-function buildDag(
-	resources: Array<ResourceHandle<any, any> | RawResource>,
-): ResourceNode[] {
-	const nodes = new Map<string, ResourceNode>();
+// DagNode — a resource and its dependency edges
+interface DagNode {
+	readonly resource: ResourceIR;
+	readonly deps: ReadonlySet<string>; // names of resources processed first
+}
 
-	for (const resource of resources) {
-		const isHandle = "name" in resource && "refs" in resource;
+function buildDag(resources: readonly ResourceIR[]): DagNode[] {
+	return resources.map((resource) => {
 		const deps = new Set<string>();
-		const refBindings = new Map<string, string>();
 
-		if (isHandle) {
-			// Edges from symbolic refs — already extracted, type-safe
-			for (const [, [target, statePath]] of resource.refs) {
-				deps.add(target.name);
+		// Edges from ref bindings — extracted from spec at compile time
+		if (resource.refBindings !== undefined) {
+			for (const binding of resource.refBindings) {
+				deps.add(binding.resource);
 			}
-			// Edges from dependsOn — handle references, guaranteed to exist
-			for (const dep of resource.explicitDeps) {
-				deps.add(dep.name);
-			}
-		} else {
-			// Declarative object — walk for ref tokens (untyped fallback)
-			walkSpec(resource, (path, token) => {
-				deps.add(token.target);
-				refBindings.set(path, token.dotPath);
-			});
 		}
 
-		nodes.set(resource.name, { /* ... */ });
-	}
+		// Edges from explicit dependsOn declarations
+		if (resource.dependsOn !== undefined) {
+			for (const dep of resource.dependsOn) {
+				deps.add(dep);
+		}
 
-	// Validate, topological sort, return
+		return { resource, deps };
+	});
 }
 ```
 
-Handles carry their dependency edges at construction time — the compiler does not need to walk functionally authored specs with string matching. Declarative fragments use a raw-spec walk because their structure is data rather than live handles, but they remain first-class citizens in the compiled graph.
+Dependency edges come from two sources in the compiled IR: `refBindings` (symbolic refs extracted from the spec at compile time) and `dependsOn` (explicit ordering declarations). Both are plain data in the IR — the engine never touches live handles or proxies.
 
 #### Processing in topological order
 
@@ -660,7 +644,7 @@ for (const node of sortedNodes) {
 	const handler = getHandler(node.providerInstance, node.kind);
 
 	// 1. Resolve all symbolic ref tokens using the state map
-	const resolvedSpec = resolveRefs(node.rawSpec, node.refBindings, stateMap);
+	const resolvedSpec = resolveRefs(resource.spec, stateMap);
 
 	// 2. Validate the resolved spec against the schema
 	const specResult = handler.specSchema.safeParse(resolvedSpec);
@@ -698,7 +682,8 @@ for (const node of sortedNodes) {
 			const desired = handler.desiredStateSchema.parse(spec);
 			const actual = handler.desiredStateSchema.parse(state);
 			if (!deepEqual(desired, actual)) {
-				const updated = await handler.update((state as any).id, spec);
+				const stateId = handler.getStateId(state);
+				const updated = await handler.update(stateId, spec);
 				const updatedResult = handler.stateSchema.safeParse(updated);
 				if (!updatedResult.success) {
 					allIssues.push({ resource: node.name, issues: updatedResult.error.issues });
@@ -952,6 +937,12 @@ interface ResourcePort<
 		id: string,
 		spec: z.infer<TSpecSchema>,
 	): Promise<z.infer<TStateSchema>>;
+
+	/**
+	 * Extract the provider-assigned ID from a state object.
+	 * Used by the engine to pass the correct ID to `update()`.
+	 */
+	getStateId(state: unknown): string;
 }
 ```
 
@@ -1672,12 +1663,14 @@ packages/
       sync.ts                  # Main sync engine (build DAG → read → plan → apply)
       dag.ts                   # DAG construction, topological sort, cycle detection
       plan.ts                  # Plan computation and diffing
-      resource.ts              # Resource model types and identity matching
+      resource.ts              # Resource model types, identity matching, secret resolution
       provider.ts              # Provider adapter interface and defineProvider
+      errors.ts                # ProviderApiError for adapter error reporting
       dns-record.ts            # Normalised DnsRecord schema (works across Cloudflare, AWS, GCP)
   core-ir/                     # @infrasync/core-ir
     src/
       schemas.ts               # TerraformIR Zod schemas, address parser, JSON Schema export
+      terraform-ir.ts          # Re-exports inferred types from schemas.ts
   core-fidelity/               # @infrasync/core-fidelity
     src/
       schemas.ts               # Fidelity report Zod schemas
@@ -1713,6 +1706,7 @@ packages/
       dns-record.ts            # DnsRecord resource handler + codec
       identity-provider.ts     # IdentityProvider resource handler
       pages-domain.ts          # PagesCustomDomain resource handler
+      helpers.ts               # Shared Cloudflare API helpers
   cli/                         # @infrasync/cli
     src/
       index.ts                 # CLI entry point
@@ -1727,9 +1721,13 @@ packages/
       exporters/
         cdktf-ts.ts            # CDKTF project generator
         types.ts               # Exporter result types
+      ir-loader.ts             # Load InfraIR from JSON files
+      loader.ts                # Load config files via jiti (TS transpilation)
+      registry.ts              # Adapter registry (Map<string, ProviderAdapter>)
 docs/
   terraform-interoperability-spec.md   # Bidirectional TF ↔ InfraSync interop spec
   terraform-interoperability-plan.md   # 5-phase implementation plan
+  terraform-interoperability-usage.md  # Usage guide for all interop commands
 ```
 
 ## Development
