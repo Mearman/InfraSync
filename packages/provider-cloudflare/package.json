@@ -1,0 +1,32 @@
+{
+  "name": "@infrasync/cloudflare",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --cache"
+  },
+  "dependencies": {
+    "cloudflare": "5.2.0"
+  },
+  "peerDependencies": {
+    "@infrasync/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@infrasync/core": "workspace:*",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3"
+  }
+}

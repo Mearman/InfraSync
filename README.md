@@ -64,7 +64,7 @@ import {
 	defineInfra,
 	cloudflare as cloudflareAdapter,
 	createCloudflareHandle,
-} from "infrasync";
+} from "@infrasync/core/compiler";
 
 const infra = defineInfra("prod", (infra) => {
 	const cfBase = infra.provider("cf", cloudflareAdapter, {
@@ -288,10 +288,10 @@ A symbolic ref creates both a dependency edge and an attribute binding. `depends
 The problem with string-based references is that TypeScript cannot verify either the path or the resolved type. InfraSync's public API avoids string paths entirely. Provider methods return typed resource handles, and each handle exposes a `.ref` namespace derived from the resource's state schema.
 
 ```typescript
-import { defineInfra, aws, cloudflare } from "infrasync";
+import { defineInfra } from "@infrasync/core/compiler";
+import { cloudflare } from "@infrasync/cloudflare";
 
 const infra = defineInfra("media", (infra) => {
-	const awsProd = infra.provider("awsProd", aws, { region: "eu-west-2" });
 	const cf = infra.provider("cloudflare", cloudflare, {
 		apiToken: infra.secret.env("CLOUDFLARE_API_TOKEN"),
 	});
@@ -1064,7 +1064,7 @@ Each provider defines a codec that maps between the normalised spec and its own 
 ```typescript
 // src/providers/cloudflare/dns-record-codec.ts
 import { z } from "zod";
-import { dnsRecordSpecSchema } from "../../core/schemas/dns-record";
+import { dnsRecordSpecSchema } from "@infrasync/core/dns-record";
 
 /** Cloudflare's API shape for a DNS record.
  *  looseObject: tolerate extra fields like metadata, comment, tags.
@@ -1114,7 +1114,7 @@ export const cloudflareDnsCodec = z.codec(
 ```typescript
 // src/providers/aws/route53-record-codec.ts
 import { z } from "zod";
-import { dnsRecordSpecSchema } from "../../core/schemas/dns-record";
+import { dnsRecordSpecSchema } from "@infrasync/core/dns-record";
 
 /** AWS Route53's API shape for a resource record set.
  *  looseObject: Route53 returns many fields we don't model.
@@ -1161,14 +1161,14 @@ The `ResourcePort` uses the codec's `decode` direction to transform specs before
 
 ```typescript
 // src/providers/cloudflare/dns-record.ts
-import type { ResourcePort } from "infrasync";
+import type { ResourcePort } from "@infrasync/core/provider";
 import {
 	dnsRecordSpecSchema,
 	dnsRecordIdentitySchema,
 	dnsRecordDesiredStateSchema,
-} from "../../core/schemas/dns-record";
+} from "@infrasync/core/dns-record";
 import { cloudflareDnsCodec } from "./dns-record-codec";
-import type { DnsRecordSpec } from "../../core/schemas/dns-record";
+import type { DnsRecordSpec } from "@infrasync/core/dns-record";
 
 export class CloudflareDnsRecord implements ResourcePort<
 	typeof dnsRecordSpecSchema,
@@ -1347,7 +1347,7 @@ Why `.pick()` for identity and desired state? The engine needs to know which fie
 
 ```typescript
 // service-resource.ts
-import type { ResourcePort } from "infrasync";
+import type { ResourcePort } from "@infrasync/core/provider";
 import {
 	serviceSpecSchema,
 	serviceStateSchema,
@@ -1398,8 +1398,8 @@ export class ServiceResource implements ResourcePort<
 
 ```typescript
 // index.ts
-import { defineProvider } from "infrasync";
-import type { ProviderPort } from "infrasync";
+import { defineProvider } from "@infrasync/core/provider";
+import type { ProviderPort } from "@infrasync/core/provider";
 import { configSchema } from "./schemas";
 import type { InternalPlatformConfig } from "./schemas";
 import { ServiceResource } from "./service-resource";
@@ -1435,7 +1435,7 @@ export const internalPlatformProvider = defineProvider<typeof configSchema>({
 #### 4. Register and use
 
 ```typescript
-import { defineInfra } from "infrasync";
+import { defineInfra } from "@infrasync/core/compiler";
 import { internalPlatformProvider } from "./providers/internal-platform";
 
 const infra = defineInfra("internal", (infra) => {

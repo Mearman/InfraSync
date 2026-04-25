@@ -1,38 +1,14 @@
 {
-  "name": "infrasync",
-  "version": "0.1.0",
-  "description": "Stateless infrastructure management for TypeScript",
+  "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./cli": {
-      "types": "./dist/cli.d.ts",
-      "import": "./dist/cli.js"
-    }
-  },
-  "files": [
-    "dist",
-    "bin"
-  ],
-  "bin": {
-    "infrasync": "./bin/infrasync.mjs"
-  },
-  "scripts": {
-    "lint": "eslint . --cache",
-    "lint:fix": "eslint . --fix --cache",
-    "typecheck": "tsc -p tsconfig.json",
-    "build": "tsup",
-    "prepublishOnly": "pnpm run build",
-    "prepare": "husky",
-    "cli": "node ./bin/infrasync.mjs",
-    "test": "node --import tsx --test src/__tests__/*.int.test.ts"
-  },
   "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "prepare": "husky"
+  },
   "devDependencies": {
     "@commitlint/cli": "20.5.0",
     "@commitlint/config-conventional": "20.5.0",
@@ -44,16 +20,10 @@
     "eslint-plugin-prettier": "5.5.5",
     "eslint-plugin-zod": "3.6.0",
     "husky": "9.1.7",
-    "jiti": "2.6.1",
     "lint-staged": "16.4.0",
     "prettier": "3.8.3",
-    "tsup": "8.5.1",
-    "tsx": "4.21.0",
+    "turbo": "2.9.6",
     "typescript": "6.0.3",
     "typescript-eslint": "8.58.2"
-  },
-  "dependencies": {
-    "cloudflare": "5.2.0",
-    "zod": "4.3.6"
   }
 }
