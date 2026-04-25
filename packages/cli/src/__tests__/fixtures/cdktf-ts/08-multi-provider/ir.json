@@ -1,0 +1,44 @@
+{
+  "name": "multi-provider",
+  "providers": [
+    {
+      "key": "cf",
+      "adapterName": "cloudflare",
+      "config": {}
+    },
+    {
+      "key": "aws",
+      "adapterName": "aws",
+      "config": {
+        "region": "eu-west-1"
+      }
+    }
+  ],
+  "resources": [
+    {
+      "name": "dns-record",
+      "provider": "cf",
+      "kind": "DnsRecord",
+      "mode": "manage",
+      "spec": {
+        "kind": "DnsRecord",
+        "name": "www.example.com",
+        "type": "A",
+        "content": "1.2.3.4",
+        "zoneId": "zone-abc"
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "bucket",
+      "provider": "aws",
+      "kind": "S3Bucket",
+      "mode": "manage",
+      "spec": {
+        "kind": "S3Bucket",
+        "bucket": "my-bucket"
+      },
+      "dependsOn": []
+    }
+  ]
+}

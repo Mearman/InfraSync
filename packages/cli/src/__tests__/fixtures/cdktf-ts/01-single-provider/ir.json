@@ -1,0 +1,13 @@
+{
+  "name": "single-provider",
+  "providers": [
+    {
+      "key": "cf",
+      "adapterName": "cloudflare",
+      "config": {
+        "apiToken": { "$secret": { "kind": "env", "name": "CLOUDFLARE_API_TOKEN" } }
+      }
+    }
+  ],
+  "resources": []
+}

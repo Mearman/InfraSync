@@ -1,0 +1,28 @@
+{
+  "name": "single-resource",
+  "providers": [
+    {
+      "key": "cf",
+      "adapterName": "cloudflare",
+      "config": {}
+    }
+  ],
+  "resources": [
+    {
+      "name": "my-record",
+      "provider": "cf",
+      "kind": "DnsRecord",
+      "mode": "manage",
+      "spec": {
+        "kind": "DnsRecord",
+        "zoneId": "abc123",
+        "type": "A",
+        "name": "example.com",
+        "content": "1.2.3.4",
+        "ttl": 300,
+        "proxied": true
+      },
+      "dependsOn": []
+    }
+  ]
+}

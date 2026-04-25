@@ -1,0 +1,37 @@
+{
+  "name": "depends-on",
+  "providers": [
+    {
+      "key": "cf",
+      "adapterName": "cloudflare",
+      "config": {}
+    }
+  ],
+  "resources": [
+    {
+      "name": "zone",
+      "provider": "cf",
+      "kind": "Zone",
+      "mode": "manage",
+      "spec": {
+        "kind": "Zone",
+        "name": "example.com"
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "record",
+      "provider": "cf",
+      "kind": "DnsRecord",
+      "mode": "manage",
+      "spec": {
+        "kind": "DnsRecord",
+        "type": "A",
+        "name": "www.example.com",
+        "content": "1.2.3.4",
+        "zoneId": "zone-123"
+      },
+      "dependsOn": ["zone"]
+    }
+  ]
+}

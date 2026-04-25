@@ -1,0 +1,42 @@
+[
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"listOfObjects\" was converted to \"list_of_objects\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"listOfStrings\" was converted to \"list_of_strings\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"nestedObject\" was converted to \"nested_object\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"deeperObject\" was converted to \"deeper_object\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"leafValue\" was converted to \"leaf_value\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"deepKey\" was converted to \"deep_key\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"simpleBool\" was converted to \"simple_bool\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"simpleNull\" was converted to \"simple_null\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"simpleNumber\" was converted to \"simple_number\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"simpleString\" was converted to \"simple_string\" for Terraform compatibility"
+  }
+]

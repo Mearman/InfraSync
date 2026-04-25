@@ -1,0 +1,34 @@
+[
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "provider key \"accessKey\" was converted to \"access_key\" for Terraform compatibility"
+  },
+  {
+    "code": "SECRET_ENV_REQUIRED",
+    "message": "Secret source \"AWS_ACCESS_KEY\" was mapped to requireEnv(\"AWS_ACCESS_KEY\") in generated TypeScript"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "provider key \"apiToken\" was converted to \"api_token\" for Terraform compatibility"
+  },
+  {
+    "code": "SECRET_ENV_REQUIRED",
+    "message": "Secret source \"CF_TOKEN\" was mapped to requireEnv(\"CF_TOKEN\") in generated TypeScript"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"indexDocument\" was converted to \"index_document\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"zoneId\" was converted to \"zone_id\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"zoneId\" was converted to \"zone_id\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"zoneId\" was converted to \"zone_id\" for Terraform compatibility"
+  }
+]

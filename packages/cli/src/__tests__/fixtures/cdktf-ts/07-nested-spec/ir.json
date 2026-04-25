@@ -1,0 +1,39 @@
+{
+  "name": "nested-spec",
+  "providers": [
+    {
+      "key": "aws",
+      "adapterName": "aws",
+      "config": {
+        "region": "us-east-1"
+      }
+    }
+  ],
+  "resources": [
+    {
+      "name": "complex-resource",
+      "provider": "aws",
+      "kind": "SomeResource",
+      "mode": "manage",
+      "spec": {
+        "kind": "SomeResource",
+        "simpleString": "hello",
+        "simpleNumber": 42,
+        "simpleBool": true,
+        "simpleNull": null,
+        "nestedObject": {
+          "deepKey": "value",
+          "deeperObject": {
+            "leafValue": "found"
+          }
+        },
+        "listOfStrings": ["a", "b", "c"],
+        "listOfObjects": [
+          { "name": "first", "value": 1 },
+          { "name": "second", "value": 2 }
+        ]
+      },
+      "dependsOn": []
+    }
+  ]
+}

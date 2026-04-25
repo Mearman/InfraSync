@@ -18,7 +18,8 @@
   "scripts": {
     "_build": "tsdown",
     "_typecheck": "tsc -p tsconfig.json --noEmit",
-    "_lint": "eslint . --cache"
+    "_lint": "eslint . --cache",
+    "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
   },
   "dependencies": {
     "jiti": "2.6.1"
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@infrasync/core": "workspace:*",
     "tsdown": "0.21.7",
+    "tsx": "4.21.0",
     "typescript": "6.0.3"
   }
 }

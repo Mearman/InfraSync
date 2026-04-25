@@ -1,0 +1,20 @@
+{
+  "name": "full_stack-cdktf-generated",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "synth": "cdktf synth",
+    "diff": "cdktf diff",
+    "deploy": "cdktf deploy",
+    "destroy": "cdktf destroy"
+  },
+  "dependencies": {
+    "cdktf": "^0.20.8",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "cdktf-cli": "^0.20.8",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

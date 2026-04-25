@@ -1,0 +1,10 @@
+{
+  "language": "typescript",
+  "app": "pnpm tsx main.ts",
+  "projectId": "depends_on",
+  "sendCrashReports": "false",
+  "terraformProviders": [],
+  "terraformModules": [],
+  "codeMakerOutput": "imports",
+  "context": {}
+}

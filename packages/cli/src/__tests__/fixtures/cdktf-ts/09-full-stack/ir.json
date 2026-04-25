@@ -1,0 +1,73 @@
+{
+  "name": "full-stack",
+  "providers": [
+    {
+      "key": "cf",
+      "adapterName": "cloudflare",
+      "config": {
+        "apiToken": { "$secret": { "kind": "env", "name": "CF_TOKEN" } }
+      }
+    },
+    {
+      "key": "aws-east",
+      "adapterName": "aws",
+      "config": {
+        "region": "us-east-1",
+        "accessKey": { "$secret": { "kind": "env", "name": "AWS_ACCESS_KEY" } }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "name": "zone",
+      "provider": "cf",
+      "kind": "Zone",
+      "mode": "manage",
+      "spec": {
+        "kind": "Zone",
+        "name": "example.com",
+        "zoneId": "zone-123"
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "bucket",
+      "provider": "aws-east",
+      "kind": "S3Bucket",
+      "mode": "manage",
+      "spec": {
+        "kind": "S3Bucket",
+        "bucket": "my-bucket",
+        "website": {
+          "indexDocument": "index.html"
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "record",
+      "provider": "cf",
+      "kind": "DnsRecord",
+      "mode": "manage",
+      "spec": {
+        "kind": "DnsRecord",
+        "zoneId": { "$ref": { "resource": "zone", "path": "zoneId" } },
+        "type": "CNAME",
+        "name": "cdn.example.com",
+        "content": "cdn.example.net"
+      },
+      "dependsOn": ["zone", "bucket"]
+    },
+    {
+      "name": "zone-info",
+      "provider": "cf",
+      "kind": "ZoneInfo",
+      "mode": "read",
+      "spec": {
+        "kind": "ZoneInfo",
+        "zoneId": { "$ref": { "resource": "zone", "path": "zoneId" } }
+      },
+      "dependsOn": ["zone"]
+    }
+  ]
+}

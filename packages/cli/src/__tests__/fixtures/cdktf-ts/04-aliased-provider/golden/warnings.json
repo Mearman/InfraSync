@@ -1,0 +1,26 @@
+[
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "provider key \"apiToken\" was converted to \"api_token\" for Terraform compatibility"
+  },
+  {
+    "code": "SECRET_ENV_REQUIRED",
+    "message": "Secret source \"CF_PROD_TOKEN\" was mapped to requireEnv(\"CF_PROD_TOKEN\") in generated TypeScript"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "provider key \"apiToken\" was converted to \"api_token\" for Terraform compatibility"
+  },
+  {
+    "code": "SECRET_ENV_REQUIRED",
+    "message": "Secret source \"CF_STAGING_TOKEN\" was mapped to requireEnv(\"CF_STAGING_TOKEN\") in generated TypeScript"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"zoneId\" was converted to \"zone_id\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"zoneId\" was converted to \"zone_id\" for Terraform compatibility"
+  }
+]

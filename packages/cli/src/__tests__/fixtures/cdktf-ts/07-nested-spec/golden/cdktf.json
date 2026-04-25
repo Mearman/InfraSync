@@ -1,0 +1,10 @@
+{
+  "language": "typescript",
+  "app": "pnpm tsx main.ts",
+  "projectId": "nested_spec",
+  "sendCrashReports": "false",
+  "terraformProviders": [],
+  "terraformModules": [],
+  "codeMakerOutput": "imports",
+  "context": {}
+}

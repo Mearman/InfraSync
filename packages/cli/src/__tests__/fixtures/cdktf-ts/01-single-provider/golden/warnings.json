@@ -1,0 +1,10 @@
+[
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "provider key \"apiToken\" was converted to \"api_token\" for Terraform compatibility"
+  },
+  {
+    "code": "SECRET_ENV_REQUIRED",
+    "message": "Secret source \"CLOUDFLARE_API_TOKEN\" was mapped to requireEnv(\"CLOUDFLARE_API_TOKEN\") in generated TypeScript"
+  }
+]

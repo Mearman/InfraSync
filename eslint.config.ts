@@ -101,7 +101,11 @@ const customPlugin = {
 
 export default defineConfig(
   {
-    ignores: ["**/dist/**", "**/node_modules/**"],
+    ignores: [
+      "**/dist/**",
+      "**/node_modules/**",
+      "**/__tests__/fixtures/**/golden/**",
+    ],
   },
   {
     files: ["**/*.{ts,tsx}"],

@@ -1,0 +1,10 @@
+[
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"zoneId\" was converted to \"zone_id\" for Terraform compatibility"
+  },
+  {
+    "code": "KEY_CASE_CONVERTED",
+    "message": "resource key \"zoneId\" was converted to \"zone_id\" for Terraform compatibility"
+  }
+]
