@@ -152,14 +152,6 @@ export default defineConfig(
   },
   eslintPluginZod.configs.recommended,
   eslintConfigPrettier,
-  // Override: we use z.array(z.unknown()) intentionally for SDK bridge types
-  // where the full union cannot be expressed at the Zod schema level.
-  {
-    files: ["**/*.{ts,tsx}"],
-    rules: {
-      "zod/no-unknown-schema": "warn",
-    },
-  },
   {
     files: ["**/*.json"],
     language: "json/json",
