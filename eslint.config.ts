@@ -105,6 +105,7 @@ export default defineConfig(
       "**/dist/**",
       "**/node_modules/**",
       "**/__tests__/fixtures/**/golden/**",
+      "**/tsdown.config.ts",
     ],
   },
   {
