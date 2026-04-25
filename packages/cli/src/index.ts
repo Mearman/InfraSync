@@ -8,6 +8,7 @@ import { apply } from "./commands/apply.js";
 import { drift } from "./commands/drift.js";
 import { exportCdktfTypeScript } from "./commands/export-cdktf-ts.js";
 import { runFidelityCommand } from "./commands/fidelity.js";
+import { runMigrateCommand } from "./commands/migrate.js";
 import { runTerraformShowJson } from "./commands/terraform-show-json.js";
 import type { InfraIR } from "@infrasync/core/types";
 import { importTfConfigJson } from "@infrasync/adapter-terraform-config-json/import-config-json";
@@ -18,6 +19,7 @@ import {
 } from "@infrasync/adapter-terraform-show-json/import-show-json";
 import { convertToInfraIR } from "@infrasync/adapter-terraform-show-json/convert-to-infra-ir";
 import { terraformIRSchema } from "@infrasync/core-ir/schemas";
+import type { MigrationDirection } from "@infrasync/migration-planner";
 
 // ─── Built-in adapters ───────────────────────────────────────────────────────
 
@@ -86,6 +88,18 @@ const args = parseArgs({
       description:
         "Convert TerraformIR to InfraIR after import (terraform-state/terraform-plan)",
     },
+    "terraform-file": {
+      type: "string",
+      description: "Path to TerraformIR JSON file (for migrate command)",
+    },
+    "infrasync-file": {
+      type: "string",
+      description: "Path to InfraIR JSON file (for migrate command)",
+    },
+    direction: {
+      type: "string",
+      description: "Migration direction: tf-to-infrasync or infrasync-to-tf",
+    },
     help: {
       type: "boolean",
       short: "h",
@@ -112,6 +126,7 @@ Commands:
   import terraform-state   Import terraform show -json state output into Terraform IR
   export cdktf-ts           Generate a CDKTF TypeScript project from InfraIR
   export terraform-config   Export InfraIR as Terraform Configuration JSON (*.tf.json)
+  migrate                   Compare TerraformIR and InfraIR, produce migration plan
 
 Options:
   -c, --config <path>                      Path to infra config file (default: infra.config.ts)
@@ -125,6 +140,9 @@ Options:
       --provider-source <adapter=source>   Override Terraform provider source mapping
       --json                               Output fidelity report as JSON
       --convert-infra                      Convert TerraformIR → InfraIR after import
+      --terraform-file <path>              TerraformIR file for migrate command
+      --infrasync-file <path>              InfraIR file for migrate command
+      --direction <dir>                    Migration direction (tf-to-infrasync|infrasync-to-tf)
   -h, --help                               Show this help message
 
 Examples:
@@ -137,6 +155,8 @@ Examples:
   infrasync import terraform-state --file state.json
   infrasync import terraform-state --statefile terraform.tfstate
   infrasync import terraform-plan --file plan.json
+  infrasync migrate --terraform-file tf.json --infrasync-file infra.json --direction tf-to-infrasync
+  infrasync migrate --terraform-file tf.json --infrasync-file infra.json --direction infrasync-to-tf --json --out plan.json
   infrasync import terraform-plan --planfile tfplan
   infrasync export terraform-config --config infra.config.ts --out generated.tf.json
   infrasync export cdktf-ts --config infra.config.ts --out ./generated/cdktf
@@ -176,6 +196,18 @@ if (command === "export") {
 } else if (command === "fidelity") {
   runFidelityCommand(args.values.file ?? "", {
     json: args.values.json,
+  }).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Fatal: ${message}`);
+    process.exit(1);
+  });
+} else if (command === "migrate") {
+  runMigrateCommand({
+    terraformFile: args.values["terraform-file"] ?? "",
+    infrasyncFile: args.values["infrasync-file"] ?? "",
+    direction: validateDirection(args.values.direction),
+    out: args.values.out,
+    json: args.values.json ?? false,
   }).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Fatal: ${message}`);
@@ -441,6 +473,20 @@ async function runImportTerraformStateBinary(
     result.warnings,
     result.fidelity,
   );
+}
+
+function validateDirection(value: string | undefined): MigrationDirection {
+  if (value === "tf-to-infrasync" || value === "infrasync-to-tf") return value;
+  if (value === undefined) {
+    console.error(
+      "Error: --direction is required (tf-to-infrasync or infrasync-to-tf)",
+    );
+  } else {
+    console.error(
+      `Error: invalid direction "${value}". Use tf-to-infrasync or infrasync-to-tf.`,
+    );
+  }
+  process.exit(1);
 }
 
 function maybeConvertInfraIR(

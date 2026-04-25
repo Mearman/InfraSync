@@ -118,6 +118,9 @@ importers:
       '@infrasync/core-ir':
         specifier: workspace:*
         version: link:../core-ir
+      '@infrasync/migration-planner':
+        specifier: workspace:*
+        version: link:../migration-planner
       jiti:
         specifier: 2.6.1
         version: 2.6.1
