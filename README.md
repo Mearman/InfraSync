@@ -944,7 +944,14 @@ interface ResourcePort<
 	 * Extract the provider-assigned ID from a state object.
 	 * Used by the engine to pass the correct ID to `update()`.
 	 */
-	getStateId(state: unknown): string;
+	 getStateId(state: unknown): string;
+
+	/**
+	 * Optional codec for normalising provider state into spec-equivalent form.
+	 * When present, the engine uses encode() before convergence checking
+	 * so desiredStateSchema comparisons work against normalised data.
+	 */
+	readonly codec?: ResourceCodec;
 }
 ```
 
@@ -1194,166 +1201,126 @@ export const dnsRecordDesiredStateSchema = dnsRecordSpecSchema.pick({
 
 #### Provider-specific codecs
 
-Each provider defines a codec that maps between the normalised spec and its own API shape:
+Each provider defines a codec that maps between the normalised spec and its own API shape. The codec is split into two layers:
+
+1. **Internal `ZodCodec`** — typed bidirectional transform using `z.codec()`. The adapter calls `.decode()` and `.encode()` with strongly-typed data.
+2. **External `ResourceCodec`** — accepts `unknown` at its boundaries (matching the `ResourcePort` pattern). The engine uses this for convergence normalisation.
 
 ```typescript
-// src/providers/cloudflare/dns-record-codec.ts
-import { z } from "zod";
-import { dnsRecordSpecSchema } from "@infrasync/core/dns-record";
+// packages/provider-cloudflare/src/dns-record.ts
+import * as z from "zod";
+import type { ResourceCodec } from "@infrasync/core/provider";
 
-/** Cloudflare's API shape for a DNS record.
- *  looseObject: tolerate extra fields like metadata, comment, tags.
- *  brand: prevent mix-ups with Route53 or GCP state.
- *  readonly: freeze after parsing.
- *  coerce: Cloudflare sometimes returns ttl as a string. */
-const cloudflareDnsStateSchema = z
-	.looseObject({
-		id: z.string(),
-		zone_id: z.string(),
-		type: z.string(),
-		name: z.string(),
-		content: z.string(),
-		proxied: z.coerce.boolean(),
-		ttl: z.coerce.number(),
-	})
-	.brand<"CloudflareDnsState">()
-	.readonly();
+// Codec input: the resolved spec after ref resolution
+const resolvedSpecSchema = z.object({
+	kind: z.literal("DnsRecord"),
+	domain: z.string().trim().min(1),
+	type: z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"]),
+	value: z.string().trim().min(1),
+	ttl: z.int().min(0),
+	proxied: z.boolean(),
+});
 
-/** Codec: normalised ↔ Cloudflare */
-export const cloudflareDnsCodec = z.codec(
-	dnsRecordSpecSchema, // input schema: normalised spec
-	cloudflareDnsStateSchema, // output schema: Cloudflare state
-	{
-		// Normalised → Cloudflare (used before create/update)
-		decode: (spec) => ({
-			type: spec.type,
-			name: spec.domain,
-			content: spec.value,
-			ttl: spec.ttl,
-			proxied: spec.proxied,
-		}),
+const DNS_RECORD_KIND = "DnsRecord" as const;
+const dnsRecordTypeSchema = z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"]);
 
-		// Cloudflare → normalised (used after read, for convergence checking)
-		encode: (state) => ({
-			kind: "DnsRecord" as const,
-			domain: state.name,
-			type: state.type as DnsRecordSpec["type"],
-			value: state.content,
-			ttl: state.ttl,
-			proxied: state.proxied,
-		}),
+// Codec output: Cloudflare DNS record fields
+// looseObject so encode() accepts full API responses (id, zone_id, timestamps)
+const cloudflareDnsFieldsSchema = z.looseObject({
+	type: z.string().trim(),
+	name: z.string().trim(),
+	content: z.string().trim().optional(),
+	ttl: z.coerce.number(),
+	proxied: z.coerce.boolean(),
+});
+
+// Internal ZodCodec — typed transform for adapter use
+const zodCodec = z.codec(resolvedSpecSchema, cloudflareDnsFieldsSchema, {
+	// Normalised → Cloudflare (before create/update)
+	decode: (spec) => ({
+		type: spec.type,
+		name: spec.domain,
+		content: spec.value,
+		ttl: spec.ttl,
+		proxied: spec.proxied,
+	}),
+
+	// Cloudflare → normalised (after read, for convergence checking)
+	encode: (state) => ({
+		kind: DNS_RECORD_KIND,
+		domain: state.name,
+		type: dnsRecordTypeSchema.parse(state.type),
+		value: state.content ?? "",
+		ttl: Number(state.ttl),
+		proxied: Boolean(state.proxied),
+	}),
+});
+
+// External ResourceCodec — accepts unknown for engine use
+const cloudflareDnsCodec: ResourceCodec = {
+	encode(state: unknown): unknown {
+		const result = cloudflareDnsFieldsSchema.safeParse(state);
+		if (!result.success) return state;
+		return zodCodec.encode(result.data);
 	},
-);
+	decode(spec: unknown): unknown {
+		const result = resolvedSpecSchema.safeParse(spec);
+		if (!result.success) return spec;
+		return zodCodec.decode(result.data);
+	},
+};
 ```
 
 ```typescript
-// src/providers/aws/route53-record-codec.ts
-import { z } from "zod";
-import { dnsRecordSpecSchema } from "@infrasync/core/dns-record";
-
-/** AWS Route53's API shape for a resource record set.
- *  looseObject: Route53 returns many fields we don't model.
- *  brand: prevents passing this where Cloudflare state is expected. */
-const route53RecordStateSchema = z
-	.looseObject({
-		Name: z.string(),
-		Type: z.string(),
-		TTL: z.coerce.number().optional(),
-		ResourceRecords: z.array(z.object({ Value: z.string() })).optional(),
-		AliasTarget: z.object({ DNSName: z.string() }).optional(),
-	})
-	.brand<"Route53DnsState">()
-	.readonly();
-
-/** Codec: normalised ↔ AWS Route53 */
-export const route53DnsCodec = z.codec(
-	dnsRecordSpecSchema,
-	route53RecordStateSchema,
-	{
-		decode: (spec) => ({
-			Name: `${spec.domain}.`, // Route53 requires trailing dot
-			Type: spec.type,
-			TTL: spec.ttl,
-			ResourceRecords: [{ Value: spec.value }],
-		}),
-
-		encode: (state) => ({
-			kind: "DnsRecord" as const,
-			domain: state.Name.replace(/\.$/, ""), // strip trailing dot
-			type: state.Type as DnsRecordSpec["type"],
-			value:
-				state.ResourceRecords?.[0]?.Value ?? state.AliasTarget?.DNSName ?? "",
-			ttl: state.TTL ?? 300,
-			proxied: false, // Route53 has no proxy concept
-		}),
+// Future: AWS Route53 codec (same pattern)
+const route53Codec: ResourceCodec = {
+	encode(state: unknown): unknown {
+		// Validate, then map Route53 → normalised
 	},
-);
+	decode(spec: unknown): unknown {
+		// Validate, then map normalised → Route53 params
+	},
+};
+```
 ```
 
 #### Using the codec in the ResourcePort
 
-The `ResourcePort` uses the codec's `decode` direction to transform specs before calling the SDK, and the engine uses `encode` to normalise state for convergence checking:
+The `ResourcePort` exposes the `ResourceCodec` via its `codec` field. The engine uses `codec.encode(state)` to normalise provider state for convergence checking. The adapter uses the internal `ZodCodec` for typed field mapping in `create()`/`update()`:
 
 ```typescript
-// src/providers/cloudflare/dns-record.ts
-import type { ResourcePort } from "@infrasync/core/provider";
-import {
-	dnsRecordSpecSchema,
-	dnsRecordIdentitySchema,
-	dnsRecordDesiredStateSchema,
-} from "@infrasync/core/dns-record";
-import { cloudflareDnsCodec } from "./dns-record-codec";
-import type { DnsRecordSpec } from "@infrasync/core/dns-record";
+// packages/provider-cloudflare/src/dns-record.ts
+import type { ResourcePort, ResourceCodec } from "@infrasync/core/provider";
 
-export class CloudflareDnsRecord implements ResourcePort<
+export class DnsRecordResource implements ResourcePort<
 	typeof dnsRecordSpecSchema,
-	typeof cloudflareDnsCodec._output
+	typeof dnsRecordStateSchema
 > {
 	readonly kind = "DnsRecord";
 	readonly specSchema = dnsRecordSpecSchema;
-	readonly stateSchema = cloudflareDnsCodec._output; // Cloudflare-specific state schema
+	readonly stateSchema = dnsRecordStateSchema; // full Cloudflare state (id, zone_id, ...)
 	readonly identitySchema = dnsRecordIdentitySchema;
 	readonly desiredStateSchema = dnsRecordDesiredStateSchema;
-	readonly codec = cloudflareDnsCodec;
+	readonly codec: ResourceCodec = cloudflareDnsCodec; // for engine convergence
 
-	constructor(private client: Cloudflare) {}
-
-	async read(spec: DnsRecordSpec) {
-		// codec.decode transforms normalised spec into Cloudflare lookup params
-		const cfParams = this.codec.decode(spec);
-		const zone = await this.client.zones.list({
-			name: extractZone(spec.domain),
-		});
-		const records = await this.client.dns.records.list({
-			zone_id: zone.result[0].id,
-			type: cfParams.type as any,
-			name: { exact: cfParams.name },
-		});
-		return records.result[0]; // raw Cloudflare state — engine will encode() it back
-	}
-
-	async create(spec: DnsRecordSpec) {
-		const cfParams = this.codec.decode(spec);
-		const zone = await this.client.zones.list({
-			name: extractZone(spec.domain),
-		});
-		return this.client.dns.records.create({
-			zone_id: zone.result[0].id,
-			...cfParams,
-		});
-	}
-
-	async update(id: string, spec: DnsRecordSpec) {
-		const cfParams = this.codec.decode(spec);
-		const zone = await this.client.zones.list({
-			name: extractZone(spec.domain),
-		});
-		return this.client.dns.records.update(id, {
-			zone_id: zone.result[0].id,
-			...cfParams,
-		});
+	async create(spec: unknown): Promise<unknown> {
+		const resolved = parseResolvedSpec(spec, "create");
+		const cfParams = zodCodec.decode(resolved); // typed field mapping
+		// ... SDK call using cfParams.name, cfParams.content, etc.
 	}
 }
+```
+
+The engine's convergence check uses the codec transparently:
+
+```typescript
+// packages/core/src/sync.ts (inside processNode)
+const normalisedState = handler.codec !== undefined
+	? handler.codec.encode(state)
+	: state;
+const desiredResult = handler.desiredStateSchema.safeParse(resolvedSpec);
+const actualResult = handler.desiredStateSchema.safeParse(normalisedState);
+if (deepEqual(desiredResult.data, actualResult.data)) { /* converged */ }
 ```
 
 #### The user writes one spec, targets any provider

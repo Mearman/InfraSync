@@ -246,8 +246,14 @@ export class SyncEngine {
 
     // Check convergence for manage-mode resources
     if (action === "update" && state !== undefined) {
+      // Normalise provider state through the codec if one exists,
+      // so convergence checking compares apples to apples.
+      const normalisedState =
+        handler.codec !== undefined ? handler.codec.encode(state) : state;
+
       const desiredResult = handler.desiredStateSchema.safeParse(resolvedSpec);
-      const actualResult = handler.desiredStateSchema.safeParse(state);
+      const actualResult =
+        handler.desiredStateSchema.safeParse(normalisedState);
 
       if (desiredResult.success && actualResult.success) {
         if (deepEqual(desiredResult.data, actualResult.data)) {

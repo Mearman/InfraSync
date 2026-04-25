@@ -1,5 +1,26 @@
 import type * as z from "zod";
 
+// ─── Codec interface ─────────────────────────────────────────────────────────
+
+/**
+ * A bidirectional codec for mapping between normalised spec fields and
+ * provider-specific state fields.
+ *
+ * - `decode(normalised)` → provider-specific params (before SDK calls)
+ * - `encode(providerState)` → normalised form (for convergence checking)
+ *
+ * All methods accept `unknown` because callers (engine, adapter) operate at
+ * boundaries where data is not yet validated. Implementations validate
+ * internally using their Zod schemas before delegating to the underlying
+ * ZodCodec for the actual field mapping.
+ */
+export interface ResourceCodec {
+  /** Normalise provider state into spec-equivalent form */
+  encode(state: unknown): unknown;
+  /** Transform resolved spec into provider-specific params */
+  decode(spec: unknown): unknown;
+}
+
 // ─── ResourcePort ────────────────────────────────────────────────────────────
 
 /**
@@ -51,6 +72,19 @@ export interface ResourcePort<
    * AWS's resource ARN).
    */
   getStateId(state: unknown): string;
+
+  /**
+   * Optional bidirectional codec for mapping between normalised spec fields
+   * and provider-specific state fields.
+   *
+   * When present, the engine uses `encode()` to normalise provider state
+   * before convergence checking — so `desiredStateSchema` comparisons work
+   * against normalised data on both sides.
+   *
+   * Adapters can use `decode()` to transform resolved specs into
+   * provider-specific params for SDK calls.
+   */
+  readonly codec?: ResourceCodec;
 
   /**
    * Query the provider API for resources matching the identity fields in spec.

@@ -1,5 +1,5 @@
 import Cloudflare from "cloudflare";
-import type { ResourcePort } from "@infrasync/core/provider";
+import type { ResourcePort, ResourceCodec } from "@infrasync/core/provider";
 import { RefToken } from "@infrasync/core/refs";
 import type { RefBuilder } from "@infrasync/core/handles";
 import * as z from "zod";
@@ -31,8 +31,101 @@ export const buildDnsRecordRefs: RefBuilder<DnsRecordRefs> = (
   ttl: new RefToken(resourceName, "ttl"),
 });
 
+// ─── Codec schemas ───────────────────────────────────────────────────────────
+
+/**
+ * Codec input schema: the resolved normalised spec after ref resolution.
+ * All RefTokens have been replaced with concrete values by this point.
+ */
+const resolvedSpecSchema = z.object({
+  kind: z.literal("DnsRecord"),
+  domain: z.string().trim().min(1),
+  type: z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"]),
+  value: z.string().trim().min(1),
+  ttl: z.int().min(0),
+  proxied: z.boolean(),
+});
+
+/** DNS record kind literal — used in encode to satisfy the literal type. */
+const DNS_RECORD_KIND = "DnsRecord" as const;
+
+/** DNS record type enum schema — shared between codec schemas for narrowing. */
+const dnsRecordTypeSchema = z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"]);
+
+/**
+ * Codec output schema: Cloudflare DNS record fields.
+ *
+ * Uses looseObject so the codec accepts full API responses (with id, zone_id,
+ * timestamps, etc.) for the encode direction. The decode direction only
+ * produces the fields needed for SDK calls.
+ */
+const cloudflareDnsFieldsSchema = z.looseObject({
+  type: z.string().trim(),
+  name: z.string().trim(),
+  content: z.string().trim().optional(),
+  ttl: z.coerce.number(),
+  proxied: z.coerce.boolean(),
+});
+
+// ─── Internal ZodCodec ──────────────────────────────────────────────────────
+
+/**
+ * Bidirectional ZodCodec between normalised DNS record spec and
+ * Cloudflare-specific DNS record fields.
+ *
+ * - decode: normalised → Cloudflare (field mapping before SDK calls)
+ * - encode: Cloudflare → normalised (normalise for convergence checking)
+ */
+const zodCodec = z.codec(resolvedSpecSchema, cloudflareDnsFieldsSchema, {
+  // Normalised → Cloudflare
+  decode: (spec) => ({
+    type: spec.type,
+    name: spec.domain,
+    content: spec.value,
+    ttl: spec.ttl,
+    proxied: spec.proxied,
+  }),
+
+  // Cloudflare → normalised
+  encode: (state) => ({
+    kind: DNS_RECORD_KIND,
+    domain: state.name,
+    type: dnsRecordTypeSchema.parse(state.type),
+    value: state.content ?? "",
+    ttl: Number(state.ttl),
+    proxied: Boolean(state.proxied),
+  }),
+});
+
+// ─── External ResourceCodec ─────────────────────────────────────────────────
+
+/**
+ * ResourceCodec wrapper that accepts `unknown` at its boundaries.
+ *
+ * Validates internally using Zod schemas before delegating to the ZodCodec
+ * for the actual field mapping. This matches the ResourcePort's own boundary
+ * pattern — all public methods accept `unknown` and validate before use.
+ */
+const cloudflareDnsCodec: ResourceCodec = {
+  encode(state: unknown): unknown {
+    const result = cloudflareDnsFieldsSchema.safeParse(state);
+    if (!result.success) return state;
+    return zodCodec.encode(result.data);
+  },
+
+  decode(spec: unknown): unknown {
+    const result = resolvedSpecSchema.safeParse(spec);
+    if (!result.success) return spec;
+    return zodCodec.decode(result.data);
+  },
+};
+
 // ─── State schema ────────────────────────────────────────────────────────────
 
+/**
+ * Full Cloudflare DNS record state — validated against raw API responses.
+ * Includes identity fields (id, zone_id) that the codec doesn't map.
+ */
 const dnsRecordStateSchema = z
   .looseObject({
     id: z.string().trim(),
@@ -60,23 +153,6 @@ const apiResponseSchema = z.looseObject({
   modified_on: z.string().trim().optional(),
   proxiable: z.boolean().optional(),
   meta: z.json().optional(),
-});
-
-// ─── SDK parameter schema ────────────────────────────────────────────────────
-
-/**
- * Schema for the resolved spec after ref resolution.
- * By the time we call the Cloudflare SDK, all RefTokens have been replaced
- * with concrete values. This schema strips the refable union and validates
- * the plain fields the SDK expects.
- */
-const resolvedSpecSchema = z.object({
-  kind: z.literal("DnsRecord"),
-  domain: z.string().trim().min(1),
-  type: z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"]),
-  value: z.string().trim().min(1),
-  ttl: z.int().min(0),
-  proxied: z.boolean(),
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -124,6 +200,7 @@ export class DnsRecordResource implements ResourcePort<
   readonly stateSchema = dnsRecordStateSchema;
   readonly identitySchema = dnsRecordIdentitySchema;
   readonly desiredStateSchema = dnsRecordDesiredStateSchema;
+  readonly codec = cloudflareDnsCodec;
 
   constructor(private readonly client: Cloudflare) {}
 
@@ -154,11 +231,9 @@ export class DnsRecordResource implements ResourcePort<
   }
 
   async create(spec: unknown): Promise<unknown> {
-    const { domain, type, value, ttl, proxied } = parseResolvedSpec(
-      spec,
-      "create",
-    );
-    const zone = extractZone(domain);
+    const resolved = parseResolvedSpec(spec, "create");
+    const cfParams = zodCodec.decode(resolved);
+    const zone = extractZone(cfParams.name);
 
     const zones = await this.client.zones.list({ name: zone });
     const zoneRecord = zones.result[0];
@@ -170,22 +245,20 @@ export class DnsRecordResource implements ResourcePort<
 
     const response = await this.client.dns.records.create({
       zone_id: zoneRecord.id,
-      name: domain,
-      type,
-      content: value,
-      ttl,
-      proxied,
+      name: cfParams.name,
+      type: resolved.type,
+      content: cfParams.content ?? resolved.value,
+      ttl: cfParams.ttl,
+      proxied: cfParams.proxied,
     });
 
     return validateApiResponse(response, "create");
   }
 
   async update(id: string, spec: unknown): Promise<unknown> {
-    const { domain, type, value, ttl, proxied } = parseResolvedSpec(
-      spec,
-      "update",
-    );
-    const zone = extractZone(domain);
+    const resolved = parseResolvedSpec(spec, "update");
+    const cfParams = zodCodec.decode(resolved);
+    const zone = extractZone(cfParams.name);
 
     const zones = await this.client.zones.list({ name: zone });
     const zoneRecord = zones.result[0];
@@ -197,11 +270,11 @@ export class DnsRecordResource implements ResourcePort<
 
     const response = await this.client.dns.records.update(id, {
       zone_id: zoneRecord.id,
-      name: domain,
-      type,
-      content: value,
-      ttl,
-      proxied,
+      name: cfParams.name,
+      type: resolved.type,
+      content: cfParams.content ?? resolved.value,
+      ttl: cfParams.ttl,
+      proxied: cfParams.proxied,
     });
 
     return validateApiResponse(response, "update");
