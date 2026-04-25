@@ -8,6 +8,12 @@ import { apply } from "./commands/apply.js";
 import { drift } from "./commands/drift.js";
 import { exportCdktfTypeScript } from "./commands/export-cdktf-ts.js";
 import type { InfraIR } from "@infrasync/core/types";
+import { importTfConfigJson } from "@infrasync/adapter-terraform-config-json/import-config-json";
+import { exportTfConfigJson } from "@infrasync/adapter-terraform-config-json/export-config-json";
+import {
+  importStateJson,
+  importPlanJson,
+} from "@infrasync/adapter-terraform-show-json/import-show-json";
 
 // ─── Built-in adapters ───────────────────────────────────────────────────────
 
@@ -78,6 +84,8 @@ Commands:
   plan                Preview changes without applying
   drift               Show drift between desired and actual state
   import terraform-config  Import a *.tf.json file into InfraIR
+  import terraform-plan    Import terraform show -json plan output into Terraform IR
+  import terraform-state   Import terraform show -json state output into Terraform IR
   export cdktf-ts           Generate a CDKTF TypeScript project from InfraIR
   export terraform-config   Export InfraIR as Terraform Configuration JSON (*.tf.json)
 
@@ -97,6 +105,8 @@ Examples:
   infrasync drift
   infrasync apply --ir infra.ir.json --adapters ./adapters.ts
   infrasync import terraform-config --file main.tf.json --out infra.ir.json
+  infrasync import terraform-state --file state.json
+  infrasync import terraform-plan --file plan.json
   infrasync export terraform-config --config infra.config.ts --out generated.tf.json
   infrasync export cdktf-ts --config infra.config.ts --out ./generated/cdktf
   infrasync export cdktf-ts --ir infra.ir.json --out ./generated/cdktf --provider-source cloudflare=cloudflare/cloudflare
@@ -217,9 +227,6 @@ async function runExportTfConfigCommand(): Promise<void> {
     `Exporting Terraform Configuration JSON to ${resolve(outPath)}...`,
   );
 
-  const { exportTfConfigJson } =
-    await import("@infrasync/adapter-terraform-config-json/export-config-json");
-
   const exportOptions: {
     providerSources?: Record<string, string>;
   } = {};
@@ -248,19 +255,33 @@ async function runExportTfConfigCommand(): Promise<void> {
 
 async function runImportCommand(): Promise<void> {
   const target = args.positionals[1];
-  if (target !== "terraform-config") {
+  if (
+    target !== "terraform-config" &&
+    target !== "terraform-plan" &&
+    target !== "terraform-state"
+  ) {
     console.error(
-      `Error: unknown import target "${target ?? "(missing)"}". Supported target: terraform-config.`,
+      `Error: unknown import target "${target ?? "(missing)"}". Supported targets: terraform-config, terraform-plan, terraform-state.`,
     );
     process.exit(1);
   }
 
   const filePath = args.values.file;
   if (filePath === undefined) {
-    console.error("Error: --file is required for import terraform-config.");
+    console.error(`Error: --file is required for import ${target}.`);
     process.exit(1);
   }
 
+  if (target === "terraform-config") {
+    await runImportTerraformConfig(filePath);
+  } else if (target === "terraform-plan") {
+    await runImportTerraformPlan(filePath);
+  } else {
+    await runImportTerraformState(filePath);
+  }
+}
+
+async function runImportTerraformConfig(filePath: string): Promise<void> {
   console.log(
     `Importing Terraform Configuration JSON from ${resolve(filePath)}...`,
   );
@@ -268,38 +289,83 @@ async function runImportCommand(): Promise<void> {
   const { readFile } = await import("node:fs/promises");
   const raw = await readFile(resolve(filePath), "utf-8");
 
-  const { importTfConfigJson } =
-    await import("@infrasync/adapter-terraform-config-json/import-config-json");
-
   const result = importTfConfigJson(raw);
 
   console.log(
     `Imported "${result.ir.name}" with ${String(result.ir.resources.length)} resource(s) and ${String(result.ir.providers.length)} provider(s)`,
   );
 
-  // Write IR JSON to stdout or --out file
+  await writeImportOutput(result.ir, result.warnings, result.fidelity);
+}
+
+async function runImportTerraformPlan(filePath: string): Promise<void> {
+  console.log(`Importing Terraform plan JSON from ${resolve(filePath)}...`);
+
+  const { readFile } = await import("node:fs/promises");
+  const raw = await readFile(resolve(filePath), "utf-8");
+
+  const result = importPlanJson(raw);
+
+  const resourceCount = String(result.document.resources.length);
+  const outputCount = String(result.document.outputs.length);
+  console.log(
+    `Imported Terraform plan with ${resourceCount} resource(s) and ${outputCount} output(s)`,
+  );
+
+  await writeImportOutput(result.document, result.warnings, result.fidelity);
+}
+
+async function runImportTerraformState(filePath: string): Promise<void> {
+  console.log(`Importing Terraform state JSON from ${resolve(filePath)}...`);
+
+  const { readFile } = await import("node:fs/promises");
+  const raw = await readFile(resolve(filePath), "utf-8");
+
+  const result = importStateJson(raw);
+
+  const resourceCount = String(result.document.resources.length);
+  const outputCount = String(result.document.outputs.length);
+  console.log(
+    `Imported Terraform state with ${resourceCount} resource(s) and ${outputCount} output(s)`,
+  );
+
+  await writeImportOutput(result.document, result.warnings, result.fidelity);
+}
+
+async function writeImportOutput(
+  document: unknown,
+  warnings: readonly string[],
+  fidelity: {
+    readonly issues: readonly {
+      readonly path: string;
+      readonly class: string;
+      readonly message: string;
+      readonly action: string;
+    }[];
+  },
+): Promise<void> {
   const outPath = args.values.out;
   if (outPath !== undefined) {
     const { writeFile } = await import("node:fs/promises");
     await writeFile(
       resolve(outPath),
-      JSON.stringify(result.ir, null, 2) + "\n",
+      JSON.stringify(document, null, 2) + "\n",
       "utf-8",
     );
     console.log(`Wrote IR to ${resolve(outPath)}`);
   } else {
     console.log("\nIR (JSON):\n");
-    console.log(JSON.stringify(result.ir, null, 2));
+    console.log(JSON.stringify(document, null, 2));
   }
 
-  if (result.warnings.length > 0) {
-    console.log(`\nWarnings (${String(result.warnings.length)}):`);
-    for (const warning of result.warnings) {
+  if (warnings.length > 0) {
+    console.log(`\nWarnings (${String(warnings.length)}):`);
+    for (const warning of warnings) {
       console.log(`  ⚠ ${warning}`);
     }
   }
 
-  printFidelityReport(result.fidelity);
+  printFidelityReport(fidelity);
 }
 
 function printFidelityReport(fidelity: {
