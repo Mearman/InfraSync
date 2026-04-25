@@ -106,6 +106,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@infrasync/adapter-terraform-config-json':
+        specifier: workspace:*
+        version: link:../adapter-terraform-config-json
       jiti:
         specifier: 2.6.1
         version: 2.6.1

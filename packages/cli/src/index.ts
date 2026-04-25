@@ -53,6 +53,10 @@ const args = parseArgs({
       description:
         "Override Terraform provider source mapping (format: adapter=registry/source)",
     },
+    file: {
+      type: "string",
+      description: "Input file path for import commands",
+    },
     help: {
       type: "boolean",
       short: "h",
@@ -73,13 +77,16 @@ Commands:
   apply               Apply configuration from a config file
   plan                Preview changes without applying
   drift               Show drift between desired and actual state
-  export cdktf-ts     Generate a CDKTF TypeScript project from InfraIR
+  import terraform-config  Import a *.tf.json file into InfraIR
+  export cdktf-ts           Generate a CDKTF TypeScript project from InfraIR
+  export terraform-config   Export InfraIR as Terraform Configuration JSON (*.tf.json)
 
 Options:
   -c, --config <path>                      Path to infra config file (default: infra.config.ts)
       --ir <path>                          Path to serialised InfraIR JSON file
       --adapters <path>                    Path to adapters module (required with --ir for apply/plan/drift)
       --out <path>                         Output directory for export commands
+      --file <path>                        Input file path for import commands
       --stack <name>                       Stack name override for export commands
       --provider-source <adapter=source>   Override Terraform provider source mapping
   -h, --help                               Show this help message
@@ -89,6 +96,8 @@ Examples:
   infrasync plan
   infrasync drift
   infrasync apply --ir infra.ir.json --adapters ./adapters.ts
+  infrasync import terraform-config --file main.tf.json --out infra.ir.json
+  infrasync export terraform-config --config infra.config.ts --out generated.tf.json
   infrasync export cdktf-ts --config infra.config.ts --out ./generated/cdktf
   infrasync export cdktf-ts --ir infra.ir.json --out ./generated/cdktf --provider-source cloudflare=cloudflare/cloudflare
 `);
@@ -117,6 +126,12 @@ if (command === "export") {
     console.error(`Fatal: ${message}`);
     process.exit(1);
   });
+} else if (command === "import") {
+  runImportCommand().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Fatal: ${message}`);
+    process.exit(1);
+  });
 } else {
   runRuntimeCommand(command).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
@@ -127,13 +142,19 @@ if (command === "export") {
 
 async function runExportCommand(): Promise<void> {
   const target = args.positionals[1];
-  if (target !== "cdktf-ts") {
+  if (target === "cdktf-ts") {
+    await runExportCdktfCommand();
+  } else if (target === "terraform-config") {
+    await runExportTfConfigCommand();
+  } else {
     console.error(
-      `Error: unknown export target "${target ?? "(missing)"}". Supported target: cdktf-ts.`,
+      `Error: unknown export target "${target ?? "(missing)"}". Supported targets: cdktf-ts, terraform-config.`,
     );
     process.exit(1);
   }
+}
 
+async function runExportCdktfCommand(): Promise<void> {
   const outDir = args.values.out;
   if (outDir === undefined) {
     console.error("Error: --out is required for export commands.");
@@ -176,6 +197,130 @@ async function runExportCommand(): Promise<void> {
     for (const warning of result.warnings) {
       console.log(`  ⚠ [${warning.code}] ${warning.message}`);
     }
+  }
+}
+
+async function runExportTfConfigCommand(): Promise<void> {
+  const outPath = args.values.out;
+  if (outPath === undefined) {
+    console.error("Error: --out is required for export terraform-config.");
+    process.exit(1);
+  }
+
+  const ir = await loadInfraIrForExport();
+
+  const providerSourceOverrides = parseProviderSourceOverrides(
+    args.values["provider-source"],
+  );
+
+  console.log(
+    `Exporting Terraform Configuration JSON to ${resolve(outPath)}...`,
+  );
+
+  const { exportTfConfigJson } =
+    await import("@infrasync/adapter-terraform-config-json/export-config-json");
+
+  const exportOptions: {
+    providerSources?: Record<string, string>;
+  } = {};
+
+  if (Object.keys(providerSourceOverrides).length > 0) {
+    exportOptions.providerSources = providerSourceOverrides;
+  }
+
+  const result = exportTfConfigJson(ir, exportOptions);
+
+  const { writeFile } = await import("node:fs/promises");
+  const { resolve: pathResolve } = await import("node:path");
+  await writeFile(pathResolve(outPath), result.content, "utf-8");
+
+  console.log(`Wrote ${resolve(outPath)}`);
+
+  if (result.warnings.length > 0) {
+    console.log(`\nWarnings (${String(result.warnings.length)}):`);
+    for (const warning of result.warnings) {
+      console.log(`  ⚠ ${warning}`);
+    }
+  }
+
+  printFidelityReport(result.fidelity);
+}
+
+async function runImportCommand(): Promise<void> {
+  const target = args.positionals[1];
+  if (target !== "terraform-config") {
+    console.error(
+      `Error: unknown import target "${target ?? "(missing)"}". Supported target: terraform-config.`,
+    );
+    process.exit(1);
+  }
+
+  const filePath = args.values.file;
+  if (filePath === undefined) {
+    console.error("Error: --file is required for import terraform-config.");
+    process.exit(1);
+  }
+
+  console.log(
+    `Importing Terraform Configuration JSON from ${resolve(filePath)}...`,
+  );
+
+  const { readFile } = await import("node:fs/promises");
+  const raw = await readFile(resolve(filePath), "utf-8");
+
+  const { importTfConfigJson } =
+    await import("@infrasync/adapter-terraform-config-json/import-config-json");
+
+  const result = importTfConfigJson(raw);
+
+  console.log(
+    `Imported "${result.ir.name}" with ${String(result.ir.resources.length)} resource(s) and ${String(result.ir.providers.length)} provider(s)`,
+  );
+
+  // Write IR JSON to stdout or --out file
+  const outPath = args.values.out;
+  if (outPath !== undefined) {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      resolve(outPath),
+      JSON.stringify(result.ir, null, 2) + "\n",
+      "utf-8",
+    );
+    console.log(`Wrote IR to ${resolve(outPath)}`);
+  } else {
+    console.log("\nIR (JSON):\n");
+    console.log(JSON.stringify(result.ir, null, 2));
+  }
+
+  if (result.warnings.length > 0) {
+    console.log(`\nWarnings (${String(result.warnings.length)}):`);
+    for (const warning of result.warnings) {
+      console.log(`  ⚠ ${warning}`);
+    }
+  }
+
+  printFidelityReport(result.fidelity);
+}
+
+function printFidelityReport(fidelity: {
+  readonly issues: readonly {
+    readonly path: string;
+    readonly class: string;
+    readonly message: string;
+    readonly action: string;
+  }[];
+}): void {
+  if (fidelity.issues.length === 0) return;
+
+  console.log(
+    `\nFidelity Report (${String(fidelity.issues.length)} issue(s)):`,
+  );
+  for (const issue of fidelity.issues) {
+    const icon =
+      issue.class === "lossless" ? "✓" : issue.class === "lossy" ? "~" : "✗";
+    console.log(
+      `  ${icon} [${issue.class}] ${issue.path}: ${issue.message} (${issue.action})`,
+    );
   }
 }
 
