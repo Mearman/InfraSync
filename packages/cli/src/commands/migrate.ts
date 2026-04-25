@@ -203,6 +203,8 @@ const ACTION_LABELS: Record<string, string> = {
   delete: "-",
   unchanged: "=",
   unresolvable: "?",
+  "replace-create": "↑",
+  "replace-destroy": "↓",
 };
 
 function outputHumanReadable(plan: MigrationPlan): void {
@@ -228,12 +230,31 @@ function outputHumanReadable(plan: MigrationPlan): void {
       const action = ACTION_LABELS[change.action] ?? "?";
       const name = change.tfKey?.name ?? change.infraKey?.name ?? "unknown";
       const type = change.tfKey?.type ?? change.infraKey?.type ?? "unknown";
-      console.log(`  ${icon} ${action} ${type} "${name}" [${change.safety}]`);
+
+      const mitigationLabel =
+        change.mitigation !== undefined
+          ? ` [${change.mitigation.strategy}]`
+          : "";
+      console.log(
+        `  ${icon} ${action} ${type} "${name}" [${change.safety}]${mitigationLabel}`,
+      );
+
+      if (change.mitigation !== undefined) {
+        const autoLabel = change.mitigation.automated ? "auto" : "manual";
+        const downtimeLabel = change.mitigation.requiresDowntime
+          ? "downtime"
+          : "zero-downtime";
+        console.log(
+          `    ↳ ${autoLabel}, ${change.mitigation.strategy}, ${downtimeLabel}`,
+        );
+      }
 
       for (const diff of change.attributeDiffs) {
         const diffIcon = SAFETY_ICONS[diff.safety] ?? "?";
+        const mitigationTag =
+          diff.mitigation !== undefined ? ` (${diff.mitigation})` : "";
         console.log(
-          `    ${diffIcon} ${diff.path}: ${formatValue(diff.before)} → ${formatValue(diff.after)} (${diff.rule})`,
+          `    ${diffIcon} ${diff.path}: ${formatValue(diff.before)} → ${formatValue(diff.after)} (${diff.rule})${mitigationTag}`,
         );
       }
     }

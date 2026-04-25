@@ -814,3 +814,173 @@ test("safe changes have no mitigation", () => {
   assert.equal(change.safety, "safe");
   assert.equal(change.mitigation, undefined);
 });
+
+// ─── ignore_changes lifecycle ─────────────────────────────────────────────────
+
+test("ignore_changes filters matching attribute diffs", () => {
+  const result = plan(
+    [
+      {
+        address: "cloudflare_record.www",
+        addressParts: {
+          modulePath: [],
+          mode: "managed",
+          type: "cloudflare_record",
+          name: "www",
+        },
+        provider: {
+          localName: "cloudflare",
+          fullName: "registry.terraform.io/cloudflare/cloudflare",
+        },
+        extensions: {},
+        state: {
+          values: {
+            zone_id: "z1",
+            name: "www",
+            type: "CNAME",
+            value: "old.example.com",
+            ttl: 300,
+            proxied: false,
+          },
+        },
+        config: {
+          arguments: {},
+          nestedBlocks: {},
+          meta: { lifecycle: { ignoreChanges: ["value"] } },
+        },
+      },
+    ],
+    [
+      makeInfraResource("CloudflareRecord", "www", "cloudflare", {
+        zone_id: "z1",
+        name: "www",
+        type: "CNAME",
+        value: "new.example.com",
+        ttl: 300,
+        proxied: false,
+      }),
+    ],
+  );
+
+  const change = result.changes[0];
+  assert.ok(change !== undefined);
+
+  // value change should be filtered out by ignore_changes
+  const valueDiff = change.attributeDiffs.find((d) => d.path === "spec.value");
+  assert.equal(valueDiff, undefined, "value should be ignored");
+
+  // If only value changed and it's ignored, the resource should be unchanged
+  assert.equal(change.action, "unchanged");
+});
+
+test("ignore_changes with prefix matching filters nested paths", () => {
+  const result = plan(
+    [
+      {
+        address: "cloudflare_record.www",
+        addressParts: {
+          modulePath: [],
+          mode: "managed",
+          type: "cloudflare_record",
+          name: "www",
+        },
+        provider: {
+          localName: "cloudflare",
+          fullName: "registry.terraform.io/cloudflare/cloudflare",
+        },
+        extensions: {},
+        state: {
+          values: {
+            zone_id: "z1",
+            name: "www",
+            type: "CNAME",
+            value: "1.2.3.4",
+            ttl: 300,
+            proxied: false,
+          },
+        },
+        config: {
+          arguments: {},
+          nestedBlocks: {},
+          meta: { lifecycle: { ignoreChanges: ["ttl"] } },
+        },
+      },
+    ],
+    [
+      makeInfraResource("CloudflareRecord", "www", "cloudflare", {
+        zone_id: "z1",
+        name: "www",
+        type: "CNAME",
+        value: "1.2.3.4",
+        ttl: 600,
+        proxied: true,
+      }),
+    ],
+  );
+
+  const change = result.changes[0];
+  assert.ok(change !== undefined);
+
+  // ttl should be ignored
+  const ttlDiff = change.attributeDiffs.find((d) => d.path === "spec.ttl");
+  assert.equal(ttlDiff, undefined, "ttl should be ignored");
+
+  // proxied should still show (not in ignore list)
+  const proxiedDiff = change.attributeDiffs.find(
+    (d) => d.path === "spec.proxied",
+  );
+  assert.ok(proxiedDiff !== undefined, "proxied should NOT be ignored");
+});
+
+test("ignore_changes does not filter non-matching paths", () => {
+  const result = plan(
+    [
+      {
+        address: "cloudflare_record.www",
+        addressParts: {
+          modulePath: [],
+          mode: "managed",
+          type: "cloudflare_record",
+          name: "www",
+        },
+        provider: {
+          localName: "cloudflare",
+          fullName: "registry.terraform.io/cloudflare/cloudflare",
+        },
+        extensions: {},
+        state: {
+          values: {
+            zone_id: "z1",
+            name: "www",
+            type: "CNAME",
+            value: "1.2.3.4",
+            ttl: 300,
+            proxied: false,
+          },
+        },
+        config: {
+          arguments: {},
+          nestedBlocks: {},
+          meta: { lifecycle: { ignoreChanges: ["tags"] } },
+        },
+      },
+    ],
+    [
+      makeInfraResource("CloudflareRecord", "www", "cloudflare", {
+        zone_id: "z1",
+        name: "www",
+        type: "CNAME",
+        value: "1.2.3.4",
+        ttl: 600,
+        proxied: true,
+      }),
+    ],
+  );
+
+  const change = result.changes[0];
+  assert.ok(change !== undefined);
+  assert.equal(change.action, "update");
+
+  // ttl and proxied should both show (only "tags" is ignored)
+  assert.equal(change.attributeDiffs.length, 2);
+});

@@ -138,7 +138,7 @@ function diffPair(
   const mappers = registry.attributeMappersFor(adapterName);
 
   // Diff the values (TF state values) against InfraSync spec
-  const attributeDiffs = diffAttributes({
+  const rawDiffs = diffAttributes({
     basePath: "spec",
     before: normaliseForComparison(tfValues, mappers),
     after: normaliseForComparison(infraSpec, mappers),
@@ -146,6 +146,13 @@ function diffPair(
     direction,
     action: "update",
   });
+
+  // Apply ignore_changes from TF lifecycle metadata
+  const ignoreChanges = tfResource.config?.meta.lifecycle?.ignoreChanges;
+  const attributeDiffs =
+    ignoreChanges !== undefined && ignoreChanges.length > 0
+      ? filterIgnoredChanges(rawDiffs, ignoreChanges)
+      : rawDiffs;
 
   if (attributeDiffs.length === 0) {
     return {
@@ -167,6 +174,30 @@ function diffPair(
     safety,
     ...(mitigation !== undefined ? { mitigation } : {}),
   };
+}
+
+/**
+ * Filter out attribute diffs that match the TF lifecycle ignore_changes list.
+ *
+ * ignore_changes paths are relative to the resource, e.g. ["tags", "ttl"].
+ * Diff paths use "spec." prefix, so we match against the suffix.
+ */
+function filterIgnoredChanges(
+  diffs: readonly AttributeDiff[],
+  ignoreChanges: readonly string[],
+): AttributeDiff[] {
+  const ignoredSet = new Set(ignoreChanges);
+  return diffs.filter((diff) => {
+    // Strip the "spec." prefix for matching
+    const relativePath = diff.path.replace(/^spec\./, "");
+    // Direct match or prefix match (e.g. "tags" matches "tags.foo")
+    for (const ignored of ignoredSet) {
+      if (relativePath === ignored || relativePath.startsWith(`${ignored}.`)) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
 /**
