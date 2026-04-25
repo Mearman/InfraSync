@@ -20,14 +20,15 @@ An alternative to Terraform for teams who want infrastructure-as-code without th
 | Sync engine | ✅ Done | Plan/apply, ref resolution, deep equality, convergence checking |
 | Cloudflare provider | ✅ Done | DNS records, Access applications, Access policies, Identity providers, Pages custom domains |
 | Typed provider handle | ✅ Done | `createCloudflareHandle()` with typed convenience methods |
-| CLI | ✅ Done | `plan`, `apply`, `drift`, `export cdktf-ts` commands |
+| CLI | ✅ Done | `plan`, `apply`, `drift`, `export cdktf-ts`, `import terraform-config`, `import terraform-plan`, `import terraform-state`, `export terraform-config` |
 | Build pipeline | ✅ Done | tsdown with ESM + DTS, library and CLI entry points |
 | Terraform IR types | ✅ Done | `@infrasync/core-ir` — TerraformIR Zod schemas, address parser, JSON Schema export |
 | Fidelity reporting | ✅ Done | `@infrasync/core-fidelity` — `FidelityReportBuilder`, lossless/lossy/unsupported classification |
 | TF state/plan import | ✅ Done | `@infrasync/adapter-terraform-show-json` — `importStateJson()`, `importPlanJson()` with fidelity reporting |
 | CDKTF TypeScript export | ✅ Done | `export cdktf-ts` command generates reviewable CDKTF project from InfraIR |
-| TF config JSON export | 🔲 Planned | Phase 2 — InfraIR → `*.tf.json` |
-| TF config JSON import | 🔲 Planned | Phase 3 — `*.tf.json` → InfraIR with round-trip |
+| TF config JSON export | ✅ Done | `@infrasync/adapter-terraform-config-json` — `exportTfConfigJson()` with provider source registry |
+| TF config JSON import | ✅ Done | `@infrasync/adapter-terraform-config-json` — `importTfConfigJson()` with fidelity reporting |
+| TF config round-trip | ✅ Done | IR→TF→IR and TF→IR→TF guarantee tests with declared fidelity outcomes |
 | AWS provider | 🔲 Planned | — |
 | GCP provider | 🔲 Planned | — |
 | GitHub provider | 🔲 Planned | — |
@@ -142,6 +143,18 @@ npx infrasync drift --config infra.config.ts
 
 # Low-level path: apply a raw InfraIR document (requires adapters module)
 npx infrasync apply --ir infra.ir.json --adapters ./adapters.ts
+
+# Import Terraform config JSON into InfraIR
+npx infrasync import terraform-config --file main.tf.json --out infra.ir.json
+
+# Import Terraform state JSON (from terraform show -json)
+npx infrasync import terraform-state --file state.json
+
+# Import Terraform plan JSON (from terraform show -json)
+npx infrasync import terraform-plan --file plan.json
+
+# Export InfraIR as Terraform Configuration JSON
+npx infrasync export terraform-config --config infra.config.ts --out generated.tf.json
 
 # Generate a CDKTF TypeScript project from InfraIR
 npx infrasync export cdktf-ts --ir infra.ir.json --out ./generated/cdktf
@@ -1554,6 +1567,10 @@ packages/
     src/
       schemas.ts               # TF state/plan JSON wire format Zod schemas
       import-show-json.ts      # importStateJson(), importPlanJson() with fidelity reporting
+  adapter-terraform-config-json/ # @infrasync/adapter-terraform-config-json
+    src/
+      export-config-json.ts    # exportTfConfigJson() — IR → *.tf.json
+      import-config-json.ts    # importTfConfigJson() — *.tf.json → IR
   provider-cloudflare/         # @infrasync/cloudflare
     src/
       index.ts                 # Cloudflare adapter registration
