@@ -1,0 +1,32 @@
+{
+  "name": "@infrasync/adapter-terraform-show-json",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./*": {
+      "types": "./dist/*.d.mts",
+      "import": "./dist/*.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "_build": "tsdown",
+    "_typecheck": "tsc -p tsconfig.json --noEmit",
+    "_lint": "eslint . --cache",
+    "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
+  },
+  "dependencies": {
+    "@infrasync/core-fidelity": "workspace:*",
+    "@infrasync/core-ir": "workspace:*",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@infrasync/core-fidelity": "workspace:*",
+    "@infrasync/core-ir": "workspace:*",
+    "tsdown": "0.21.7",
+    "tsx": "4.21.0",
+    "typescript": "6.0.3"
+  }
+}
