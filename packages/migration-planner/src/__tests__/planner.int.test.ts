@@ -405,7 +405,7 @@ test("delete step targets source system", () => {
   assert.equal(step.target, "terraform");
 });
 
-test("destructive changes → manual-intervention step", () => {
+test("destructive Cloudflare changes → replace-create/replace-destroy steps (CBD)", () => {
   const result = plan(
     [
       makeTfResource("cloudflare_record", "www", {
@@ -429,12 +429,27 @@ test("destructive changes → manual-intervention step", () => {
     ],
   );
 
-  const manualStep = result.steps.find(
-    (s) => s.action === "manual-intervention",
+  // Cloudflare type change has CBD mitigation → replace-create + replace-destroy
+  const replaceCreateStep = result.steps.find(
+    (s) => s.action === "replace-create",
   );
-  assert.ok(manualStep !== undefined);
-  assert.equal(manualStep.requiresConfirmation, true);
-  assert.ok(manualStep.description.includes("Destructive changes"));
+  assert.ok(replaceCreateStep !== undefined);
+  assert.equal(replaceCreateStep.requiresConfirmation, false);
+  assert.ok(replaceCreateStep.description.includes("Replace-create"));
+
+  const replaceDestroyStep = result.steps.find(
+    (s) => s.action === "replace-destroy",
+  );
+  assert.ok(replaceDestroyStep !== undefined);
+  assert.ok(replaceDestroyStep.dependsOn.includes(replaceCreateStep.id));
+
+  // Mitigation should be present on the change
+  const change = result.changes[0];
+  assert.ok(change !== undefined);
+  assert.ok(change.mitigation !== undefined);
+  assert.equal(change.mitigation.automated, true);
+  assert.equal(change.mitigation.strategy, "create-before-destroy");
+  assert.equal(change.mitigation.requiresDowntime, false);
 });
 
 test("update steps include verify steps", () => {
@@ -685,4 +700,117 @@ test("plugin registry allows re-registration of same plugin", () => {
   // Same name + adapter — idempotent
   registry.register(cloudflarePlugin);
   assert.equal(registry.get("cloudflare")?.name, "cloudflare");
+});
+
+// ─── Destruction Safety ───────────────────────────────────────────────────────
+
+test("unmapped destructive changes → manual-intervention (no mitigation)", () => {
+  // Use a resource type with no Cloudflare mapping to get generic destructive rules
+  const result = plan(
+    [makeTfResource("custom_resource", "thing", { id: "old-id" })],
+    [],
+  );
+
+  // Unresolvable → manual-intervention
+  const manualStep = result.steps.find(
+    (s) => s.action === "manual-intervention",
+  );
+  assert.ok(manualStep !== undefined);
+  assert.equal(manualStep.requiresConfirmation, true);
+});
+
+test("attribute diff carries mitigation from plugin rule", () => {
+  const result = plan(
+    [
+      makeTfResource("cloudflare_record", "www", {
+        zone_id: "z1",
+        name: "www",
+        type: "CNAME",
+        value: "1.2.3.4",
+        ttl: 300,
+        proxied: false,
+      }),
+    ],
+    [
+      makeInfraResource("CloudflareRecord", "www", "cloudflare", {
+        zone_id: "z2",
+        name: "www",
+        type: "CNAME",
+        value: "1.2.3.4",
+        ttl: 300,
+        proxied: false,
+      }),
+    ],
+  );
+
+  const change = result.changes[0];
+  assert.ok(change !== undefined);
+  assert.equal(change.safety, "destructive");
+
+  const zoneDiff = change.attributeDiffs.find((d) => d.path === "spec.zone_id");
+  assert.ok(zoneDiff !== undefined);
+  assert.equal(zoneDiff.mitigation, "create-before-destroy");
+});
+
+test("resource change has mitigation when destructive diffs exist", () => {
+  const result = plan(
+    [
+      makeTfResource("cloudflare_record", "www", {
+        zone_id: "z1",
+        name: "old",
+        type: "CNAME",
+        value: "1.2.3.4",
+        ttl: 300,
+        proxied: false,
+      }),
+    ],
+    [
+      makeInfraResource("CloudflareRecord", "www", "cloudflare", {
+        zone_id: "z1",
+        name: "new",
+        type: "CNAME",
+        value: "1.2.3.4",
+        ttl: 300,
+        proxied: false,
+      }),
+    ],
+  );
+
+  const change = result.changes[0];
+  assert.ok(change !== undefined);
+  assert.ok(change.mitigation !== undefined);
+  assert.equal(change.mitigation.strategy, "create-before-destroy");
+  assert.equal(change.mitigation.preservesData, true);
+  assert.equal(change.mitigation.requiresDowntime, false);
+  assert.equal(change.mitigation.automated, true);
+});
+
+test("safe changes have no mitigation", () => {
+  const result = plan(
+    [
+      makeTfResource("cloudflare_record", "www", {
+        zone_id: "z1",
+        name: "www",
+        type: "CNAME",
+        value: "1.2.3.4",
+        ttl: 300,
+        proxied: false,
+      }),
+    ],
+    [
+      makeInfraResource("CloudflareRecord", "www", "cloudflare", {
+        zone_id: "z1",
+        name: "www",
+        type: "CNAME",
+        value: "1.2.3.4",
+        ttl: 600,
+        proxied: false,
+      }),
+    ],
+  );
+
+  const change = result.changes[0];
+  assert.ok(change !== undefined);
+  assert.equal(change.safety, "safe");
+  assert.equal(change.mitigation, undefined);
 });

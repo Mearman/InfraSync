@@ -51,6 +51,28 @@ export function generateSteps(
       case "update":
         updateSteps.push(builder);
         break;
+      case "replace-create":
+        createSteps.push(builder);
+        // Generate paired replace-destroy step
+        deleteSteps.push({
+          id: `${builder.id}-destroy`,
+          action: "replace-destroy",
+          target: builder.target,
+          resourceType: builder.resourceType,
+          resourceName: builder.resourceName,
+          description: describeReplaceDestroy(
+            builder.resourceType,
+            builder.resourceName,
+          ),
+          safety: builder.safety,
+          dependsOn: [builder.id],
+          payload: builder.payload,
+          requiresConfirmation: false,
+        });
+        break;
+      case "replace-destroy":
+        deleteSteps.push(builder);
+        break;
       case "delete":
         deleteSteps.push(builder);
         break;
@@ -114,8 +136,44 @@ function buildStepBuilder(
 ): StepBuilder | undefined {
   if (change.action === "unchanged") return undefined;
 
-  // Destructive/unresolvable → manual intervention
-  if (change.safety === "destructive" || change.action === "unresolvable") {
+  // Unresolvable → always manual intervention
+  if (change.action === "unresolvable") {
+    return {
+      id: `step-${String(index)}`,
+      action: "manual-intervention",
+      target: resolveTarget(change, direction),
+      resourceType: resolveType(change),
+      resourceName: resolveName(change),
+      description: describeManualIntervention(change),
+      safety: change.safety,
+      dependsOn: [],
+      payload: change,
+      requiresConfirmation: true,
+    };
+  }
+
+  // Destructive with automated mitigation → replace-create + replace-destroy
+  if (
+    change.safety === "destructive" &&
+    change.mitigation?.automated === true
+  ) {
+    const target = resolveTarget(change, direction);
+    return {
+      id: `step-${String(index)}`,
+      action: "replace-create",
+      target,
+      resourceType: resolveType(change),
+      resourceName: resolveName(change),
+      description: describeReplaceCreate(change),
+      safety: change.safety,
+      dependsOn: [],
+      payload: change,
+      requiresConfirmation: false,
+    };
+  }
+
+  // Destructive without automated mitigation → manual intervention
+  if (change.safety === "destructive") {
     return {
       id: `step-${String(index)}`,
       action: "manual-intervention",
@@ -196,6 +254,21 @@ function describeStep(
     default:
       return `Process ${type} "${name}"`;
   }
+}
+
+function describeReplaceCreate(change: ResourceChange): string {
+  const name = resolveName(change);
+  const type = resolveType(change);
+  const strategy = change.mitigation?.strategy ?? "create-before-destroy";
+  const diffCount = String(change.attributeDiffs.length);
+  return `Replace-create ${type} "${name}" (${strategy}, ${diffCount} destructive change(s)) — creates replacement before destroying old`;
+}
+
+function describeReplaceDestroy(
+  resourceType: string,
+  resourceName: string,
+): string {
+  return `Replace-destroy ${resourceType} "${resourceName}" — removes old resource after replacement is ready`;
 }
 
 function describeManualIntervention(change: ResourceChange): string {

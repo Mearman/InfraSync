@@ -15,6 +15,8 @@ import type {
   ResourceChange,
   MigrationSummary,
   SafetyClassification,
+  AttributeDiff,
+  MitigationStrategy,
 } from "./schemas.js";
 import { PluginRegistry } from "./plugin-registry.js";
 import { matchResources } from "./resource-matcher.js";
@@ -156,18 +158,89 @@ function diffPair(
   }
 
   const safety = worstSafety(attributeDiffs.map((d) => d.safety));
+  const mitigation = computeMitigation(attributeDiffs, tfResource);
   return {
     tfKey,
     infraKey,
     action: "update",
     attributeDiffs,
     safety,
+    ...(mitigation !== undefined ? { mitigation } : {}),
   };
 }
 
 /**
  * Normalise attribute paths using mappers for consistent comparison.
  */
+/**
+ * Compute mitigation strategy from attribute diffs and TF lifecycle metadata.
+ */
+function computeMitigation(
+  diffs: readonly AttributeDiff[],
+  tfResource: TerraformResourceIR,
+): MitigationStrategy | undefined {
+  const destructiveDiffs = diffs.filter((d) => d.safety === "destructive");
+  if (destructiveDiffs.length === 0) return undefined;
+
+  // Check if TF lifecycle specifies create_before_destroy
+  const lifecycle = tfResource.config?.meta.lifecycle;
+  if (lifecycle?.preventDestroy === true) {
+    return {
+      automated: false,
+      strategy: "none",
+      preservesData: false,
+      requiresDowntime: true,
+      description:
+        "Resource has prevent_destroy enabled — destruction is blocked",
+    };
+  }
+
+  // Check if any destructive diff has a mitigation from plugin rules
+  const mitigations = destructiveDiffs
+    .map((d) => d.mitigation)
+    .filter((m): m is NonNullable<typeof m> => m !== undefined);
+
+  // Prefer create-before-destroy if available
+  if (
+    mitigations.includes("create-before-destroy") ||
+    lifecycle?.createBeforeDestroy === true
+  ) {
+    return {
+      automated: true,
+      strategy: "create-before-destroy",
+      preservesData: true,
+      requiresDowntime: false,
+      description:
+        "Destructive changes can be automated using create-before-destroy strategy — new resource created before old is destroyed",
+    };
+  }
+
+  // In-place replace if all destructive diffs support it
+  if (
+    mitigations.length > 0 &&
+    mitigations.every((m) => m === "in-place-replace")
+  ) {
+    return {
+      automated: true,
+      strategy: "in-place-replace",
+      preservesData: true,
+      requiresDowntime: false,
+      description:
+        "Destructive changes can be automated using in-place replacement",
+    };
+  }
+
+  // Default: destroy-before-create (requires confirmation)
+  return {
+    automated: false,
+    strategy: "destroy-before-create",
+    preservesData: false,
+    requiresDowntime: true,
+    description:
+      "Destructive changes require destroy-before-create — data loss possible, manual intervention recommended",
+  };
+}
+
 function normaliseForComparison(
   values: Record<string, unknown>,
   mappers: readonly { tfPath: string; infraPath: string }[],

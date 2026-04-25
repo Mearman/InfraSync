@@ -24,4 +24,5 @@ export type {
   ResourceMapping,
   SafetyRule,
   AttributeMapper,
+  MitigationStrategy,
 } from "./schemas.js";

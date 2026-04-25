@@ -25,26 +25,29 @@ export const cloudflarePlugin: MigrationPlugin = {
       actions: ["update"],
       direction: "both",
       severity: "destructive",
+      mitigation: "create-before-destroy",
       description:
         "Changing DNS record type is destructive — requires delete + recreate",
     },
-    // cloudflare_record: zone_id change → destructive
+    // cloudflare_record: zone_id change → destructive (CBD)
     {
       path: "spec.zone_id",
       pathIsRegex: false,
       actions: ["update"],
       direction: "both",
       severity: "destructive",
+      mitigation: "create-before-destroy",
       description:
         "Changing zone_id is destructive — resource belongs to a different zone",
     },
-    // cloudflare_record: name change → destructive
+    // cloudflare_record: name change → destructive (CBD)
     {
       path: "spec.name",
       pathIsRegex: false,
       actions: ["update"],
       direction: "both",
       severity: "destructive",
+      mitigation: "create-before-destroy",
       description:
         "Changing record name is destructive — different DNS record entirely",
     },

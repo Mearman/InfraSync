@@ -21,6 +21,15 @@ interface DiffOptions {
   action: ResourceAction;
 }
 
+interface ClassificationResult {
+  safety: SafetyClassification;
+  mitigation?:
+    | "create-before-destroy"
+    | "destroy-before-create"
+    | "in-place-replace"
+    | "none";
+}
+
 /**
  * Deep-diff two values, producing an AttributeDiff for each leaf-level change.
  */
@@ -33,40 +42,48 @@ export function diffAttributes(options: DiffOptions): AttributeDiff[] {
 
   // One side undefined — attribute added or removed
   if (before === undefined || after === undefined) {
+    const classification = classifyAttribute(
+      basePath,
+      before,
+      after,
+      rules,
+      direction,
+      action,
+    );
     return [
       {
         path: basePath,
         before,
         after,
-        safety: classifyAttribute(
-          basePath,
-          before,
-          after,
-          rules,
-          direction,
-          action,
-        ),
+        safety: classification.safety,
         rule: before === undefined ? "attribute-added" : "attribute-removed",
+        ...(classification.mitigation !== undefined
+          ? { mitigation: classification.mitigation }
+          : {}),
       },
     ];
   }
 
   // Type mismatch at leaf
   if (typeof before !== typeof after) {
+    const classification = classifyAttribute(
+      basePath,
+      before,
+      after,
+      rules,
+      direction,
+      action,
+    );
     return [
       {
         path: basePath,
         before,
         after,
-        safety: classifyAttribute(
-          basePath,
-          before,
-          after,
-          rules,
-          direction,
-          action,
-        ),
+        safety: classification.safety,
         rule: "type-mismatch",
+        ...(classification.mitigation !== undefined
+          ? { mitigation: classification.mitigation }
+          : {}),
       },
     ];
   }
@@ -79,20 +96,24 @@ export function diffAttributes(options: DiffOptions): AttributeDiff[] {
     after === null
   ) {
     if (before === after) return [];
+    const classification = classifyAttribute(
+      basePath,
+      before,
+      after,
+      rules,
+      direction,
+      action,
+    );
     return [
       {
         path: basePath,
         before,
         after,
-        safety: classifyAttribute(
-          basePath,
-          before,
-          after,
-          rules,
-          direction,
-          action,
-        ),
+        safety: classification.safety,
         rule: "value-changed",
+        ...(classification.mitigation !== undefined
+          ? { mitigation: classification.mitigation }
+          : {}),
       },
     ];
   }
@@ -111,20 +132,24 @@ export function diffAttributes(options: DiffOptions): AttributeDiff[] {
 
   // If one is array and other isn't, treat as leaf diff
   if (Array.isArray(before) !== Array.isArray(after)) {
+    const classification = classifyAttribute(
+      basePath,
+      before,
+      after,
+      rules,
+      direction,
+      action,
+    );
     return [
       {
         path: basePath,
         before,
         after,
-        safety: classifyAttribute(
-          basePath,
-          before,
-          after,
-          rules,
-          direction,
-          action,
-        ),
+        safety: classification.safety,
         rule: "structure-mismatch",
+        ...(classification.mitigation !== undefined
+          ? { mitigation: classification.mitigation }
+          : {}),
       },
     ];
   }
@@ -161,7 +186,6 @@ function diffArrays(
   const { basePath, before, after, rules, direction, action } = options;
   const diffs: AttributeDiff[] = [];
 
-  // Compare by index
   const maxLen = Math.max(before.length, after.length);
   for (let i = 0; i < maxLen; i++) {
     const childPath = `${basePath}[${String(i)}]`;
@@ -179,21 +203,24 @@ function diffArrays(
     diffs.push(...childDiffs);
   }
 
-  // If lengths differ, add a length diff too
   if (before.length !== after.length) {
+    const classification = classifyAttribute(
+      basePath,
+      before.length,
+      after.length,
+      rules,
+      direction,
+      action,
+    );
     diffs.push({
       path: `${basePath}.length`,
       before: before.length,
       after: after.length,
-      safety: classifyAttribute(
-        basePath,
-        before.length,
-        after.length,
-        rules,
-        direction,
-        action,
-      ),
+      safety: classification.safety,
       rule: "array-length-changed",
+      ...(classification.mitigation !== undefined
+        ? { mitigation: classification.mitigation }
+        : {}),
     });
   }
 
@@ -211,7 +238,7 @@ function classifyAttribute(
   rules: readonly SafetyRule[],
   direction: MigrationDirection,
   action: ResourceAction,
-): SafetyClassification {
+): ClassificationResult {
   // Check plugin rules first
   for (const rule of rules) {
     const pathMatches = rule.pathIsRegex
@@ -222,21 +249,14 @@ function classifyAttribute(
     if (rule.direction !== "both" && rule.direction !== direction) continue;
     if (rule.actions.length > 0 && !rule.actions.includes(action)) continue;
 
-    // Rule matches — evaluate the classification function
-    return evaluateRule(path, before, after, rule);
+    return {
+      safety: rule.severity,
+      ...(rule.mitigation !== undefined ? { mitigation: rule.mitigation } : {}),
+    };
   }
 
   // Generic fallback heuristics
   return genericClassify(path, before, after);
-}
-
-function evaluateRule(
-  _path: string,
-  _before: unknown,
-  _after: unknown,
-  rule: SafetyRule,
-): SafetyClassification {
-  return rule.severity;
 }
 
 /**
@@ -246,24 +266,29 @@ function genericClassify(
   path: string,
   before: unknown,
   after: unknown,
-): SafetyClassification {
-  // Identifier changes are destructive
+): ClassificationResult {
+  // Identifier changes are destructive but can use CBD
   const identifierSuffixes = [".id", ".zone_id", ".name", ".bucket", ".region"];
   for (const suffix of identifierSuffixes) {
-    if (path.endsWith(suffix)) return "destructive";
+    if (path.endsWith(suffix)) {
+      return {
+        safety: "destructive",
+        mitigation: "create-before-destroy",
+      };
+    }
   }
 
   // Attribute removed — risky (potential data loss)
-  if (after === undefined) return "risky";
+  if (after === undefined) return { safety: "risky" };
 
   // Attribute added — safe
-  if (before === undefined) return "safe";
+  if (before === undefined) return { safety: "safe" };
 
   // Type mismatch — risky
-  if (typeof before !== typeof after) return "risky";
+  if (typeof before !== typeof after) return { safety: "risky" };
 
   // Default — safe
-  return "safe";
+  return { safety: "safe" };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

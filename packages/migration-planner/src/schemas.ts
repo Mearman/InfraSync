@@ -36,6 +36,9 @@ export const stepActionSchema = z.enum([
   "create",
   "update",
   "delete",
+  "replace-create",
+  "replace-destroy",
+  "replace",
   "verify",
   "manual-intervention",
 ]);
@@ -72,9 +75,40 @@ export const attributeDiffSchema = z.object({
   safety: safetyClassificationSchema,
   /** Which rule produced this classification */
   rule: z.string().trim().min(1),
+  /** Mitigation strategy from the matching rule, if any */
+  mitigation: z
+    .enum([
+      "create-before-destroy",
+      "destroy-before-create",
+      "in-place-replace",
+      "none",
+    ])
+    .optional(),
 });
 
 export type AttributeDiff = z.infer<typeof attributeDiffSchema>;
+
+// ─── Destruction Mitigation ──────────────────────────────────────────────────
+
+export const mitigationStrategySchema = z.object({
+  /** Whether this destructive change can be automated with a safe strategy */
+  automated: z.boolean(),
+  /** The replacement strategy */
+  strategy: z.enum([
+    "create-before-destroy",
+    "destroy-before-create",
+    "in-place-replace",
+    "none",
+  ]),
+  /** Whether the strategy preserves data during replacement */
+  preservesData: z.boolean(),
+  /** Whether downtime is required */
+  requiresDowntime: z.boolean(),
+  /** Human-readable explanation of the mitigation */
+  description: z.string().trim().min(1),
+});
+
+export type MitigationStrategy = z.infer<typeof mitigationStrategySchema>;
 
 // ─── Resource Change ─────────────────────────────────────────────────────────
 
@@ -89,6 +123,8 @@ export const resourceChangeSchema = z.object({
   attributeDiffs: z.array(attributeDiffSchema).readonly(),
   /** Worst safety across all diffs */
   safety: safetyClassificationSchema,
+  /** How destructive changes can be mitigated */
+  mitigation: mitigationStrategySchema.optional(),
 });
 
 export type ResourceChange = z.infer<typeof resourceChangeSchema>;
@@ -116,6 +152,14 @@ export const migrationStepSchema = z.object({
   payload: z.unknown(),
   /** Destructive/unresolvable steps need explicit confirmation */
   requiresConfirmation: z.boolean(),
+  /** Terraform lifecycle metadata affecting step behaviour */
+  lifecycle: z
+    .object({
+      createBeforeDestroy: z.boolean().optional(),
+      preventDestroy: z.boolean().optional(),
+      ignoreChanges: z.array(z.string().trim()).optional(),
+    })
+    .optional(),
 });
 
 export type MigrationStep = z.infer<typeof migrationStepSchema>;
@@ -169,6 +213,15 @@ export const safetyRuleSchema = z.object({
   direction: z.union([migrationDirectionSchema, z.literal("both")]),
   /** Explicit severity when this rule matches */
   severity: safetyClassificationSchema,
+  /** Whether this change can be mitigated with create-before-destroy */
+  mitigation: z
+    .enum([
+      "create-before-destroy",
+      "destroy-before-create",
+      "in-place-replace",
+      "none",
+    ])
+    .optional(),
   /** Human-readable description */
   description: z.string().trim().min(1),
 });
