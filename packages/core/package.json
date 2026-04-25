@@ -4,13 +4,15 @@
   "type": "module",
   "exports": {
     "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
+      "types": "./dist/*.d.mts",
+      "import": "./dist/*.mjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "_build": "tsup",
+    "_build": "tsdown",
     "_typecheck": "tsc -p tsconfig.json --noEmit",
     "_lint": "eslint . --cache",
     "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
@@ -19,7 +21,7 @@
     "zod": "4.3.6"
   },
   "devDependencies": {
-    "tsup": "8.5.1",
+    "tsdown": "0.21.7",
     "tsx": "4.21.0",
     "typescript": "6.0.3"
   }

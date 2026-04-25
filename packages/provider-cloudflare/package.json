@@ -4,17 +4,19 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
     },
     "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
+      "types": "./dist/*.d.mts",
+      "import": "./dist/*.mjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "_build": "tsup",
+    "_build": "tsdown",
     "_typecheck": "tsc -p tsconfig.json --noEmit",
     "_lint": "eslint . --cache"
   },
@@ -26,7 +28,7 @@
   },
   "devDependencies": {
     "@infrasync/core": "workspace:*",
-    "tsup": "8.5.1",
+    "tsdown": "0.21.7",
     "typescript": "6.0.3"
   }
 }
