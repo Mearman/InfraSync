@@ -150,8 +150,14 @@ npx infrasync import terraform-config --file main.tf.json --out infra.ir.json
 # Import Terraform state JSON (from terraform show -json)
 npx infrasync import terraform-state --file state.json
 
+# Import directly from a Terraform state file
+npx infrasync import terraform-state --statefile terraform.tfstate
+
 # Import Terraform plan JSON (from terraform show -json)
 npx infrasync import terraform-plan --file plan.json
+
+# Import directly from a binary Terraform plan file
+npx infrasync import terraform-plan --planfile tfplan
 
 # Export InfraIR as Terraform Configuration JSON
 npx infrasync export terraform-config --config infra.config.ts --out generated.tf.json

@@ -1,7 +1,7 @@
 # Terraform Interoperability Implementation Plan
 
 **Project:** `infra-cli`
-**Status:** In Progress — Phases 0–3 and Phase 5 complete; Phase 4 (UX hardening) in progress
+**Status:** Complete — All phases (0–5) delivered
 **Date:** 2026-04-25
 **Depends on:** `docs/terraform-interoperability-spec.md`
 
@@ -92,7 +92,7 @@ Deliver in five phases so analysis features land early while execution export re
 
 ---
 
-## Phase 4 — UX and operational hardening 🔄 IN PROGRESS
+## Phase 4 — UX and operational hardening ✅ COMPLETE
 
 ### Goals
 - Make functionality easy to adopt and safe in production workflows.
@@ -104,11 +104,11 @@ Deliver in five phases so analysis features land early while execution export re
 4. ✅ CDKTF synth integration test (proves generated projects synthesise).
 5. ✅ Add `infrasync fidelity` standalone report command.
 6. ✅ Add usage docs for both lanes (`docs/terraform-interoperability-usage.md`).
-7. ⬜ Improve diagnostic messages and remediation hints.
-8. ⬜ Add optional convenience import from binary planfile (`terraform show -json` wrapper).
+7. ✅ Add convenience `--planfile`/`--statefile` wrappers (runs `terraform show -json` automatically).
+8. ✅ Diagnostic messages with remediation hints (terraform-not-on-PATH, version gating, malformed input).
 
 ### Exit criteria
-- ⬜ End-to-end docs and example workflows verified.
+- ✅ End-to-end docs and example workflows verified.
 
 ---
 
