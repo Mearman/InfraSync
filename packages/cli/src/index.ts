@@ -16,6 +16,8 @@ import {
   importStateJson,
   importPlanJson,
 } from "@infrasync/adapter-terraform-show-json/import-show-json";
+import { convertToInfraIR } from "@infrasync/adapter-terraform-show-json/convert-to-infra-ir";
+import { terraformIRSchema } from "@infrasync/core-ir/schemas";
 
 // ─── Built-in adapters ───────────────────────────────────────────────────────
 
@@ -79,6 +81,11 @@ const args = parseArgs({
       type: "boolean",
       description: "Output as JSON (for fidelity command)",
     },
+    "convert-infra": {
+      type: "boolean",
+      description:
+        "Convert TerraformIR to InfraIR after import (terraform-state/terraform-plan)",
+    },
     help: {
       type: "boolean",
       short: "h",
@@ -117,6 +124,7 @@ Options:
       --stack <name>                       Stack name override for export commands
       --provider-source <adapter=source>   Override Terraform provider source mapping
       --json                               Output fidelity report as JSON
+      --convert-infra                      Convert TerraformIR → InfraIR after import
   -h, --help                               Show this help message
 
 Examples:
@@ -363,7 +371,11 @@ async function runImportTerraformPlan(filePath: string): Promise<void> {
     `Imported Terraform plan with ${resourceCount} resource(s) and ${outputCount} output(s)`,
   );
 
-  await writeImportOutput(result.document, result.warnings, result.fidelity);
+  await writeImportOutput(
+    maybeConvertInfraIR(result.document, args.values["convert-infra"] ?? false),
+    result.warnings,
+    result.fidelity,
+  );
 }
 
 async function runImportTerraformPlanBinary(
@@ -381,7 +393,11 @@ async function runImportTerraformPlanBinary(
     `Imported Terraform plan with ${resourceCount} resource(s) and ${outputCount} output(s)`,
   );
 
-  await writeImportOutput(result.document, result.warnings, result.fidelity);
+  await writeImportOutput(
+    maybeConvertInfraIR(result.document, args.values["convert-infra"] ?? false),
+    result.warnings,
+    result.fidelity,
+  );
 }
 
 async function runImportTerraformState(filePath: string): Promise<void> {
@@ -398,7 +414,11 @@ async function runImportTerraformState(filePath: string): Promise<void> {
     `Imported Terraform state with ${resourceCount} resource(s) and ${outputCount} output(s)`,
   );
 
-  await writeImportOutput(result.document, result.warnings, result.fidelity);
+  await writeImportOutput(
+    maybeConvertInfraIR(result.document, args.values["convert-infra"] ?? false),
+    result.warnings,
+    result.fidelity,
+  );
 }
 
 async function runImportTerraformStateBinary(
@@ -416,7 +436,26 @@ async function runImportTerraformStateBinary(
     `Imported Terraform state with ${resourceCount} resource(s) and ${outputCount} output(s)`,
   );
 
-  await writeImportOutput(result.document, result.warnings, result.fidelity);
+  await writeImportOutput(
+    maybeConvertInfraIR(result.document, args.values["convert-infra"] ?? false),
+    result.warnings,
+    result.fidelity,
+  );
+}
+
+function maybeConvertInfraIR(
+  tfDocument: unknown,
+  convertInfra: boolean,
+): unknown {
+  if (!convertInfra) return tfDocument;
+
+  const terraIR = terraformIRSchema.parse(tfDocument);
+  const result = convertToInfraIR(terraIR, { name: "converted" });
+
+  console.log(
+    `Converted to InfraIR: ${String(result.document.providers.length)} provider(s), ${String(result.document.resources.length)} resource(s)`,
+  );
+  return result.document;
 }
 
 async function writeImportOutput(

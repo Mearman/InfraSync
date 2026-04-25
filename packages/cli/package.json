@@ -24,6 +24,7 @@
   "dependencies": {
     "@infrasync/adapter-terraform-config-json": "workspace:*",
     "@infrasync/adapter-terraform-show-json": "workspace:*",
+    "@infrasync/core-ir": "workspace:*",
     "jiti": "2.6.1"
   },
   "peerDependencies": {

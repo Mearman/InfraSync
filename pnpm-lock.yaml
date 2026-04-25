@@ -115,6 +115,9 @@ importers:
       '@infrasync/adapter-terraform-show-json':
         specifier: workspace:*
         version: link:../adapter-terraform-show-json
+      '@infrasync/core-ir':
+        specifier: workspace:*
+        version: link:../core-ir
       jiti:
         specifier: 2.6.1
         version: 2.6.1
