@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { loadConfig } from "./loader.js";
 import { loadAdapters, loadIR } from "./ir-loader.js";
 import { buildRegistry } from "./registry.js";
+import type { ProviderAdapter } from "@infrasync/core/provider";
 import { plan } from "./commands/plan.js";
 import { apply } from "./commands/apply.js";
 import { drift } from "./commands/drift.js";
@@ -153,6 +154,9 @@ Options:
       --terraform-file <path>              TerraformIR file for migrate command
       --infrasync-file <path>              InfraIR file for migrate command
       --direction <dir>                    Migration direction (tf-to-infrasync|infrasync-to-tf)
+      --apply                             Execute the migration plan
+      --dry-run                           Show what would happen without changes
+      --adapters <path>                   Adapters module (required with --apply)
   -h, --help                               Show this help message
 
 Examples:
@@ -168,6 +172,8 @@ Examples:
   infrasync migrate --terraform-file tf.json --infrasync-file infra.json --direction tf-to-infrasync
   infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync
   infrasync migrate --planfile tfplan --ir infra.ir.json --direction infrasync-to-tf --json --out plan.json
+  infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync --apply
+  infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync --apply --dry-run
   infrasync import terraform-plan --planfile tfplan
   infrasync export terraform-config --config infra.config.ts --out generated.tf.json
   infrasync export cdktf-ts --config infra.config.ts --out ./generated/cdktf
@@ -213,6 +219,28 @@ if (command === "export") {
     process.exit(1);
   });
 } else if (command === "migrate") {
+  // Load adapters when --apply is requested
+  let migrateAdapters: Map<string, ProviderAdapter> | undefined;
+  if (args.values.apply === true) {
+    const adaptersPath = args.values.adapters;
+    if (adaptersPath !== undefined && typeof adaptersPath === "string") {
+      migrateAdapters = await buildMigrateAdapters(adaptersPath);
+    } else if (
+      args.values.config !== undefined &&
+      typeof args.values.config === "string"
+    ) {
+      migrateAdapters = await loadConfigAdapters(args.values.config);
+    }
+    if (
+      (migrateAdapters === undefined || migrateAdapters.size === 0) &&
+      args.values["dry-run"] !== true
+    ) {
+      console.error(
+        "Error: --apply requires adapters. Use --adapters <path> or --config <path> (with adapters export).",
+      );
+      process.exit(1);
+    }
+  }
   runMigrateCommand(
     {
       terraformFile: args.values["terraform-file"] ?? undefined,
@@ -226,6 +254,7 @@ if (command === "export") {
       json: args.values.json ?? false,
       apply: args.values.apply ?? false,
       dryRun: args.values["dry-run"] ?? false,
+      adapters: migrateAdapters,
     },
     loadInfraIrForExport,
   ).catch((err: unknown) => {
@@ -613,6 +642,35 @@ async function loadInfraIrForExport(
   );
 
   return ir;
+}
+
+/** Build adapter registry from an --adapters module path. */
+async function buildMigrateAdapters(
+  adaptersPath: string,
+): Promise<Map<string, ProviderAdapter>> {
+  console.log(`Loading adapters from ${adaptersPath}...`);
+  const adapterRecord = await loadAdapters(adaptersPath);
+  const adapters = new Map(builtinAdapters);
+  for (const [name, adapter] of Object.entries(adapterRecord)) {
+    adapters.set(name, adapter);
+  }
+  return adapters;
+}
+
+/** Build adapter registry from a config file's adapters export. */
+async function loadConfigAdapters(
+  configPath: string,
+): Promise<Map<string, ProviderAdapter>> {
+  const resolved = resolve(configPath);
+  console.log(`Loading adapters from config ${resolved}...`);
+  const config = await loadConfig(resolved);
+  const adapters = new Map(builtinAdapters);
+  if (config.adapters !== undefined) {
+    for (const [name, adapter] of Object.entries(config.adapters)) {
+      adapters.set(name, adapter);
+    }
+  }
+  return adapters;
 }
 
 function parseProviderSourceOverrides(

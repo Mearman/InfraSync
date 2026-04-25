@@ -37,6 +37,7 @@ import type {
 } from "@infrasync/migration-planner";
 import type { InfraIR } from "@infrasync/core/types";
 import type { TerraformIR } from "@infrasync/core-ir/schemas";
+import type { ProviderPort, ProviderAdapter } from "@infrasync/core/provider";
 
 export interface MigrateOptions {
   /** Pre-built TerraformIR JSON file */
@@ -58,6 +59,8 @@ export interface MigrateOptions {
   apply: boolean | undefined;
   /** Apply without executing (show what would happen) */
   dryRun: boolean | undefined;
+  /** Adapter registry for provider connection (required with --apply) */
+  adapters: ReadonlyMap<string, ProviderAdapter> | undefined;
 }
 
 export async function runMigrateCommand(
@@ -91,15 +94,24 @@ export async function runMigrateCommand(
 
   // Execute if --apply is set
   if (options.apply === true) {
-    console.log("\nExecuting migration plan...");
-    const execResult = await executePlan(plan, {
-      providers: new Map(), // TODO: wire up connected providers from InfraIR
+    const connectedProviders = await connectProviders(
       infraIR,
-      terraformIR: tfIR,
-      dryRun: options.dryRun ?? false,
-    });
+      options.adapters,
+    );
 
-    outputExecutionResult(execResult);
+    try {
+      console.log("\nExecuting migration plan...");
+      const execResult = await executePlan(plan, {
+        providers: connectedProviders,
+        infraIR,
+        terraformIR: tfIR,
+        dryRun: options.dryRun ?? false,
+      });
+
+      outputExecutionResult(execResult);
+    } finally {
+      await disconnectProviders(connectedProviders);
+    }
   }
 }
 
@@ -206,6 +218,102 @@ async function loadInfraIR(
     "Error: no InfraSync source provided. Use --infrasync-file, --ir, or --config.",
   );
   process.exit(1);
+}
+
+// ─── Provider connection ────────────────────────────────────────────────────
+
+/**
+ * Connect provider adapters from InfraIR.
+ *
+ * Resolves secrets from environment variables, validates config, and
+ * initialises SDK clients for each provider instance.
+ */
+async function connectProviders(
+  infraIR: InfraIR,
+  adapterRegistry: ReadonlyMap<string, ProviderAdapter> | undefined,
+): Promise<Map<string, ProviderPort>> {
+  const instances = new Map<string, ProviderPort>();
+
+  if (adapterRegistry === undefined || adapterRegistry.size === 0) {
+    console.log(
+      "  No adapters registered — InfraSync-targeted steps will fail. Provide adapters via --adapters or config file.",
+    );
+    return instances;
+  }
+
+  for (const provider of infraIR.providers) {
+    const adapter = adapterRegistry.get(provider.adapterName);
+    if (adapter === undefined) {
+      console.error(
+        `  Warning: no adapter registered for "${provider.adapterName}" (provider instance "${provider.key}")`,
+      );
+      continue;
+    }
+
+    const instance = adapter.create();
+    const resolvedConfig = resolveConfigSecrets(provider.config);
+
+    const result = instance.configSchema.safeParse(resolvedConfig);
+    if (!result.success) {
+      const issues = result.error.issues
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join("; ");
+      console.error(
+        `  Warning: invalid config for provider "${provider.key}": ${issues}`,
+      );
+      continue;
+    }
+
+    console.log(
+      `  Connecting provider "${provider.key}" (${provider.adapterName})...`,
+    );
+    await instance.connect(resolvedConfig);
+    instances.set(provider.key, instance);
+  }
+
+  return instances;
+}
+
+async function disconnectProviders(
+  instances: Map<string, ProviderPort>,
+): Promise<void> {
+  const results = await Promise.allSettled(
+    [...instances.values()].map((instance) => instance.disconnect()),
+  );
+
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("  Failed to disconnect provider:", result.reason);
+    }
+  }
+}
+
+/** Resolve $secret.env references in provider config from process.env. */
+function resolveConfigSecrets(
+  config: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (isSecretSource(value)) {
+      resolved[key] = process.env[value.$secret.name] ?? "";
+    } else {
+      resolved[key] = value;
+    }
+  }
+  return resolved;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSecretSource(
+  value: unknown,
+): value is { $secret: { kind: string; name: string } } {
+  if (!isRecord(value)) return false;
+  if (!("$secret" in value)) return false;
+  const secret = value.$secret;
+  return typeof secret === "object" && secret !== null;
 }
 
 // ─── Output ───────────────────────────────────────────────────────────────────
