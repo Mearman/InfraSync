@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "zod";
 import type { RefTokenIR } from "../ir/types.js";
 
 // ─── RefToken class ──────────────────────────────────────────────────────────
@@ -54,6 +54,9 @@ export function refTokenToIR(token: RefToken): RefTokenIR {
 export function refable<T extends z.ZodType>(inner: T) {
   return z.xor([
     inner,
-    z.custom<RefToken<z.infer<T>>>((v) => v instanceof RefToken),
+    z.custom<RefToken<z.infer<T>>>(
+      (v) => v instanceof RefToken,
+      "Expected a concrete value or a RefToken",
+    ),
   ]);
 }
