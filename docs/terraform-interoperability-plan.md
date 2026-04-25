@@ -100,11 +100,12 @@ Deliver in five phases so analysis features land early while execution export re
 ### Tasks
 1. ✅ Add CLI commands for import/export terraform-config.
 2. ✅ Add CLI command for export cdktf-ts.
-3. ⬜ Add `infrasync fidelity` standalone report command.
-4. ⬜ Add CLI commands `infrasync import terraform-plan`/`terraform-state`.
-5. ⬜ Improve diagnostic messages and remediation hints.
-6. ⬜ Add docs/examples for both lanes.
-7. ⬜ Add optional convenience import from binary planfile (`terraform show -json` wrapper).
+3. ✅ Add CLI commands `infrasync import terraform-plan`/`terraform-state`.
+4. ✅ CDKTF synth integration test (proves generated projects synthesise).
+5. ⬜ Add `infrasync fidelity` standalone report command.
+6. ⬜ Improve diagnostic messages and remediation hints.
+7. ⬜ Add docs/examples for both lanes.
+8. ⬜ Add optional convenience import from binary planfile (`terraform show -json` wrapper).
 
 ### Exit criteria
 - ⬜ End-to-end docs and example workflows verified.
