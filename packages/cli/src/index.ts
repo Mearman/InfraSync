@@ -157,7 +157,8 @@ Examples:
   infrasync import terraform-state --statefile terraform.tfstate
   infrasync import terraform-plan --file plan.json
   infrasync migrate --terraform-file tf.json --infrasync-file infra.json --direction tf-to-infrasync
-  infrasync migrate --terraform-file tf.json --infrasync-file infra.json --direction infrasync-to-tf --json --out plan.json
+  infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync
+  infrasync migrate --planfile tfplan --ir infra.ir.json --direction infrasync-to-tf --json --out plan.json
   infrasync import terraform-plan --planfile tfplan
   infrasync export terraform-config --config infra.config.ts --out generated.tf.json
   infrasync export cdktf-ts --config infra.config.ts --out ./generated/cdktf
@@ -203,13 +204,20 @@ if (command === "export") {
     process.exit(1);
   });
 } else if (command === "migrate") {
-  runMigrateCommand({
-    terraformFile: args.values["terraform-file"] ?? "",
-    infrasyncFile: args.values["infrasync-file"] ?? "",
-    direction: validateDirection(args.values.direction),
-    out: args.values.out,
-    json: args.values.json ?? false,
-  }).catch((err: unknown) => {
+  runMigrateCommand(
+    {
+      terraformFile: args.values["terraform-file"] ?? undefined,
+      statefile: args.values.statefile ?? undefined,
+      planfile: args.values.planfile ?? undefined,
+      infrasyncFile: args.values["infrasync-file"] ?? undefined,
+      config: args.values.config ?? undefined,
+      ir: args.values.ir ?? undefined,
+      direction: validateDirection(args.values.direction),
+      out: args.values.out,
+      json: args.values.json ?? false,
+    },
+    loadInfraIrForExport,
+  ).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Fatal: ${message}`);
     process.exit(1);
@@ -572,13 +580,19 @@ function printFidelityReport(fidelity: {
   }
 }
 
-async function loadInfraIrForExport(): Promise<InfraIR> {
-  if (args.values.ir !== undefined) {
-    console.log(`Loading IR from ${args.values.ir}...`);
-    return loadIR(args.values.ir);
+async function loadInfraIrForExport(
+  configOverride?: string,
+  irOverride?: string,
+): Promise<InfraIR> {
+  const irPath = irOverride ?? args.values.ir;
+  if (irPath !== undefined) {
+    console.log(`Loading IR from ${irPath}...`);
+    return loadIR(irPath);
   }
 
-  const configPath = resolve(args.values.config ?? "infra.config.ts");
+  const configPath = resolve(
+    configOverride ?? args.values.config ?? "infra.config.ts",
+  );
   console.log(`Loading config from ${configPath}...`);
   const config = await loadConfig(configPath);
   const ir = config.infraResult.toIR();

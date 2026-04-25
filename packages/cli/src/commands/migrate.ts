@@ -1,6 +1,18 @@
 /**
- * `infrasync migrate` command — compare TerraformIR and InfraIR documents,
- * producing a classified migration plan with executable steps.
+ * `infrasync migrate` command — unified migration pipeline.
+ *
+ * Accepts Terraform input from:
+ *   --terraform-file <path>  Pre-built TerraformIR JSON
+ *   --file <path>            Alias for --terraform-file
+ *   --statefile <path>       Binary Terraform state file (runs terraform show -json)
+ *   --planfile <path>        Binary Terraform plan file (runs terraform show -json)
+ *
+ * Accepts InfraSync input from:
+ *   --infrasync-file <path>  Pre-built InfraIR JSON
+ *   --config <path>          TypeScript infra config (compiled to InfraIR)
+ *   --ir <path>              Alias for --infrasync-file
+ *
+ * At least one Terraform source and one InfraSync source must be provided.
  */
 import { resolve } from "node:path";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -12,14 +24,31 @@ import {
 } from "@infrasync/migration-planner";
 import { terraformIRSchema } from "@infrasync/core-ir/schemas";
 import { infraIRSchema } from "@infrasync/core/schemas";
+import {
+  importStateJson,
+  importPlanJson,
+} from "@infrasync/adapter-terraform-show-json/import-show-json";
+import { runTerraformShowJson } from "./terraform-show-json.js";
 import type {
   MigrationPlan,
   MigrationDirection,
 } from "@infrasync/migration-planner";
+import type { InfraIR } from "@infrasync/core/types";
+import type { TerraformIR } from "@infrasync/core-ir/schemas";
 
 export interface MigrateOptions {
-  terraformFile: string;
-  infrasyncFile: string;
+  /** Pre-built TerraformIR JSON file */
+  terraformFile: string | undefined;
+  /** Terraform state file (binary, runs terraform show -json) */
+  statefile: string | undefined;
+  /** Terraform plan file (binary, runs terraform show -json) */
+  planfile: string | undefined;
+  /** Pre-built InfraIR JSON file */
+  infrasyncFile: string | undefined;
+  /** TypeScript infra config file */
+  config: string | undefined;
+  /** Pre-built InfraIR JSON file (alias) */
+  ir: string | undefined;
   direction: MigrationDirection;
   out: string | undefined;
   json: boolean;
@@ -27,26 +56,13 @@ export interface MigrateOptions {
 
 export async function runMigrateCommand(
   options: MigrateOptions,
+  infraIRLoader: (
+    configPath: string,
+    irPath: string | undefined,
+  ) => Promise<InfraIR>,
 ): Promise<void> {
-  const { terraformFile, infrasyncFile, direction, out, json } = options;
-
-  // Load and validate TerraformIR
-  console.log(`Loading TerraformIR from ${resolve(terraformFile)}...`);
-  const tfRaw = await readFile(resolve(terraformFile), "utf-8");
-  const tfIR = terraformIRSchema.parse(JSON.parse(tfRaw));
-
-  console.log(
-    `  ${String(tfIR.resources.length)} resource(s), ${String(tfIR.outputs.length)} output(s)`,
-  );
-
-  // Load and validate InfraIR
-  console.log(`Loading InfraIR from ${resolve(infrasyncFile)}...`);
-  const infraRaw = await readFile(resolve(infrasyncFile), "utf-8");
-  const infraIR = infraIRSchema.parse(JSON.parse(infraRaw));
-
-  console.log(
-    `  ${String(infraIR.providers.length)} provider(s), ${String(infraIR.resources.length)} resource(s)`,
-  );
+  const tfIR = await loadTerraformIR(options);
+  const infraIR = await loadInfraIR(options, infraIRLoader);
 
   // Build plugin registry
   const registry = new PluginRegistry();
@@ -54,16 +70,126 @@ export async function runMigrateCommand(
   registry.register(cloudflarePlugin);
 
   // Compare
-  console.log(`\nComparing (${direction})...`);
-  const plan = compare(tfIR, infraIR, { direction, registry });
+  console.log(`\nComparing (${options.direction})...`);
+  const plan = compare(tfIR, infraIR, {
+    direction: options.direction,
+    registry,
+  });
 
   // Output
-  if (json) {
-    await outputJson(plan, out);
+  if (options.json) {
+    await outputJson(plan, options.out);
   } else {
     outputHumanReadable(plan);
   }
 }
+
+// ─── TerraformIR loading ─────────────────────────────────────────────────────
+
+async function loadTerraformIR(options: MigrateOptions): Promise<TerraformIR> {
+  const sources = [
+    options.terraformFile,
+    options.statefile,
+    options.planfile,
+  ].filter((s) => s !== undefined && s.length > 0);
+
+  if (sources.length === 0) {
+    console.error(
+      "Error: no Terraform source provided. Use --terraform-file, --statefile, or --planfile.",
+    );
+    process.exit(1);
+  }
+
+  if (sources.length > 1) {
+    console.error(
+      "Error: multiple Terraform sources provided. Use only one of --terraform-file, --statefile, or --planfile.",
+    );
+    process.exit(1);
+  }
+
+  // --terraform-file: load pre-built TerraformIR JSON
+  if (options.terraformFile !== undefined && options.terraformFile.length > 0) {
+    console.log(
+      `Loading TerraformIR from ${resolve(options.terraformFile)}...`,
+    );
+    const raw = await readFile(resolve(options.terraformFile), "utf-8");
+    const tfIR = terraformIRSchema.parse(JSON.parse(raw));
+    console.log(
+      `  ${String(tfIR.resources.length)} resource(s), ${String(tfIR.outputs.length)} output(s)`,
+    );
+    return tfIR;
+  }
+
+  // --statefile: run terraform show -json on a binary state file
+  if (options.statefile !== undefined && options.statefile.length > 0) {
+    console.log(
+      `Running terraform show -json on ${resolve(options.statefile)}...`,
+    );
+    const raw = runTerraformShowJson(options.statefile);
+    const result = importStateJson(raw);
+    console.log(
+      `  Imported state: ${String(result.document.resources.length)} resource(s), ${String(result.document.outputs.length)} output(s)`,
+    );
+    return result.document;
+  }
+
+  // --planfile: run terraform show -json on a binary plan file
+  if (options.planfile !== undefined && options.planfile.length > 0) {
+    console.log(
+      `Running terraform show -json on ${resolve(options.planfile)}...`,
+    );
+    const raw = runTerraformShowJson(options.planfile);
+    const result = importPlanJson(raw);
+    console.log(
+      `  Imported plan: ${String(result.document.resources.length)} resource(s), ${String(result.document.outputs.length)} output(s)`,
+    );
+    return result.document;
+  }
+
+  // Unreachable — the validation above ensures one source is present
+  throw new Error("No Terraform source provided");
+}
+
+// ─── InfraIR loading ──────────────────────────────────────────────────────────
+
+async function loadInfraIR(
+  options: MigrateOptions,
+  infraIRLoader: (
+    configPath: string,
+    irPath: string | undefined,
+  ) => Promise<InfraIR>,
+): Promise<InfraIR> {
+  const filePath = options.infrasyncFile ?? options.ir;
+  const configPath = options.config;
+
+  if (filePath !== undefined && filePath.length > 0) {
+    // Pre-built InfraIR JSON
+    console.log(`Loading InfraIR from ${resolve(filePath)}...`);
+    const raw = await readFile(resolve(filePath), "utf-8");
+    const infraIR = infraIRSchema.parse(JSON.parse(raw));
+    console.log(
+      `  ${String(infraIR.providers.length)} provider(s), ${String(infraIR.resources.length)} resource(s)`,
+    );
+    return infraIR;
+  }
+
+  if (configPath !== undefined && configPath.length > 0) {
+    // Compile from TypeScript config
+    console.log(`Compiling InfraIR from ${resolve(configPath)}...`);
+    const infraIR = await infraIRLoader(configPath, undefined);
+    console.log(
+      `  ${String(infraIR.providers.length)} provider(s), ${String(infraIR.resources.length)} resource(s)`,
+    );
+    return infraIR;
+  }
+
+  console.error(
+    "Error: no InfraSync source provided. Use --infrasync-file, --ir, or --config.",
+  );
+  process.exit(1);
+}
+
+// ─── Output ───────────────────────────────────────────────────────────────────
 
 const SAFETY_ICONS: Record<string, string> = {
   safe: "✓",
@@ -86,7 +212,6 @@ function outputHumanReadable(plan: MigrationPlan): void {
   console.log(`║        Migration Plan — ${plan.direction}     `);
   console.log(`╚══════════════════════════════════════════╝\n`);
 
-  // Summary
   console.log("Summary:");
   console.log(`  Total resources: ${String(summary.total)}`);
   console.log(
@@ -96,7 +221,6 @@ function outputHumanReadable(plan: MigrationPlan): void {
     `  Creates: ${String(summary.creates)}  |  Updates: ${String(summary.updates)}  |  Deletes: ${String(summary.deletes)}`,
   );
 
-  // Resource changes
   if (changes.length > 0) {
     console.log("\nResource Changes:");
     for (const change of changes) {
@@ -115,7 +239,6 @@ function outputHumanReadable(plan: MigrationPlan): void {
     }
   }
 
-  // Steps
   if (steps.length > 0) {
     console.log("\nMigration Steps:");
     for (const step of steps) {
@@ -129,7 +252,6 @@ function outputHumanReadable(plan: MigrationPlan): void {
     }
   }
 
-  // Warnings
   if (warnings.length > 0) {
     console.log("\nWarnings:");
     for (const warning of warnings) {
@@ -150,7 +272,7 @@ function formatValue(value: unknown): string {
 
 async function outputJson(
   plan: MigrationPlan,
-  outPath?: string,
+  outPath: string | undefined,
 ): Promise<void> {
   const json = JSON.stringify(plan, null, 2);
 
