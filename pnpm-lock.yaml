@@ -84,6 +84,9 @@ importers:
 
   packages/adapter-terraform-show-json:
     dependencies:
+      '@infrasync/core':
+        specifier: workspace:*
+        version: link:../core
       '@infrasync/core-fidelity':
         specifier: workspace:*
         version: link:../core-fidelity

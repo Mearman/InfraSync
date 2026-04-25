@@ -18,6 +18,7 @@
     "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
   },
   "dependencies": {
+    "@infrasync/core": "workspace:*",
     "@infrasync/core-fidelity": "workspace:*",
     "@infrasync/core-ir": "workspace:*",
     "zod": "4.3.6"
