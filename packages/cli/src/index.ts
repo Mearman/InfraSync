@@ -7,6 +7,7 @@ import { plan } from "./commands/plan.js";
 import { apply } from "./commands/apply.js";
 import { drift } from "./commands/drift.js";
 import { exportCdktfTypeScript } from "./commands/export-cdktf-ts.js";
+import { runFidelityCommand } from "./commands/fidelity.js";
 import type { InfraIR } from "@infrasync/core/types";
 import { importTfConfigJson } from "@infrasync/adapter-terraform-config-json/import-config-json";
 import { exportTfConfigJson } from "@infrasync/adapter-terraform-config-json/export-config-json";
@@ -61,7 +62,11 @@ const args = parseArgs({
     },
     file: {
       type: "string",
-      description: "Input file path for import commands",
+      description: "Input file path for import/fidelity commands",
+    },
+    json: {
+      type: "boolean",
+      description: "Output as JSON (for fidelity command)",
     },
     help: {
       type: "boolean",
@@ -83,6 +88,7 @@ Commands:
   apply               Apply configuration from a config file
   plan                Preview changes without applying
   drift               Show drift between desired and actual state
+  fidelity            Display a fidelity report from an adapter result
   import terraform-config  Import a *.tf.json file into InfraIR
   import terraform-plan    Import terraform show -json plan output into Terraform IR
   import terraform-state   Import terraform show -json state output into Terraform IR
@@ -97,6 +103,7 @@ Options:
       --file <path>                        Input file path for import commands
       --stack <name>                       Stack name override for export commands
       --provider-source <adapter=source>   Override Terraform provider source mapping
+      --json                               Output fidelity report as JSON
   -h, --help                               Show this help message
 
 Examples:
@@ -104,6 +111,7 @@ Examples:
   infrasync plan
   infrasync drift
   infrasync apply --ir infra.ir.json --adapters ./adapters.ts
+  infrasync fidelity --file adapter-result.json
   infrasync import terraform-config --file main.tf.json --out infra.ir.json
   infrasync import terraform-state --file state.json
   infrasync import terraform-plan --file plan.json
@@ -124,7 +132,7 @@ const command = args.positionals[0];
 
 if (command === undefined) {
   console.error(
-    "Error: no command specified. Use 'plan', 'apply', 'drift', or 'export cdktf-ts'.",
+    "Error: no command specified. Use 'plan', 'apply', 'drift', 'fidelity', 'import', or 'export'.",
   );
   console.error("Run 'infrasync --help' for usage.");
   process.exit(1);
@@ -138,6 +146,14 @@ if (command === "export") {
   });
 } else if (command === "import") {
   runImportCommand().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Fatal: ${message}`);
+    process.exit(1);
+  });
+} else if (command === "fidelity") {
+  runFidelityCommand(args.values.file ?? "", {
+    json: args.values.json,
+  }).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Fatal: ${message}`);
     process.exit(1);
