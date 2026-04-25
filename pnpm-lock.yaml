@@ -57,6 +57,28 @@ importers:
         specifier: 8.58.2
         version: 8.58.2(eslint@10.2.0(jiti@2.6.1))(typescript@6.0.3)
 
+  packages/adapter-terraform-show-json:
+    dependencies:
+      '@infrasync/core-fidelity':
+        specifier: workspace:*
+        version: link:../core-fidelity
+      '@infrasync/core-ir':
+        specifier: workspace:*
+        version: link:../core-ir
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
+    devDependencies:
+      tsdown:
+        specifier: 0.21.7
+        version: 0.21.7(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(synckit@0.11.12)(typescript@6.0.3)
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   packages/cli:
     dependencies:
       jiti:
@@ -69,11 +91,46 @@ importers:
       tsdown:
         specifier: 0.21.7
         version: 0.21.7(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(synckit@0.11.12)(typescript@6.0.3)
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
       typescript:
         specifier: 6.0.3
         version: 6.0.3
 
   packages/core:
+    dependencies:
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
+    devDependencies:
+      tsdown:
+        specifier: 0.21.7
+        version: 0.21.7(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(synckit@0.11.12)(typescript@6.0.3)
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/core-fidelity:
+    dependencies:
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
+    devDependencies:
+      tsdown:
+        specifier: 0.21.7
+        version: 0.21.7(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(synckit@0.11.12)(typescript@6.0.3)
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/core-ir:
     dependencies:
       zod:
         specifier: 4.3.6
