@@ -188,6 +188,9 @@ importers:
 
   packages/migration-planner:
     dependencies:
+      '@infrasync/adapter-terraform-config-json':
+        specifier: workspace:*
+        version: link:../adapter-terraform-config-json
       '@infrasync/core':
         specifier: workspace:*
         version: link:../core

@@ -251,3 +251,48 @@ export const migrationPluginSchema = z.object({
 });
 
 export type MigrationPlugin = z.infer<typeof migrationPluginSchema>;
+
+// ─── Execution Result ─────────────────────────────────────────────────────────
+
+export const stepStatusSchema = z.enum([
+  "success",
+  "failed",
+  "skipped",
+  "requires-confirmation",
+]);
+
+export type StepStatus = z.infer<typeof stepStatusSchema>;
+
+export const stepOutcomeSchema = z.object({
+  /** Step ID from the migration plan */
+  stepId: z.string().trim().min(1),
+  /** Execution status */
+  status: stepStatusSchema,
+  /** Human-readable message about what happened */
+  message: z.string().trim().min(1),
+  /** Duration in milliseconds */
+  durationMs: z.int().min(0),
+  /** Error details if status is "failed" */
+  error: z.string().trim().optional(),
+});
+
+export type StepOutcome = z.infer<typeof stepOutcomeSchema>;
+
+export const executionResultSchema = z.object({
+  /** Total steps executed */
+  totalSteps: z.int().min(0),
+  /** Per-step outcomes in execution order */
+  outcomes: z.array(stepOutcomeSchema).readonly(),
+  /** Number of successful steps */
+  succeeded: z.int().min(0),
+  /** Number of failed steps */
+  failed: z.int().min(0),
+  /** Number of skipped steps (dependency failure or manual-intervention) */
+  skipped: z.int().min(0),
+  /** Number of steps requiring manual confirmation */
+  pendingConfirmation: z.int().min(0),
+  /** Total wall-clock duration in milliseconds */
+  durationMs: z.int().min(0),
+});
+
+export type ExecutionResult = z.infer<typeof executionResultSchema>;

@@ -18,6 +18,7 @@ import { resolve } from "node:path";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import {
   compare,
+  executePlan,
   PluginRegistry,
   cloudflarePlugin,
   genericPlugin,
@@ -32,6 +33,7 @@ import { runTerraformShowJson } from "./terraform-show-json.js";
 import type {
   MigrationPlan,
   MigrationDirection,
+  ExecutionResult,
 } from "@infrasync/migration-planner";
 import type { InfraIR } from "@infrasync/core/types";
 import type { TerraformIR } from "@infrasync/core-ir/schemas";
@@ -52,6 +54,10 @@ export interface MigrateOptions {
   direction: MigrationDirection;
   out: string | undefined;
   json: boolean;
+  /** Execute the migration plan (default: plan only) */
+  apply: boolean | undefined;
+  /** Apply without executing (show what would happen) */
+  dryRun: boolean | undefined;
 }
 
 export async function runMigrateCommand(
@@ -76,11 +82,24 @@ export async function runMigrateCommand(
     registry,
   });
 
-  // Output
+  // Output the plan
   if (options.json) {
     await outputJson(plan, options.out);
   } else {
     outputHumanReadable(plan);
+  }
+
+  // Execute if --apply is set
+  if (options.apply === true) {
+    console.log("\nExecuting migration plan...");
+    const execResult = await executePlan(plan, {
+      providers: new Map(), // TODO: wire up connected providers from InfraIR
+      infraIR,
+      terraformIR: tfIR,
+      dryRun: options.dryRun ?? false,
+    });
+
+    outputExecutionResult(execResult);
   }
 }
 
@@ -306,4 +325,33 @@ async function outputJson(
   } else {
     console.log(json);
   }
+}
+
+function outputExecutionResult(result: ExecutionResult): void {
+  console.log(`\n─── Execution Result ───`);
+  console.log(`  Steps: ${String(result.totalSteps)}`);
+  console.log(
+    `  Succeeded: ${String(result.succeeded)}  |  Failed: ${String(result.failed)}  |  Skipped: ${String(result.skipped)}  |  Pending: ${String(result.pendingConfirmation)}`,
+  );
+  console.log(`  Duration: ${String(result.durationMs)}ms`);
+
+  if (result.outcomes.length > 0) {
+    console.log("\n  Step Outcomes:");
+    for (const outcome of result.outcomes) {
+      const icon =
+        outcome.status === "success"
+          ? "✓"
+          : outcome.status === "failed"
+            ? "✗"
+            : outcome.status === "skipped"
+              ? "⊘"
+              : "⚠";
+      const errorTag = outcome.error !== undefined ? ` — ${outcome.error}` : "";
+      console.log(
+        `    ${icon} [${outcome.stepId}] ${outcome.status} (${String(outcome.durationMs)}ms): ${outcome.message}${errorTag}`,
+      );
+    }
+  }
+
+  console.log();
 }

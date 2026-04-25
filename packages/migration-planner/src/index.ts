@@ -2,6 +2,11 @@
  * @infrasync/migration-planner — public API.
  */
 export { compare, type PlannerOptions } from "./planner.js";
+export {
+  executePlan,
+  type ExecutionContext,
+  type ExecutorOptions,
+} from "./executor.js";
 export { PluginRegistry } from "./plugin-registry.js";
 export { diffAttributes } from "./attribute-differ.js";
 export { matchResources } from "./resource-matcher.js";
@@ -25,4 +30,7 @@ export type {
   SafetyRule,
   AttributeMapper,
   MitigationStrategy,
+  StepStatus,
+  StepOutcome,
+  ExecutionResult,
 } from "./schemas.js";

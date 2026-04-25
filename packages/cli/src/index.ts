@@ -101,6 +101,15 @@ const args = parseArgs({
       type: "string",
       description: "Migration direction: tf-to-infrasync or infrasync-to-tf",
     },
+    apply: {
+      type: "boolean",
+      description: "Execute the migration plan after generating it",
+    },
+    "dry-run": {
+      type: "boolean",
+      description:
+        "Show what would happen without making changes (use with --apply)",
+    },
     help: {
       type: "boolean",
       short: "h",
@@ -215,6 +224,8 @@ if (command === "export") {
       direction: validateDirection(args.values.direction),
       out: args.values.out,
       json: args.values.json ?? false,
+      apply: args.values.apply ?? false,
+      dryRun: args.values["dry-run"] ?? false,
     },
     loadInfraIrForExport,
   ).catch((err: unknown) => {
