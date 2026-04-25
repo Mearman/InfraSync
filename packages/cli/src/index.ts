@@ -8,6 +8,7 @@ import { apply } from "./commands/apply.js";
 import { drift } from "./commands/drift.js";
 import { exportCdktfTypeScript } from "./commands/export-cdktf-ts.js";
 import { runFidelityCommand } from "./commands/fidelity.js";
+import { runTerraformShowJson } from "./commands/terraform-show-json.js";
 import type { InfraIR } from "@infrasync/core/types";
 import { importTfConfigJson } from "@infrasync/adapter-terraform-config-json/import-config-json";
 import { exportTfConfigJson } from "@infrasync/adapter-terraform-config-json/export-config-json";
@@ -64,6 +65,16 @@ const args = parseArgs({
       type: "string",
       description: "Input file path for import/fidelity commands",
     },
+    planfile: {
+      type: "string",
+      description:
+        "Path to a binary Terraform plan file (runs terraform show -json automatically)",
+    },
+    statefile: {
+      type: "string",
+      description:
+        "Path to a Terraform state file (runs terraform show -json automatically)",
+    },
     json: {
       type: "boolean",
       description: "Output as JSON (for fidelity command)",
@@ -100,7 +111,9 @@ Options:
       --ir <path>                          Path to serialised InfraIR JSON file
       --adapters <path>                    Path to adapters module (required with --ir for apply/plan/drift)
       --out <path>                         Output directory for export commands
-      --file <path>                        Input file path for import commands
+      --file <path>                        Input file path for import/fidelity commands
+      --planfile <path>                    Path to binary Terraform plan file (runs terraform show -json)
+      --statefile <path>                   Path to Terraform state file (runs terraform show -json)
       --stack <name>                       Stack name override for export commands
       --provider-source <adapter=source>   Override Terraform provider source mapping
       --json                               Output fidelity report as JSON
@@ -114,7 +127,9 @@ Examples:
   infrasync fidelity --file adapter-result.json
   infrasync import terraform-config --file main.tf.json --out infra.ir.json
   infrasync import terraform-state --file state.json
+  infrasync import terraform-state --statefile terraform.tfstate
   infrasync import terraform-plan --file plan.json
+  infrasync import terraform-plan --planfile tfplan
   infrasync export terraform-config --config infra.config.ts --out generated.tf.json
   infrasync export cdktf-ts --config infra.config.ts --out ./generated/cdktf
   infrasync export cdktf-ts --ir infra.ir.json --out ./generated/cdktf --provider-source cloudflare=cloudflare/cloudflare
@@ -283,17 +298,37 @@ async function runImportCommand(): Promise<void> {
   }
 
   const filePath = args.values.file;
-  if (filePath === undefined) {
-    console.error(`Error: --file is required for import ${target}.`);
-    process.exit(1);
-  }
+  const planfilePath = args.values.planfile;
+  const statefilePath = args.values.statefile;
 
   if (target === "terraform-config") {
+    if (filePath === undefined) {
+      console.error("Error: --file is required for import terraform-config.");
+      process.exit(1);
+    }
     await runImportTerraformConfig(filePath);
   } else if (target === "terraform-plan") {
-    await runImportTerraformPlan(filePath);
+    if (planfilePath !== undefined) {
+      await runImportTerraformPlanBinary(planfilePath);
+    } else if (filePath !== undefined) {
+      await runImportTerraformPlan(filePath);
+    } else {
+      console.error(
+        "Error: --file or --planfile is required for import terraform-plan.",
+      );
+      process.exit(1);
+    }
   } else {
-    await runImportTerraformState(filePath);
+    if (statefilePath !== undefined) {
+      await runImportTerraformStateBinary(statefilePath);
+    } else if (filePath !== undefined) {
+      await runImportTerraformState(filePath);
+    } else {
+      console.error(
+        "Error: --file or --statefile is required for import terraform-state.",
+      );
+      process.exit(1);
+    }
   }
 }
 
@@ -331,11 +366,47 @@ async function runImportTerraformPlan(filePath: string): Promise<void> {
   await writeImportOutput(result.document, result.warnings, result.fidelity);
 }
 
+async function runImportTerraformPlanBinary(
+  planfilePath: string,
+): Promise<void> {
+  console.log(`Running terraform show -json on ${resolve(planfilePath)}...`);
+
+  const raw = runTerraformShowJson(planfilePath);
+
+  const result = importPlanJson(raw);
+
+  const resourceCount = String(result.document.resources.length);
+  const outputCount = String(result.document.outputs.length);
+  console.log(
+    `Imported Terraform plan with ${resourceCount} resource(s) and ${outputCount} output(s)`,
+  );
+
+  await writeImportOutput(result.document, result.warnings, result.fidelity);
+}
+
 async function runImportTerraformState(filePath: string): Promise<void> {
   console.log(`Importing Terraform state JSON from ${resolve(filePath)}...`);
 
   const { readFile } = await import("node:fs/promises");
   const raw = await readFile(resolve(filePath), "utf-8");
+
+  const result = importStateJson(raw);
+
+  const resourceCount = String(result.document.resources.length);
+  const outputCount = String(result.document.outputs.length);
+  console.log(
+    `Imported Terraform state with ${resourceCount} resource(s) and ${outputCount} output(s)`,
+  );
+
+  await writeImportOutput(result.document, result.warnings, result.fidelity);
+}
+
+async function runImportTerraformStateBinary(
+  statefilePath: string,
+): Promise<void> {
+  console.log(`Running terraform show -json on ${resolve(statefilePath)}...`);
+
+  const raw = runTerraformShowJson(statefilePath);
 
   const result = importStateJson(raw);
 
