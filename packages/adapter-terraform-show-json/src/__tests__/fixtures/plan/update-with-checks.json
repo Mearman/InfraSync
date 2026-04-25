@@ -1,0 +1,96 @@
+{
+  "format_version": "1.1",
+  "terraform_version": "1.6.0",
+  "planned_values": {
+    "outputs": {
+      "bucket_arn": {
+        "value": "arn:aws:s3:::my-bucket",
+        "sensitive": false
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_s3_bucket.app",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "app",
+          "provider_name": "aws",
+          "schema_version": 0,
+          "values": {
+            "bucket": "my-bucket",
+            "region": "eu-west-1"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_s3_bucket_policy.app",
+          "mode": "managed",
+          "type": "aws_s3_bucket_policy",
+          "name": "app",
+          "provider_name": "aws",
+          "schema_version": 0,
+          "values": {
+            "bucket": "my-bucket",
+            "policy": "{\"Version\":\"2012-10-17\"}"
+          },
+          "sensitive_values": {}
+        }
+      ]
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.app",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "app",
+      "provider_name": "aws",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "bucket": "my-bucket",
+          "region": "us-east-1"
+        },
+        "after": {
+          "bucket": "my-bucket",
+          "region": "eu-west-1"
+        },
+        "after_unknown": {},
+        "replace_paths": [["region"]]
+      },
+      "action_reason": "config_drift"
+    },
+    {
+      "address": "aws_s3_bucket_policy.app",
+      "mode": "managed",
+      "type": "aws_s3_bucket_policy",
+      "name": "app",
+      "provider_name": "aws",
+      "change": {
+        "actions": ["no-op"],
+        "before": {
+          "bucket": "my-bucket",
+          "policy": "{\"Version\":\"2012-10-17\"}"
+        },
+        "after": {
+          "bucket": "my-bucket",
+          "policy": "{\"Version\":\"2012-10-17\"}"
+        },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "checks": [
+    {
+      "address": "check.bucket_compliance",
+      "objects": [
+        {
+          "address": "check.bucket_compliance.versioning",
+          "status": "pass",
+          "message": "Versioning is enabled"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.5.7",
+  "values": {
+    "outputs": {},
+    "root_module": {
+      "resources": [
+        {
+          "address": "cloudflare_record.www",
+          "mode": "managed",
+          "type": "cloudflare_record",
+          "name": "www",
+          "provider_name": "cloudflare",
+          "schema_version": 2,
+          "values": {
+            "zone_id": "abc123",
+            "name": "www.example.com",
+            "type": "CNAME",
+            "value": "target.example.com",
+            "ttl": 300,
+            "proxied": true
+          },
+          "sensitive_values": {}
+        }
+      ]
+    }
+  }
+}

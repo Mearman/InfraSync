@@ -1,0 +1,85 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.5.7",
+  "values": {
+    "outputs": {
+      "endpoint": {
+        "value": "https://app.example.com",
+        "type": "string",
+        "sensitive": false
+      },
+      "secret_key": {
+        "value": "supersecret",
+        "type": "string",
+        "sensitive": true
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "cloudflare_record.www",
+          "mode": "managed",
+          "type": "cloudflare_record",
+          "name": "www",
+          "provider_name": "cloudflare",
+          "schema_version": 2,
+          "values": {
+            "zone_id": "abc123",
+            "name": "www.example.com",
+            "type": "CNAME",
+            "value": "target.example.com",
+            "ttl": 300,
+            "proxied": true
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_s3_bucket.logs",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "logs",
+          "provider_name": "aws",
+          "schema_version": 0,
+          "values": {
+            "bucket": "my-logs-bucket",
+            "region": "eu-west-1"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "data.aws_ami.ubuntu",
+          "mode": "data",
+          "type": "aws_ami",
+          "name": "ubuntu",
+          "provider_name": "aws",
+          "schema_version": 0,
+          "values": {
+            "name": "ubuntu-22.04",
+            "arch": "x86_64"
+          },
+          "sensitive_values": {}
+        }
+      ],
+      "child_modules": [
+        {
+          "address": "module.networking",
+          "resources": [
+            {
+              "address": "module.networking.aws_vpc.main",
+              "mode": "managed",
+              "type": "aws_vpc",
+              "name": "main",
+              "provider_name": "aws",
+              "schema_version": 1,
+              "values": {
+                "cidr_block": "10.0.0.0/16",
+                "name": "prod-vpc"
+              },
+              "sensitive_values": {}
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

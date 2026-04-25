@@ -285,6 +285,7 @@ function buildStateResource(
     "sensitive_values",
     "depends_on",
     "index",
+    "schema_version",
   ]);
   const rawExtensions = collectUnknownFields(raw, knownFields);
   const hasUnknownFields = Object.keys(rawExtensions).length > 0;
