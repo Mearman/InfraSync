@@ -1,7 +1,7 @@
 # Terraform Interoperability Specification
 
 **Project:** `infra-cli` (TerraSync interoperability)
-**Status:** Draft
+**Status:** In Progress — Execution lane bidirectional, analysis lane import, and CDKTF export complete
 **Date:** 2026-04-25
 
 ## 1. Objective
