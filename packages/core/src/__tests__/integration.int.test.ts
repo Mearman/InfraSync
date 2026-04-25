@@ -212,7 +212,7 @@ describe("IR types and compilation", () => {
     assert.equal(res.provider, "mock1");
     assert.equal(res.kind, "MockResource");
     assert.equal(res.mode, "manage");
-    assert.equal(res.dependsOn.length, 0);
+    assert.equal(res.dependsOn?.length, 0);
   });
 
   it("serialises RefTokens into RefTokenIR", () => {

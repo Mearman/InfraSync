@@ -99,8 +99,9 @@ export const resourceIRSchema = z
     dependsOn: z
       .array(z.string().trim())
       .readonly()
+      .optional()
       .meta({ description: "Explicit dependency edges by resource name" }),
-    refBindings: z.array(refBindingIRSchema).readonly().meta({
+    refBindings: z.array(refBindingIRSchema).readonly().optional().meta({
       description:
         "Symbolic ref bindings extracted from the spec at compile time",
     }),

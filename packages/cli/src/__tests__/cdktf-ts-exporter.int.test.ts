@@ -12,9 +12,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import * as z from "zod";
+import { infraIRSchema } from "@infrasync/core/schemas";
+import type { InfraIR } from "@infrasync/core/types";
 import { cdktfTypeScriptExporter } from "../exporters/cdktf-ts.js";
 import type { CdktfTypeScriptExportOptions } from "../exporters/cdktf-ts.js";
-import type { InfraIR } from "@infrasync/core/types";
+
+const cdktfOptionsSchema = z.object({
+  stackName: z.string().trim().optional(),
+  providerSources: z.record(z.string().trim(), z.string().trim()).optional(),
+});
 
 const FIXTURES_DIR = join(import.meta.dirname, "fixtures", "cdktf-ts");
 const UPDATE_GOLDEN = process.env.UPDATE_GOLDEN === "1";
@@ -35,35 +42,24 @@ const GOLDEN_FILES = [
   ".gitignore",
 ] as const;
 
-// ─── Type guards for fixture JSON ────────────────────────────────────────────
-
-function isInfraIR(value: unknown): value is InfraIR {
-  if (typeof value !== "object" || value === null) return false;
-  if (!("name" in value) || typeof value.name !== "string") return false;
-  if (!("providers" in value) || !Array.isArray(value.providers)) return false;
-  if (!("resources" in value) || !Array.isArray(value.resources)) return false;
-  return true;
-}
-
-function isCdktfTypeScriptExportOptions(
-  value: unknown,
-): value is CdktfTypeScriptExportOptions {
-  if (typeof value !== "object" || value === null) return false;
-  return true;
-}
+// ─── Type guard for warnings fixture ────────────────────────────────────────
 
 function isWarningArray(
   value: unknown,
 ): value is readonly { readonly code: string; readonly message: string }[] {
   if (!Array.isArray(value)) return false;
-  return value.every((item): boolean => {
-    if (!isPlainRecord(item)) return false;
-    return typeof item.code === "string" && typeof item.message === "string";
-  });
+  return value.every((item): boolean => isWarningEntry(item));
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isWarningEntry(
+  value: unknown,
+): value is { readonly code: string; readonly message: string } {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value;
+  if (!("code" in candidate) || !("message" in candidate)) return false;
+  const codeValue = candidate.code;
+  const messageValue = candidate.message;
+  return typeof codeValue === "string" && typeof messageValue === "string";
 }
 
 async function loadFixtures(): Promise<readonly Fixture[]> {
@@ -82,17 +78,15 @@ async function loadFixtures(): Promise<readonly Fixture[]> {
 
     const irRaw = await readFile(irPath, "utf-8");
     const irParsed: unknown = JSON.parse(irRaw);
-    if (!isInfraIR(irParsed)) {
-      throw new Error(`Invalid IR fixture: ${irPath}`);
-    }
-    const ir = irParsed;
+    const ir = infraIRSchema.parse(irParsed);
 
     let options: CdktfTypeScriptExportOptions = {};
     try {
       const optionsRaw = await readFile(optionsPath, "utf-8");
       const optionsParsed: unknown = JSON.parse(optionsRaw);
-      if (isCdktfTypeScriptExportOptions(optionsParsed)) {
-        options = optionsParsed;
+      const parsed = cdktfOptionsSchema.safeParse(optionsParsed);
+      if (parsed.success) {
+        options = parsed.data;
       }
     } catch {
       // No options file — use defaults

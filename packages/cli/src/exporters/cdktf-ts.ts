@@ -61,8 +61,8 @@ interface BuildContext {
 }
 
 export interface CdktfTypeScriptExportOptions {
-  readonly stackName?: string;
-  readonly providerSources?: Readonly<Record<string, string>>;
+  readonly stackName?: string | undefined;
+  readonly providerSources?: Readonly<Record<string, string>> | undefined;
 }
 
 export const cdktfTypeScriptExporter: Exporter<CdktfTypeScriptExportOptions> = {
@@ -613,8 +613,9 @@ function buildTerraformResourceBlocks(
       body.provider = `${providerBinding.localName}.${providerBinding.alias}`;
     }
 
-    if (binding.resource.dependsOn.length > 0) {
-      body.depends_on = binding.resource.dependsOn.map((dependencyName) => {
+    const dependsOn = binding.resource.dependsOn;
+    if (dependsOn !== undefined && dependsOn.length > 0) {
+      body.depends_on = dependsOn.map((dependencyName) => {
         const dependency = resourceBindings.get(dependencyName);
         if (dependency === undefined) {
           throw new Error(

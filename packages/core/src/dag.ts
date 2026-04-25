@@ -23,12 +23,18 @@ export function buildDag(resources: readonly ResourceIR[]): DagNode[] {
   return resources.map((resource) => {
     const deps = new Set<string>();
 
-    for (const binding of resource.refBindings) {
-      deps.add(binding.targetResource);
+    const refBindings = resource.refBindings;
+    if (refBindings !== undefined) {
+      for (const binding of refBindings) {
+        deps.add(binding.targetResource);
+      }
     }
 
-    for (const dep of resource.dependsOn) {
-      deps.add(dep);
+    const dependsOn = resource.dependsOn;
+    if (dependsOn !== undefined) {
+      for (const dep of dependsOn) {
+        deps.add(dep);
+      }
     }
 
     return { resource, deps };

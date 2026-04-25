@@ -1,38 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createJiti } from "jiti";
-import * as z from "zod";
+import { infraIRSchema } from "@infrasync/core/schemas";
+import type { InfraIR } from "@infrasync/core/types";
 import type { ProviderAdapter } from "@infrasync/core/provider";
-
-// ─── IR Schema ───────────────────────────────────────────────────────────────
-
-const refBindingIRSchema = z.object({
-  specPath: z.string().trim().min(1),
-  targetResource: z.string().trim().min(1),
-  statePath: z.string().trim().min(1),
-});
-
-export const infraIRSchema = z.object({
-  name: z.string().trim().min(1),
-  providers: z.array(
-    z.object({
-      key: z.string().trim().min(1),
-      adapterName: z.string().trim().min(1),
-      config: z.record(z.string().trim(), z.unknown()),
-    }),
-  ),
-  resources: z.array(
-    z.object({
-      name: z.string().trim().min(1),
-      provider: z.string().trim().min(1),
-      kind: z.string().trim().min(1),
-      mode: z.enum(["manage", "read"]),
-      spec: z.record(z.string().trim(), z.unknown()),
-      dependsOn: z.array(z.string().trim()),
-      refBindings: z.array(refBindingIRSchema),
-    }),
-  ),
-});
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
 
@@ -46,9 +17,7 @@ export const infraIRSchema = z.object({
  * @returns Validated InfraIR
  * @throws Error if the file cannot be read, parsed, or validated
  */
-export async function loadIR(
-  irPath: string,
-): Promise<z.infer<typeof infraIRSchema>> {
+export async function loadIR(irPath: string): Promise<InfraIR> {
   const absolute = resolve(irPath);
   const raw = await readFile(absolute, "utf-8");
 
