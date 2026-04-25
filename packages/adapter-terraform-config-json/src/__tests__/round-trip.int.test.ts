@@ -13,6 +13,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { exportTfConfigJson } from "../export-config-json.js";
 import { importTfConfigJson } from "../import-config-json.js";
+import { cloudflareResourceMappers } from "../cloudflare-mappers.js";
 import type { InfraIR } from "@infrasync/core/schemas";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -543,4 +544,201 @@ test("round-trip of TF config with unsupported features reports fidelity loss", 
 
   // But the bucket itself survives
   assert.equal(resource.bucket, "data-bucket");
+});
+
+// ─── Cloudflare mapper round-trips ───────────────────────────────────────────
+
+test("Cloudflare mapper: DnsRecord IR → TF → IR round-trip", () => {
+  const ir: InfraIR = {
+    name: "cf-round-trip",
+    providers: [{ key: "cf", adapterName: "cloudflare", config: {} }],
+    resources: [
+      {
+        name: "www",
+        provider: "cf",
+        kind: "DnsRecord",
+        mode: "manage",
+        spec: {
+          kind: "DnsRecord",
+          domain: "www.example.com",
+          type: "CNAME",
+          value: "target.example.com",
+          ttl: 300,
+          proxied: true,
+        },
+        dependsOn: [],
+        refBindings: [],
+      },
+    ],
+  };
+
+  // Export with Cloudflare mappers
+  const exported = exportTfConfigJson(ir, {
+    resourceMappers: { cloudflare: cloudflareResourceMappers },
+  });
+  const tf = parseObj(exported.content);
+
+  // Verify TF output uses cloudflare_record, not cloudflare_dns_record
+  const resource = isRecord(tf.resource) ? tf.resource : {};
+  assert.ok(
+    "cloudflare_record" in resource,
+    "Should use cloudflare_record type",
+  );
+  assert.ok(
+    !("cloudflare_dns_record" in resource),
+    "Should NOT use cloudflare_dns_record",
+  );
+
+  // Verify field mapping: domain→name, value→content, zone extracted
+  const cfRecord = isRecord(resource.cloudflare_record)
+    ? resource.cloudflare_record
+    : {};
+  const www = isRecord(cfRecord.www) ? cfRecord.www : {};
+  assert.equal(www.name, "www.example.com");
+  assert.equal(www.type, "CNAME");
+  assert.equal(www.content, "target.example.com");
+  assert.equal(www.ttl, 300);
+  assert.equal(www.proxied, true);
+  assert.equal(www.zone_id, "example.com");
+
+  // Import back — should produce structurally equivalent IR
+  const imported = importTfConfigJson(exported.content);
+  assert.equal(imported.ir.resources.length, 1);
+
+  const roundTrippedResource = imported.ir.resources[0];
+  assert.ok(roundTrippedResource !== undefined);
+  assert.equal(roundTrippedResource.mode, "manage");
+
+  // Import reads back as spec fields from TF attributes
+  assert.equal(roundTrippedResource.spec.zone_id, "example.com");
+  assert.equal(roundTrippedResource.spec.type, "CNAME");
+  assert.equal(roundTrippedResource.spec.content, "target.example.com");
+  assert.equal(roundTrippedResource.spec.ttl, 300);
+  assert.equal(roundTrippedResource.spec.proxied, true);
+});
+
+test("Cloudflare mapper: DnsRecord TF → IR → TF round-trip", () => {
+  const tfJson = {
+    terraform: {
+      required_providers: {
+        cloudflare: { source: "cloudflare/cloudflare" },
+      },
+    },
+    resource: {
+      cloudflare_record: {
+        www: {
+          zone_id: "z12345",
+          name: "www.example.com",
+          type: "A",
+          content: "1.2.3.4",
+          ttl: 600,
+          proxied: false,
+        },
+      },
+    },
+  };
+
+  // Import the TF config
+  const imported = importTfConfigJson(JSON.stringify(tfJson));
+  assert.equal(imported.ir.resources.length, 1);
+
+  const resource = imported.ir.resources[0];
+  assert.ok(resource !== undefined);
+  assert.equal(resource.spec.zone_id, "z12345");
+  assert.equal(resource.spec.name, "www.example.com");
+  assert.equal(resource.spec.type, "A");
+  assert.equal(resource.spec.content, "1.2.3.4");
+  assert.equal(resource.spec.ttl, 600);
+  assert.equal(resource.spec.proxied, false);
+
+  // Export back with Cloudflare mappers
+  const exported = exportTfConfigJson(imported.ir, {
+    resourceMappers: { cloudflare: cloudflareResourceMappers },
+  });
+  const roundTripped = parseObj(exported.content);
+
+  // Verify resource type and attribute values survive
+  const rtResource = isRecord(roundTripped.resource)
+    ? roundTripped.resource
+    : {};
+  assert.ok(
+    "cloudflare_record" in rtResource,
+    "Should use cloudflare_record type",
+  );
+
+  const cfRecord = isRecord(rtResource.cloudflare_record)
+    ? rtResource.cloudflare_record
+    : {};
+  const www = isRecord(cfRecord.www) ? cfRecord.www : {};
+  assert.equal(www.zone_id, "z12345");
+  assert.equal(www.type, "A");
+  assert.equal(www.content, "1.2.3.4");
+  assert.equal(www.ttl, 600);
+  assert.equal(www.proxied, false);
+});
+
+test("Cloudflare mapper: multiple Cloudflare resource types round-trip", () => {
+  const tfJson = {
+    terraform: {
+      required_providers: {
+        cloudflare: { source: "cloudflare/cloudflare" },
+      },
+    },
+    resource: {
+      cloudflare_record: {
+        api: {
+          zone_id: "z1",
+          name: "api.example.com",
+          type: "A",
+          content: "10.0.0.1",
+          ttl: 300,
+          proxied: false,
+        },
+      },
+      cloudflare_access_application: {
+        admin: {
+          domain: "admin.example.com",
+          name: "Admin Panel",
+        },
+      },
+    },
+  };
+
+  const imported = importTfConfigJson(JSON.stringify(tfJson));
+  assert.equal(imported.ir.resources.length, 2);
+
+  // Export with mappers
+  const exported = exportTfConfigJson(imported.ir, {
+    resourceMappers: { cloudflare: cloudflareResourceMappers },
+  });
+  const roundTripped = parseObj(exported.content);
+
+  const rtResource = isRecord(roundTripped.resource)
+    ? roundTripped.resource
+    : {};
+
+  // Both types should be preserved
+  assert.ok(
+    "cloudflare_record" in rtResource,
+    "cloudflare_record should exist",
+  );
+  assert.ok(
+    "cloudflare_access_application" in rtResource,
+    "cloudflare_access_application should exist",
+  );
+
+  // Verify specific values
+  const apiRecord = isRecord(rtResource.cloudflare_record)
+    ? isRecord(rtResource.cloudflare_record.api)
+      ? rtResource.cloudflare_record.api
+      : {}
+    : {};
+  assert.equal(apiRecord.content, "10.0.0.1");
+
+  const adminApp = isRecord(rtResource.cloudflare_access_application)
+    ? isRecord(rtResource.cloudflare_access_application.admin)
+      ? rtResource.cloudflare_access_application.admin
+      : {}
+    : {};
+  assert.equal(adminApp.domain, "admin.example.com");
 });
