@@ -20,7 +20,7 @@ An alternative to Terraform for teams who want infrastructure-as-code without th
 | Sync engine | ✅ Done | Plan/apply, ref resolution, deep equality, convergence checking |
 | Cloudflare provider | ✅ Done | DNS records, Access applications, Access policies, Identity providers, Pages custom domains |
 | Typed provider handle | ✅ Done | `createCloudflareHandle()` with typed convenience methods |
-| CLI | ✅ Done | `plan`, `apply`, `drift`, `export cdktf-ts`, `import terraform-config`, `import terraform-plan`, `import terraform-state`, `export terraform-config` |
+| CLI | ✅ Done | `plan`, `apply`, `drift`, `fidelity`, `export cdktf-ts`, `export terraform-config`, `import terraform-config`, `import terraform-plan`, `import terraform-state`, `migrate` |
 | Build pipeline | ✅ Done | tsdown with ESM + DTS, library and CLI entry points |
 | Terraform IR types | ✅ Done | `@infrasync/core-ir` — TerraformIR Zod schemas, address parser, JSON Schema export |
 | Fidelity reporting | ✅ Done | `@infrasync/core-fidelity` — `FidelityReportBuilder`, lossless/lossy/unsupported classification |
@@ -29,6 +29,13 @@ An alternative to Terraform for teams who want infrastructure-as-code without th
 | TF config JSON export | ✅ Done | `@infrasync/adapter-terraform-config-json` — `exportTfConfigJson()` with provider source registry |
 | TF config JSON import | ✅ Done | `@infrasync/adapter-terraform-config-json` — `importTfConfigJson()` with fidelity reporting |
 | TF config round-trip | ✅ Done | IR→TF→IR and TF→IR→TF guarantee tests with declared fidelity outcomes |
+| TerraformIR → InfraIR bridge | ✅ Done | `@infrasync/adapter-terraform-show-json` — `convertToInfraIR()` maps TF providers → adapter names, snake_case → PascalCase, data sources → read mode, ref detection |
+| TF-Config Cloudflare wiring | ✅ Done | `cloudflareResourceMappers` — DnsRecord ↔ `cloudflare_record` bidirectional spec mapping |
+| Migration planner | ✅ Done | `@infrasync/migration-planner` — bidirectional diff engine, plugin system, safety classification, step generation |
+| Destruction safety | ✅ Done | Lifecycle-aware mitigation: `create_before_destroy` → automated CBD, `prevent_destroy` → blocks replacement, `ignore_changes` → filters diffs |
+| Fidelity command | ✅ Done | `infrasync fidelity --file adapter-result.json [--json]` |
+| Migrate command | ✅ Done | `infrasync migrate` — unified pipeline accepting `--statefile`, `--planfile`, `--config`, `--ir` |
+| CI pipeline | ✅ Done | `.github/workflows/ci.yml` — typecheck + lint + test on push/PR |
 | AWS provider | 🔲 Planned | — |
 | GCP provider | 🔲 Planned | — |
 | GitHub provider | 🔲 Planned | — |
@@ -164,9 +171,91 @@ npx infrasync export terraform-config --config infra.config.ts --out generated.t
 
 # Generate a CDKTF TypeScript project from InfraIR
 npx infrasync export cdktf-ts --ir infra.ir.json --out ./generated/cdktf
+
+# Check adapter fidelity report
+npx infrasync fidelity --file adapter-result.json
+npx infrasync fidelity --file adapter-result.json --json
+
+# Migrate from Terraform to InfraSync (unified pipeline)
+npx infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync
+npx infrasync migrate --terraform-file resources.tf.json --infrasync-file infra.ir.json --direction infrasync-to-tf
+npx infrasync migrate --planfile tfplan --ir infra.ir.json --direction tf-to-infrasync --json
 ```
 
 The `export cdktf-ts` command generates a reviewable CDKTF scaffold using `addOverride` with translated Terraform JSON blocks. It is intended as a bootstrap path and may require manual refinement for provider/resource-specific semantics.
+
+### Terraform Interoperability
+
+InfraSync provides bidirectional interoperability with Terraform through two separate JSON lanes:
+
+| Lane | Direction | Format | Purpose |
+|------|-----------|--------|----------|
+| **Execution** | IR ↔ `*.tf.json` | Terraform JSON Configuration | Export InfraIR as native Terraform config, import Terraform config into IR |
+| **Analysis** | TF → IR only | `terraform show -json` | Import existing Terraform state/plan for analysis, drift detection, migration |
+
+Both lanes produce fidelity reports classifying every translation as lossless, lossy, or unsupported. Round-trip guarantee tests validate structural equivalence in both directions (IR→TF→IR and TF→IR→TF).
+
+The `TerraformIR → InfraIR` bridge converts Terraform resources into InfraSync's canonical IR by mapping providers to adapter names, converting snake_case kinds to PascalCase, promoting data sources to read-mode resources, flattening nested blocks, and detecting Terraform reference expressions.
+
+### Migration Planner
+
+The migration planner compares infrastructure as represented in Terraform against InfraSync, producing a structured plan of concrete steps to bring one or the other into alignment.
+
+```bash
+# Compare Terraform state against InfraSync config
+infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync
+
+# Compare two IR files
+infrasync migrate --terraform-file resources.tf.json --infrasync-file infra.ir.json --direction infrasync-to-tf --json
+```
+
+The planner uses an extensible plugin system:
+
+- **Generic plugin** — default rules with identifier-suffix heuristics (fields ending in `_id`, `_name`, `arn` are destructive by default)
+- **Cloudflare plugin** — provider-specific mappings (`cloudflare_record` ↔ `CloudflareRecord`) and safety rules with create-before-destroy mitigation for destructive changes
+
+Every attribute change is classified as **safe**, **risky**, or **destructive**. Destructive changes are further annotated with mitigation strategies:
+
+| Mitigation | Behaviour |
+|------------|------------|
+| `create-before-destroy` | Automated — new resource created before old is destroyed |
+| `destroy-before-create` | Manual confirmation required — old resource destroyed first |
+| `none` (from `prevent_destroy`) | Blocked — manual intervention required |
+| `in-place-replace` | Automated — resource replaced without data loss |
+
+Terraform lifecycle metadata is respected:
+- `create_before_destroy: true` → promotes destructive changes to automated CBD strategy
+- `prevent_destroy: true` → blocks automated replacement
+- `ignore_changes` → filters matching attribute diffs before safety/mitigation computation
+
+The migrate command displays a human-readable report:
+
+```
+╔══════════════════════════════════════════╗
+║        Migration Plan — tf-to-infrasync  ║
+╚══════════════════════════════════════════╝
+
+Summary:
+  Total resources: 3
+  Unchanged: 1  |  Safe: 1  |  Risky: 0  |  Destructive: 1
+  Creates: 0  |  Updates: 2  |  Deletes: 0
+
+Resource Changes:
+  ✓ ~ cloudflare_record "www" [safe]
+    ✓ spec.ttl: 300 → 600 (value-changed)
+  ✗ ~ cloudflare_record "api" [destructive] [create-before-destroy]
+    ↳ auto, create-before-destroy, zero-downtime
+    ✗ spec.type: "CNAME" → "A" (value-changed) (create-before-destroy)
+
+Migration Steps:
+    [step-0] update → infrasync: Update cloudflare_record "www"...
+  ↑ [step-1] replace-create → infrasync: Replace-create cloudflare_record "api"...
+      depends on: step-0
+  ↓ [step-1-destroy] replace-destroy → infrasync: Replace-destroy cloudflare_record "api"...
+      depends on: step-1
+    [verify-0] verify → infrasync: Verify cloudflare_record "www"
+    [verify-1] verify → infrasync: Verify cloudflare_record "api"
+```
 
 ## Compilation and Execution
 
@@ -1573,10 +1662,23 @@ packages/
     src/
       schemas.ts               # TF state/plan JSON wire format Zod schemas
       import-show-json.ts      # importStateJson(), importPlanJson() with fidelity reporting
+      convert-to-infra-ir.ts   # convertToInfraIR() — TerraformIR → InfraIR bridge
   adapter-terraform-config-json/ # @infrasync/adapter-terraform-config-json
     src/
       export-config-json.ts    # exportTfConfigJson() — IR → *.tf.json
       import-config-json.ts    # importTfConfigJson() — *.tf.json → IR
+      cloudflare-mappers.ts    # Cloudflare DnsRecord ↔ cloudflare_record bidirectional mapping
+  migration-planner/           # @infrasync/migration-planner
+    src/
+      schemas.ts               # MigrationPlan, ResourceChange, MigrationStep, MitigationStrategy Zod schemas
+      plugin-registry.ts       # Extensible plugin registration (per-provider rules)
+      resource-matcher.ts      # Bidirectional resource matching (TF ↔ InfraSync)
+      attribute-differ.ts      # Deep attribute diffing with safety classification + mitigation
+      planner.ts               # compare() — main entry, orchestrates matching/diffing/step generation
+      step-generator.ts        # Generates ordered MigrationSteps with lifecycle-aware mitigation
+      plugins/
+        generic.ts             # Default plugin: identifier-suffix heuristics, safe/risky/destructive rules
+        cloudflare.ts          # Cloudflare-specific: DnsRecord mappings, CBD mitigation for destructive fields
   provider-cloudflare/         # @infrasync/cloudflare
     src/
       index.ts                 # Cloudflare adapter registration
@@ -1593,6 +1695,9 @@ packages/
         apply.ts               # Apply command
         plan.ts                # Plan command (dry run)
         drift.ts               # Drift detection command
+        fidelity.ts            # Adapter fidelity report command
+        migrate.ts             # Unified migration pipeline command
+        terraform-show-json.ts # Import terraform-plan/state commands
         export-cdktf-ts.ts     # CDKTF TypeScript export command
       exporters/
         cdktf-ts.ts            # CDKTF project generator
