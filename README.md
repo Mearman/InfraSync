@@ -32,9 +32,10 @@ An alternative to Terraform for teams who want infrastructure-as-code without th
 | TerraformIR → InfraIR bridge | ✅ Done | `@infrasync/adapter-terraform-show-json` — `convertToInfraIR()` maps TF providers → adapter names, snake_case → PascalCase, data sources → read mode, ref detection |
 | TF-Config Cloudflare wiring | ✅ Done | `cloudflareResourceMappers` — DnsRecord ↔ `cloudflare_record` bidirectional spec mapping |
 | Migration planner | ✅ Done | `@infrasync/migration-planner` — bidirectional diff engine, plugin system, safety classification, step generation |
-| Destruction safety | ✅ Done | Lifecycle-aware mitigation: `create_before_destroy` → automated CBD, `prevent_destroy` → blocks replacement, `ignore_changes` → filters diffs |
+| Destruction safety | ✅ Done | Lifecycle-aware mitigation: `create_before_destroy` → CBD, `prevent_destroy` → blocked, `replace_triggered_by` → forced CBD (overrides prevent_destroy), `ignore_changes` → filters diffs, DBC step pairs |
+| Execution engine | ✅ Done | `executePlan()` — Kahn's dependency levelling, parallel step execution, InfraSync + Terraform targets, provider connection lifecycle |
 | Fidelity command | ✅ Done | `infrasync fidelity --file adapter-result.json [--json]` |
-| Migrate command | ✅ Done | `infrasync migrate` — unified pipeline accepting `--statefile`, `--planfile`, `--config`, `--ir` |
+| Migrate command | ✅ Done | `infrasync migrate` — unified pipeline with `--apply`, `--dry-run`, `--adapters` for plan-only or full execution |
 | CI pipeline | ✅ Done | `.github/workflows/ci.yml` — typecheck + lint + test on push/PR |
 | AWS provider | 🔲 Planned | — |
 | GCP provider | 🔲 Planned | — |
@@ -180,6 +181,13 @@ npx infrasync fidelity --file adapter-result.json --json
 npx infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync
 npx infrasync migrate --terraform-file resources.tf.json --infrasync-file infra.ir.json --direction infrasync-to-tf
 npx infrasync migrate --planfile tfplan --ir infra.ir.json --direction tf-to-infrasync --json
+
+# Execute a migration plan against real providers
+npx infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync --apply
+npx infrasync migrate --statefile terraform.tfstate --adapters ./adapters.ts --direction tf-to-infrasync --apply
+
+# Dry-run: show what migration would do without making changes
+npx infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync --apply --dry-run
 ```
 
 The `export cdktf-ts` command generates a reviewable CDKTF scaffold using `addOverride` with translated Terraform JSON blocks. It is intended as a bootstrap path and may require manual refinement for provider/resource-specific semantics.
@@ -207,6 +215,12 @@ infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direc
 
 # Compare two IR files
 infrasync migrate --terraform-file resources.tf.json --infrasync-file infra.ir.json --direction infrasync-to-tf --json
+
+# Execute the plan against real providers
+infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync --apply
+
+# Dry-run: show what would happen
+infrasync migrate --statefile terraform.tfstate --config infra.config.ts --direction tf-to-infrasync --apply --dry-run
 ```
 
 The planner uses an extensible plugin system:
@@ -219,43 +233,53 @@ Every attribute change is classified as **safe**, **risky**, or **destructive**.
 | Mitigation | Behaviour |
 |------------|------------|
 | `create-before-destroy` | Automated — new resource created before old is destroyed |
-| `destroy-before-create` | Manual confirmation required — old resource destroyed first |
+| `destroy-before-create` | Confirmation required — old resource destroyed first, then new created |
 | `none` (from `prevent_destroy`) | Blocked — manual intervention required |
 | `in-place-replace` | Automated — resource replaced without data loss |
 
-Terraform lifecycle metadata is respected:
-- `create_before_destroy: true` → promotes destructive changes to automated CBD strategy
-- `prevent_destroy: true` → blocks automated replacement
-- `ignore_changes` → filters matching attribute diffs before safety/mitigation computation
+Terraform lifecycle metadata is resolved in priority order (first match wins):
 
-The migrate command displays a human-readable report:
+1. `replace_triggered_by` — forces CBD for **any** change to matching paths (even safe/risky). Overrides `prevent_destroy`.
+2. `prevent_destroy: true` — blocks all automated replacement
+3. `create_before_destroy: true` — promotes to automated CBD
+4. Plugin rule mitigations — CBD if any rule requests it; in-place-replace if all destructive diffs support it
+5. Default — destroy-before-create (not automated, requires confirmation)
 
+`ignore_changes` filters matching attribute diffs before safety/mitigation computation.
+
+### Execution Engine
+
+The execution engine takes a migration plan and runs its steps against the target system:
+
+```bash
+# Plan + execute in one command
+infrasync migrate --statefile terraform.tfstate --config infra.config.ts \
+  --direction tf-to-infrasync --apply
+
+# With explicit adapters module
+infrasync migrate --statefile terraform.tfstate --adapters ./adapters.ts \
+  --direction tf-to-infrasync --apply
 ```
-╔══════════════════════════════════════════╗
-║        Migration Plan — tf-to-infrasync  ║
-╚══════════════════════════════════════════╝
 
-Summary:
-  Total resources: 3
-  Unchanged: 1  |  Safe: 1  |  Risky: 0  |  Destructive: 1
-  Creates: 0  |  Updates: 2  |  Deletes: 0
+**Step execution:**
+- Steps are levelled by dependency (Kahn's algorithm) and executed in parallel within each level
+- Failed dependencies automatically skip downstream steps
+- `manual-intervention` steps are never auto-executed (always require confirmation)
 
-Resource Changes:
-  ✓ ~ cloudflare_record "www" [safe]
-    ✓ spec.ttl: 300 → 600 (value-changed)
-  ✗ ~ cloudflare_record "api" [destructive] [create-before-destroy]
-    ↳ auto, create-before-destroy, zero-downtime
-    ✗ spec.type: "CNAME" → "A" (value-changed) (create-before-destroy)
+**InfraSync-targeted steps** dispatch through `ProviderPort`/`ResourcePort` APIs (create, update, read for verify).
 
-Migration Steps:
-    [step-0] update → infrasync: Update cloudflare_record "www"...
-  ↑ [step-1] replace-create → infrasync: Replace-create cloudflare_record "api"...
-      depends on: step-0
-  ↓ [step-1-destroy] replace-destroy → infrasync: Replace-destroy cloudflare_record "api"...
-      depends on: step-1
-    [verify-0] verify → infrasync: Verify cloudflare_record "www"
-    [verify-1] verify → infrasync: Verify cloudflare_record "api"
-```
+**Terraform-targeted steps** generate scoped `*.tf.json` and run `terraform init` + `terraform apply`.
+
+**Provider connection** resolves `$secret.env` references, validates config, and connects SDK clients. Disconnect happens in a `finally` block after execution completes.
+
+**Step outcomes:**
+
+| Status | Meaning |
+|--------|----------|
+| `success` | Step executed successfully |
+| `failed` | Step threw (error captured) |
+| `skipped` | Dependency failed or user callback rejected |
+| `requires-confirmation` | Manual-intervention step (never auto-executed) |
 
 ## Compilation and Execution
 
@@ -1676,6 +1700,7 @@ packages/
       attribute-differ.ts      # Deep attribute diffing with safety classification + mitigation
       planner.ts               # compare() — main entry, orchestrates matching/diffing/step generation
       step-generator.ts        # Generates ordered MigrationSteps with lifecycle-aware mitigation
+      executor.ts             # executePlan() — dependency-ordered step execution engine
       plugins/
         generic.ts             # Default plugin: identifier-suffix heuristics, safe/risky/destructive rules
         cloudflare.ts          # Cloudflare-specific: DnsRecord mappings, CBD mitigation for destructive fields
