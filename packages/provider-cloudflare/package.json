@@ -14,9 +14,9 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsup",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint . --cache"
+    "_build": "tsup",
+    "_typecheck": "tsc -p tsconfig.json --noEmit",
+    "_lint": "eslint . --cache"
   },
   "dependencies": {
     "cloudflare": "5.2.0"

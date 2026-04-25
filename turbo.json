@@ -1,18 +1,28 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": ["tsconfig.base.json"],
+  "globalPassThroughEnv": ["CI"],
   "tasks": {
-    "build": {
-      "dependsOn": ["^build"],
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "_build": {
+      "dependsOn": ["^_build", "_typecheck"],
+      "inputs": ["$TURBO_DEFAULT$", "!.turbo/**"],
       "outputs": ["dist/**"]
     },
-    "typecheck": {
-      "dependsOn": ["^build"]
+    "_typecheck": {
+      "dependsOn": ["^_build"],
+      "inputs": ["$TURBO_DEFAULT$", "!.turbo/**"]
     },
-    "lint": {
-      "dependsOn": ["^build"]
+    "_lint": {
+      "dependsOn": ["^_build"],
+      "inputs": ["$TURBO_DEFAULT$", "!.turbo/**"]
     },
-    "test": {
-      "dependsOn": ["build"]
+    "_test": {
+      "dependsOn": ["_build"],
+      "inputs": ["$TURBO_DEFAULT$", "!.turbo/**"]
     }
   }
 }

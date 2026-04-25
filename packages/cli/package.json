@@ -13,9 +13,9 @@
   },
   "files": ["dist", "bin"],
   "scripts": {
-    "build": "tsup",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint . --cache"
+    "_build": "tsup",
+    "_typecheck": "tsc -p tsconfig.json --noEmit",
+    "_lint": "eslint . --cache"
   },
   "dependencies": {
     "jiti": "2.6.1"
