@@ -148,7 +148,7 @@ Deliver in five phases so analysis features land early while execution export re
 
 - Spec (done): `docs/terraform-interoperability-spec.md`
 - Plan (this file)
-- User guide: `docs/terraform-interoperability-usage.md` (to be added)
+- Usage guide: `docs/terraform-interoperability-usage.md`
 
 ## 3.3 Test assets
 
