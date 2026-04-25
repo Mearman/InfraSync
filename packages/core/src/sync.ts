@@ -9,7 +9,9 @@ import {
   deepEqual,
   resolveConfigSecrets,
   resolveRefs,
+  envSecretResolver,
 } from "./resource.js";
+import type { SecretResolver } from "./resource.js";
 import { ProviderApiError } from "./errors.js";
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -18,6 +20,8 @@ import { ProviderApiError } from "./errors.js";
 export interface SyncOptions {
   /** "plan" = read + plan only, "apply" = read + plan + apply. Default: "apply" */
   readonly mode?: "plan" | "apply";
+  /** Secret resolver. Defaults to envSecretResolver (reads from process.env). */
+  readonly secretResolver?: SecretResolver;
 }
 
 /** Per-resource outcome from a sync run. */
@@ -60,7 +64,9 @@ export class SyncEngine {
     const instances = new Map<string, ProviderPort>();
 
     try {
-      await this.connectProviders(ir, instances, issues);
+      const secretResolver = options?.secretResolver ?? envSecretResolver;
+
+      await this.connectProviders(ir, instances, issues, secretResolver);
       if (issues.length > 0) {
         return { resources: [], issues };
       }
@@ -99,6 +105,7 @@ export class SyncEngine {
     ir: InfraIR,
     instances: Map<string, ProviderPort>,
     issues: ResourceIssue[],
+    secretResolver: SecretResolver,
   ): Promise<void> {
     for (const provider of ir.providers) {
       const adapter = this.adapters.get(provider.adapterName);
@@ -111,7 +118,10 @@ export class SyncEngine {
       }
 
       const instance = adapter.create();
-      const resolvedConfig = resolveConfigSecrets(provider.config);
+      const resolvedConfig = resolveConfigSecrets(
+        provider.config,
+        secretResolver,
+      );
 
       const result = instance.configSchema.safeParse(resolvedConfig);
       if (!result.success) {

@@ -1,5 +1,32 @@
 import type { RefTokenIR, SecretSourceIR } from "./types.js";
 
+// ─── Secret resolver ─────────────────────────────────────────────────────────
+
+/**
+ * Resolves secret descriptors to concrete values at execution time.
+ * Injected into the sync engine so consumers control the secret source —
+ * `process.env` in Node.js, a vault API in the browser, etc.
+ */
+export interface SecretResolver {
+  resolve(descriptor: SecretSourceIR): string;
+}
+
+/**
+ * Node.js secret resolver that reads from `process.env`.
+ * The default for CLI and Node.js programmatic usage.
+ */
+export const envSecretResolver: SecretResolver = {
+  resolve(descriptor) {
+    const envValue = process.env[descriptor.$secret.name];
+    if (envValue === undefined) {
+      throw new Error(
+        `Secret not found: environment variable "${descriptor.$secret.name}" is not set`,
+      );
+    }
+    return envValue;
+  },
+};
+
 // ─── Type guard ──────────────────────────────────────────────────────────────
 
 /**
@@ -84,29 +111,30 @@ function getNestedValue(obj: unknown, path: string): unknown {
 
 /**
  * Walk a provider config and replace every SecretSourceIR with its resolved value.
- * Currently supports `env` kind — reads from `process.env`.
+ * Uses the provided resolver — no direct `process.env` access.
  *
  * @throws Error if a secret cannot be resolved
  */
 export function resolveConfigSecrets(
   config: Readonly<Record<string, unknown>>,
+  resolver: SecretResolver,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
-    result[key] = resolveSecretValue(value);
+    result[key] = resolveSecretValue(value, resolver);
   }
   return result;
 }
 
-function resolveSecretValue(value: unknown): unknown {
+function resolveSecretValue(value: unknown, resolver: SecretResolver): unknown {
   if (isSecretSourceIR(value)) {
-    return resolveSecret(value.$secret);
+    return resolver.resolve(value);
   }
   if (Array.isArray(value)) {
-    return value.map(resolveSecretValue);
+    return value.map((v) => resolveSecretValue(v, resolver));
   }
   if (isRecord(value)) {
-    return resolveConfigSecrets(value);
+    return resolveConfigSecrets(value, resolver);
   }
   return value;
 }
@@ -118,22 +146,6 @@ function isSecretSourceIR(value: unknown): value is SecretSourceIR {
   if (typeof secret !== "object" || secret === null) return false;
   if (!("kind" in secret) || !("name" in secret)) return false;
   return secret.kind === "env" && typeof secret.name === "string";
-}
-
-function resolveSecret(descriptor: {
-  readonly kind: string;
-  readonly name: string;
-}): string {
-  if (descriptor.kind === "env") {
-    const envValue = process.env[descriptor.name];
-    if (envValue === undefined) {
-      throw new Error(
-        `Secret not found: environment variable "${descriptor.name}" is not set`,
-      );
-    }
-    return envValue;
-  }
-  throw new Error(`Unknown secret kind: "${descriptor.kind}"`);
 }
 
 // ─── Deep equality ───────────────────────────────────────────────────────────
