@@ -10,7 +10,7 @@ An alternative to Terraform for teams who want infrastructure-as-code without th
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| IR types | ✅ Done | `InfraIR`, `ProviderInstanceIR`, `ResourceIR`, `RefTokenIR`, `RefBindingIR`, `SecretSourceIR` |
+| IR types (Zod schemas) | ✅ Done | `InfraIR`, `ProviderInstanceIR`, `ResourceIR`, `RefTokenIR`, `RefBindingIR`, `SecretSourceIR` — canonical Zod schemas in `schemas.ts`, types inferred via `z.infer` |
 | Core abstractions | ✅ Done | `ProviderPort`, `ResourcePort`, `ProviderAdapter`, `defineProvider()` |
 | Ref system | ✅ Done | `RefToken<T>`, `refable()` (uses `z.xor()`), `RefBuilder<TRefs>` |
 | Authoring API | ✅ Done | `defineInfra()`, `InfraScope`, `ProviderHandle`, `ResourceHandle` |
@@ -20,13 +20,18 @@ An alternative to Terraform for teams who want infrastructure-as-code without th
 | Sync engine | ✅ Done | Plan/apply, ref resolution, deep equality, convergence checking |
 | Cloudflare provider | ✅ Done | DNS records, Access applications, Access policies, Identity providers, Pages custom domains |
 | Typed provider handle | ✅ Done | `createCloudflareHandle()` with typed convenience methods |
-| CLI | ✅ Done | `plan`, `apply`, `drift` commands with config file loading |
-| Build pipeline | ✅ Done | tsup with ESM + DTS, library and CLI entry points |
+| CLI | ✅ Done | `plan`, `apply`, `drift`, `export cdktf-ts` commands |
+| Build pipeline | ✅ Done | tsdown with ESM + DTS, library and CLI entry points |
+| Terraform IR types | ✅ Done | `@infrasync/core-ir` — TerraformIR Zod schemas, address parser, JSON Schema export |
+| Fidelity reporting | ✅ Done | `@infrasync/core-fidelity` — `FidelityReportBuilder`, lossless/lossy/unsupported classification |
+| TF state/plan import | ✅ Done | `@infrasync/adapter-terraform-show-json` — `importStateJson()`, `importPlanJson()` with fidelity reporting |
+| CDKTF TypeScript export | ✅ Done | `export cdktf-ts` command generates reviewable CDKTF project from InfraIR |
+| TF config JSON export | 🔲 Planned | Phase 2 — InfraIR → `*.tf.json` |
+| TF config JSON import | 🔲 Planned | Phase 3 — `*.tf.json` → InfraIR with round-trip |
 | AWS provider | 🔲 Planned | — |
 | GCP provider | 🔲 Planned | — |
 | GitHub provider | 🔲 Planned | — |
 | Vercel provider | 🔲 Planned | — |
-| Supabase provider | 🔲 Planned | — |
 
 ## Why
 
@@ -135,9 +140,14 @@ npx infrasync plan --config infra.config.ts
 # Show current drift (diff between desired and actual state)
 npx infrasync drift --config infra.config.ts
 
-# Future-compatible low-level path: apply a raw InfraIR document
-npx infrasync apply --ir infra.ir.json
+# Low-level path: apply a raw InfraIR document (requires adapters module)
+npx infrasync apply --ir infra.ir.json --adapters ./adapters.ts
+
+# Generate a CDKTF TypeScript project from InfraIR
+npx infrasync export cdktf-ts --ir infra.ir.json --out ./generated/cdktf
 ```
+
+The `export cdktf-ts` command generates a reviewable CDKTF scaffold using `addOverride` with translated Terraform JSON blocks. It is intended as a bootstrap path and may require manual refinement for provider/resource-specific semantics.
 
 ## Compilation and Execution
 
@@ -1517,50 +1527,56 @@ Trade-offs from the stateless design:
 ## Project Structure
 
 ```
-src/
-  authoring/
-    infra.ts               # defineInfra(), nested Infra scopes, outputs, secret sources
-    declarative.ts         # Wrap declarative fragments as Infra scopes
-    compiler.ts            # Compile functional/declarative scopes to InfraIR
-    refs.ts                # Symbolic ref proxy surface, RefToken<T>, resolution metadata
-    handles.ts             # Internal resource/provider handle types used during compilation
-  ir/
-    types.ts               # InfraIR, ProviderInstanceIR, ResourceIR, RefTokenIR
-    merge.ts               # Merge nested Infra fragments into a flat InfraIR
-  core/
-    sync.ts                # Main sync engine (build DAG → read → plan → apply)
-    dag.ts                 # DAG construction, topological sort, cycle detection
-    plan.ts                # Plan computation and diffing
-    resource.ts            # Resource model types and identity matching
-    provider.ts            # Provider adapter interface and defineProvider
-    schemas/               # Normalised spec schemas shared across providers
-      dns-record.ts        # Normalised DnsRecord (works on Cloudflare, AWS, GCP)
-      bucket.ts            # Normalised object storage bucket (S3, GCS, R2)
-  providers/
-    cloudflare/
-      index.ts             # Cloudflare adapter registration
-      access-app.ts        # AccessApplication resource handler
-      access-policy.ts     # AccessPolicy resource handler
-      dns-record.ts        # DnsRecord resource handler + codec
-      dns-record-codec.ts  # Codec: normalised ↔ Cloudflare DNS shape
-      identity-provider.ts # IdentityProvider resource handler
-      pages-domain.ts      # PagesCustomDomain resource handler
-    aws/
-      index.ts             # AWS adapter registration
-      route53-record.ts    # Route53Record resource handler + codec
-      route53-record-codec.ts # Codec: normalised ↔ Route53 shape
-      s3-bucket.ts         # S3Bucket resource handler + codec
-      dynamodb-table.ts    # DynamodbTable resource handler
-    github/
-      index.ts             # GitHub adapter registration
-      repository.ts        # Repository resource handler
-  cli/
-    index.ts               # CLI entry point
-    commands/
-      apply.ts             # Apply command
-      plan.ts              # Plan command (dry run)
-      drift.ts             # Drift detection command
-  index.ts                 # Public API exports
+packages/
+  core/                        # @infrasync/core
+    src/
+      schemas.ts               # Canonical Zod schemas (single source of truth for all IR types)
+      types.ts                 # Re-exports inferred types from schemas.ts
+      infra.ts                 # defineInfra(), nested Infra scopes, outputs, secret sources
+      declarative.ts           # Wrap declarative fragments as Infra scopes
+      compiler.ts              # Compile functional/declarative scopes to InfraIR
+      refs.ts                  # Symbolic ref proxy surface, RefToken<T>, resolution metadata
+      handles.ts               # Internal resource/provider handle types used during compilation
+      sync.ts                  # Main sync engine (build DAG → read → plan → apply)
+      dag.ts                   # DAG construction, topological sort, cycle detection
+      plan.ts                  # Plan computation and diffing
+      resource.ts              # Resource model types and identity matching
+      provider.ts              # Provider adapter interface and defineProvider
+      dns-record.ts            # Normalised DnsRecord schema (works across Cloudflare, AWS, GCP)
+  core-ir/                     # @infrasync/core-ir
+    src/
+      schemas.ts               # TerraformIR Zod schemas, address parser, JSON Schema export
+  core-fidelity/               # @infrasync/core-fidelity
+    src/
+      schemas.ts               # Fidelity report Zod schemas
+      fidelity.ts              # FidelityReportBuilder, lossless/lossy/unsupported classification
+  adapter-terraform-show-json/ # @infrasync/adapter-terraform-show-json
+    src/
+      schemas.ts               # TF state/plan JSON wire format Zod schemas
+      import-show-json.ts      # importStateJson(), importPlanJson() with fidelity reporting
+  provider-cloudflare/         # @infrasync/cloudflare
+    src/
+      index.ts                 # Cloudflare adapter registration
+      handle.ts                # createCloudflareHandle() typed convenience methods
+      access-app.ts            # AccessApplication resource handler
+      access-policy.ts         # AccessPolicy resource handler
+      dns-record.ts            # DnsRecord resource handler + codec
+      identity-provider.ts     # IdentityProvider resource handler
+      pages-domain.ts          # PagesCustomDomain resource handler
+  cli/                         # @infrasync/cli
+    src/
+      index.ts                 # CLI entry point
+      commands/
+        apply.ts               # Apply command
+        plan.ts                # Plan command (dry run)
+        drift.ts               # Drift detection command
+        export-cdktf-ts.ts     # CDKTF TypeScript export command
+      exporters/
+        cdktf-ts.ts            # CDKTF project generator
+        types.ts               # Exporter result types
+docs/
+  terraform-interoperability-spec.md   # Bidirectional TF ↔ InfraSync interop spec
+  terraform-interoperability-plan.md   # 5-phase implementation plan
 ```
 
 ## Development
