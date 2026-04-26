@@ -250,6 +250,18 @@ export class SyncEngine {
       return;
     }
 
+    // 1b. Inject identity fields from the IR into the resolved spec.
+    // Declarative resources compile with kind/name stripped from spec,
+    // but handler spec schemas require them. The engine re-injects
+    // from the IR — these are structural, not user-supplied.
+    if (isRecord(resolvedSpec)) {
+      if (!("kind" in resolvedSpec)) resolvedSpec.kind = resource.kind;
+      if (!("name" in resolvedSpec)) resolvedSpec.name = resource.name;
+    } else {
+      // Spec is empty or non-object — construct minimal spec with identity fields
+      resolvedSpec = { kind: resource.kind, name: resource.name };
+    }
+
     // 2. Validate the resolved spec
     const specResult = handlerPrototype.specSchema.safeParse(resolvedSpec);
     if (!specResult.success) {

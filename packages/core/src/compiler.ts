@@ -151,20 +151,20 @@ interface DeclarativeResourceEntry {
 }
 
 function compileDeclarativeResource(raw: DeclarativeResourceEntry): ResourceIR {
-  const {
-    provider,
-    kind,
-    name,
-    mode,
-    dependsOn: rawDependsOn,
-    ...specFields
-  } = raw;
+  const { provider, kind, mode, dependsOn: rawDependsOn, ...specFields } = raw;
+
+  // Note: 'name' is NOT destructured — it stays in specFields as an identity
+  // field. The IR gets resource.name from specFields.name. Handlers expect
+  // 'name' in their spec schemas for identity lookup.
 
   const refBindings = extractRefBindingsFromUnknown(specFields);
   const serializedSpec = serializeSpec(specFields);
   const dependsOn = Array.isArray(rawDependsOn)
     ? rawDependsOn.map((d) => String(d))
     : [];
+
+  // Extract name from spec for the IR — it remains in serializedSpec too
+  const name = typeof specFields.name === "string" ? specFields.name : "";
 
   return Object.freeze({
     name,

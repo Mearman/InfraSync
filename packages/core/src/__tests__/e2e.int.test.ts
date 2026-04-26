@@ -13,6 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { defineInfra } from "../compiler.js";
+import { declarative } from "../declarative.js";
 import { defineProvider, ResolvedScopes } from "../provider.js";
 import type {
   ProviderPort,
@@ -610,5 +611,143 @@ describe("End-to-end: read-mode resources", () => {
     assert.equal(readOutcome.status, "success");
     // Resource doesn't exist — state is undefined
     assert.equal(readOutcome.state, undefined);
+  });
+});
+
+// ─── Declarative resources ────────────────────────────────────────────────────
+
+describe("End-to-end: declarative resources", () => {
+  it("works with declarative fragments (kind/name injected by engine)", async () => {
+    const provider = new ScopedProvider();
+    const adapters = new Map([
+      ["scoped", defineProvider("scoped", () => provider)],
+    ]);
+
+    // First: create a widget via programmatic API
+    const setupEngine = new SyncEngine(adapters);
+    const setupInfra = defineInfra("setup", (infra) => {
+      const prov = infra.provider("sp", scopedAdapter, {
+        accountId: "acc-123",
+      });
+      prov.resource("Widget", "w1", {
+        kind: "Widget",
+        name: "w1",
+        label: "managed",
+      });
+      return { outputs: {} };
+    });
+    const setupResult = await setupEngine.execute(setupInfra.toIR());
+    assert.equal(setupResult.resources[0]?.action, "create");
+
+    // Second: declarative read-mode resource targeting the same widget.
+    // The compiler keeps 'name' in spec (identity field), so the handler
+    // can look up the widget by name. The engine injects 'kind' since
+    // the compiler strips it.
+    const readEngine = new SyncEngine(adapters);
+    const readInfra = defineInfra("declarative-read", (infra) => {
+      infra.provider("sp", scopedAdapter, {
+        accountId: "acc-123",
+      });
+      infra.use(
+        declarative("monitor", {
+          resources: [
+            {
+              provider: "sp",
+              kind: "Widget",
+              name: "w1",
+              mode: "read",
+            },
+          ],
+        }),
+      );
+      return { outputs: {} };
+    });
+
+    const ir = readInfra.toIR();
+    assert.equal(ir.resources.length, 1);
+
+    // Verify spec has 'name' (kept by compiler) but not 'kind' (stripped)
+    const decRes = ir.resources[0];
+    assert.ok(decRes !== undefined);
+    assert.equal(decRes.kind, "Widget");
+    assert.equal(decRes.name, "w1");
+    assert.equal(decRes.mode, "read");
+    assert.ok(
+      typeof decRes.spec === "object" &&
+        decRes.spec !== null &&
+        "name" in decRes.spec,
+      "Spec should contain 'name' (kept by compiler)",
+    );
+    assert.ok(
+      !("kind" in decRes.spec),
+      "Spec should NOT contain 'kind' (stripped by compiler)",
+    );
+
+    const result = await readEngine.execute(ir);
+    assert.equal(
+      result.issues.length,
+      0,
+      `Unexpected issues: ${JSON.stringify(result.issues)}`,
+    );
+    assert.equal(result.resources.length, 1);
+
+    const readOutcome = result.resources[0];
+    assert.ok(readOutcome !== undefined);
+    assert.equal(readOutcome.action, "read");
+    assert.equal(readOutcome.status, "success");
+    assert.ok(
+      readOutcome.state !== undefined,
+      "Read-mode state should be surfaced",
+    );
+  });
+
+  it("declarative manage-mode resource creates through the engine", async () => {
+    const provider = new ScopedProvider();
+    const adapters = new Map([
+      ["scoped", defineProvider("scoped", () => provider)],
+    ]);
+    const engine = new SyncEngine(adapters);
+
+    const infra = defineInfra("declarative-manage", (infra) => {
+      infra.provider("sp", scopedAdapter, {
+        accountId: "acc-456",
+      });
+
+      // Declarative manage-mode with extra spec fields
+      infra.use(
+        declarative("resources", {
+          resources: [
+            {
+              provider: "sp",
+              kind: "Widget",
+              name: "dec-widget",
+              label: "from-declarative",
+            },
+          ],
+        }),
+      );
+
+      return { outputs: {} };
+    });
+
+    const ir = infra.toIR();
+    assert.equal(ir.resources.length, 1);
+
+    // Spec should have label and name (name is kept by compiler)
+    const spec = ir.resources[0]?.spec;
+    assert.ok(typeof spec === "object" && spec !== null);
+    assert.ok("label" in spec, "Extra fields should be in spec");
+    assert.ok("name" in spec, "name should be in spec (kept by compiler)");
+    assert.ok(!("kind" in spec), "kind should be stripped from spec");
+
+    const result = await engine.execute(ir);
+    assert.equal(
+      result.issues.length,
+      0,
+      `Unexpected issues: ${JSON.stringify(result.issues)}`,
+    );
+    assert.equal(result.resources.length, 1);
+    assert.equal(result.resources[0]?.action, "create");
+    assert.equal(result.resources[0]?.status, "success");
   });
 });
