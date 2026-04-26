@@ -126,7 +126,10 @@ export default defineConfig(
       custom: customPlugin,
     },
     rules: {
-      "@typescript-eslint/no-unused-vars": "error",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_" },
+      ],
       "@typescript-eslint/consistent-type-assertions": [
         "error",
         { assertionStyle: "never" },
@@ -165,6 +168,9 @@ export default defineConfig(
       ],
       // Test mocks require type coercion to satisfy SDK interfaces
       "@typescript-eslint/consistent-type-assertions": "off",
+      // node:test mock.calls[x] returns unknown — narrowing checks are valid
+      // even when ESLint thinks the types don't overlap
+      "@typescript-eslint/no-unnecessary-condition": "off",
     },
   },
   eslintPluginZod.configs.recommended,
