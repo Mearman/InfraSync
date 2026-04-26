@@ -8,6 +8,7 @@ import type { ProviderAdapter } from "@infrasync/core/provider";
 import { plan } from "./commands/plan.js";
 import { apply } from "./commands/apply.js";
 import { drift } from "./commands/drift.js";
+import { cacheStatus, cacheClear } from "./commands/cache.js";
 import { exportCdktfTypeScript } from "./commands/export-cdktf-ts.js";
 import { runFidelityCommand } from "./commands/fidelity.js";
 import { runMigrateCommand } from "./commands/migrate.js";
@@ -142,6 +143,8 @@ Commands:
   export cdktf-ts           Generate a CDKTF TypeScript project from InfraIR
   export terraform-config   Export InfraIR as Terraform Configuration JSON (*.tf.json)
   migrate                   Compare TerraformIR and InfraIR, produce migration plan
+  cache status              Show cache statistics
+  cache clear               Remove all cached entries
 
 Options:
   -c, --config <path>                      Path to infra config file (default: infra.config.ts)
@@ -228,6 +231,8 @@ if (command === "init") {
     console.error(`Fatal: ${message}`);
     process.exit(1);
   });
+} else if (command === "cache") {
+  runCacheCommand(args.positionals.slice(1));
 } else if (command === "migrate") {
   // Load adapters when --apply is requested
   let migrateAdapters: Map<string, ProviderAdapter> | undefined;
@@ -719,6 +724,20 @@ function parseProviderSourceOverrides(
   }
 
   return overrides;
+}
+
+function runCacheCommand(subArgs: readonly string[]): void {
+  const subCommand = subArgs[0];
+  if (subCommand === "status") {
+    cacheStatus();
+  } else if (subCommand === "clear") {
+    cacheClear();
+  } else {
+    console.error(
+      `Error: unknown cache subcommand "${subCommand ?? "(missing)"}". Supported: status, clear.`,
+    );
+    process.exit(1);
+  }
 }
 
 async function runRuntimeCommand(rawCommand: string): Promise<void> {
