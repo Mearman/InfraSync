@@ -5,6 +5,7 @@ import type {
 } from "cloudflare/resources/zero-trust/access/applications/applications.js";
 import type {
   ResourcePort,
+  ResourceCodec,
   ResourceScopes,
   ResolvedScopes,
 } from "@infrasync/core/provider";
@@ -170,6 +171,69 @@ function buildSelfHostedUpdateParams(
   return params;
 }
 
+// ─── Codec schemas ──────────────────────────────────────────────────────────
+
+const codecInputSchema = z.object({
+  kind: z.literal("AccessApplication"),
+  domain: z.string().trim().min(1),
+  type: z.literal("self_hosted").optional(),
+  name: z.string().trim().min(1),
+  sessionDuration: z.string().trim().optional(),
+  autoRedirectToIdentity: z.boolean().optional(),
+  appLauncherVisible: z.boolean().optional(),
+  allowedIdps: z.array(z.string().trim()).optional(),
+});
+
+const ACCESS_APP_KIND = "AccessApplication" as const;
+
+const codecOutputSchema = z.looseObject({
+  domain: z.string().trim(),
+  type: z.string().trim().optional(),
+  name: z.string().trim(),
+  session_duration: z.string().trim().optional(),
+  auto_redirect_to_identity: z.boolean().optional(),
+  app_launcher_visible: z.boolean().optional(),
+  allowed_idps: z.array(z.json()).optional(),
+});
+
+const accessAppZodCodec = z.codec(codecInputSchema, codecOutputSchema, {
+  decode: (spec) => ({
+    domain: spec.domain,
+    type: spec.type,
+    name: spec.name,
+    session_duration: spec.sessionDuration,
+    auto_redirect_to_identity: spec.autoRedirectToIdentity,
+    app_launcher_visible: spec.appLauncherVisible,
+    allowed_idps: spec.allowedIdps,
+  }),
+  encode: (state) => ({
+    kind: ACCESS_APP_KIND,
+    domain: state.domain,
+    name: state.name,
+    sessionDuration: state.session_duration,
+    autoRedirectToIdentity: state.auto_redirect_to_identity,
+    appLauncherVisible: state.app_launcher_visible,
+    allowedIdps: Array.isArray(state.allowed_idps)
+      ? state.allowed_idps.map((idp) =>
+          typeof idp === "string" ? idp : JSON.stringify(idp),
+        )
+      : undefined,
+  }),
+});
+
+const cloudflareAccessAppCodec: ResourceCodec = {
+  encode(state: unknown): unknown {
+    const result = codecOutputSchema.safeParse(state);
+    if (!result.success) return state;
+    return accessAppZodCodec.encode(result.data);
+  },
+  decode(spec: unknown): unknown {
+    const result = codecInputSchema.safeParse(spec);
+    if (!result.success) return spec;
+    return accessAppZodCodec.decode(result.data);
+  },
+};
+
 // ─── Resource implementation ─────────────────────────────────────────────────
 
 export class AccessApplicationResource implements ResourcePort<
@@ -181,6 +245,7 @@ export class AccessApplicationResource implements ResourcePort<
   readonly stateSchema = accessApplicationStateSchema;
   readonly identitySchema = identitySchema;
   readonly desiredStateSchema = desiredStateSchema;
+  readonly codec = cloudflareAccessAppCodec;
 
   readonly scopes: ResourceScopes = {
     accountId: { config: "accountId" },

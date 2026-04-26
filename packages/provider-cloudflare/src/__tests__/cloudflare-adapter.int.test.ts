@@ -17,6 +17,8 @@ import { isRecord } from "@infrasync/core/resource";
 import { AccessPolicyResource } from "../access-policy.js";
 import { AccessApplicationResource } from "../access-app.js";
 import { IdentityProviderResource } from "../identity-provider.js";
+import { PagesCustomDomainResource } from "../pages-domain.js";
+import { DnsRecordResource } from "../dns-record.js";
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
@@ -469,5 +471,159 @@ describe("IdentityProviderResource", () => {
     const scopeEntry = scopeAt(resource.scopes, "accountId");
     assert.ok("config" in scopeEntry);
     assert.equal(scopeEntry.config, "accountId");
+  });
+});
+
+// ─── Codec tests ──────────────────────────────────────────────────────────────
+
+describe("Codec bidirectional field mapping", () => {
+  it("DnsRecord codec maps domain↔name, value↔content", () => {
+    const resource = new DnsRecordResource({} as unknown as Cloudflare);
+
+    // decode: spec → SDK fields
+    const sdkFields = resource.codec.decode({
+      kind: "DnsRecord",
+      domain: "example.com",
+      type: "A",
+      value: "1.2.3.4",
+      ttl: 300,
+      proxied: false,
+    });
+    assert.ok(isRecord(sdkFields));
+    assert.equal(sdkFields.name, "example.com");
+    assert.equal(sdkFields.content, "1.2.3.4");
+
+    // encode: state → normalised spec
+    const normalised = resource.codec.encode({
+      name: "example.com",
+      content: "1.2.3.4",
+      type: "A",
+      ttl: 300,
+      proxied: false,
+    });
+    assert.ok(isRecord(normalised));
+    assert.equal(normalised.domain, "example.com");
+    assert.equal(normalised.value, "1.2.3.4");
+  });
+
+  it("AccessApplication codec maps camelCase↔snake_case", () => {
+    const resource = new AccessApplicationResource(
+      {} as unknown as Cloudflare,
+      ACCOUNT_SCOPES,
+    );
+
+    // decode: spec → SDK fields
+    const sdkFields = resource.codec.decode({
+      kind: "AccessApplication",
+      domain: "app.example.com",
+      name: "My App",
+      sessionDuration: "24h",
+      autoRedirectToIdentity: true,
+      allowedIdps: ["idp-1"],
+    });
+    assert.ok(isRecord(sdkFields));
+    assert.equal(sdkFields.session_duration, "24h");
+    assert.equal(sdkFields.auto_redirect_to_identity, true);
+    assert.ok(Array.isArray(sdkFields.allowed_idps));
+
+    // encode: state → normalised spec
+    const normalised = resource.codec.encode({
+      domain: "app.example.com",
+      name: "My App",
+      session_duration: "24h",
+      auto_redirect_to_identity: true,
+      allowed_idps: ["idp-1"],
+    });
+    assert.ok(isRecord(normalised));
+    assert.equal(normalised.sessionDuration, "24h");
+    assert.equal(normalised.autoRedirectToIdentity, true);
+  });
+
+  it("AccessPolicy codec maps include/exclude/require arrays", () => {
+    const resource = new AccessPolicyResource(
+      {} as unknown as Cloudflare,
+      POLICY_SCOPES,
+    );
+
+    // decode: spec → SDK fields
+    const sdkFields = resource.codec.decode({
+      kind: "AccessPolicy",
+      applicationId: "app-123",
+      name: "Allow Team",
+      decision: "allow",
+      include: [{ email_domain: { domain: "example.com" } }],
+      exclude: [{ ip: { ip: "10.0.0.0/8" } }],
+    });
+    assert.ok(isRecord(sdkFields));
+    assert.ok(Array.isArray(sdkFields.include));
+    assert.ok(Array.isArray(sdkFields.exclude));
+
+    // encode: state → normalised spec
+    const normalised = resource.codec.encode({
+      name: "Allow Team",
+      decision: "allow",
+      include: [{ email_domain: { domain: "example.com" } }],
+    });
+    assert.ok(isRecord(normalised));
+    assert.equal(normalised.name, "Allow Team");
+    assert.equal(normalised.decision, "allow");
+  });
+
+  it("IdentityProvider codec maps name/type", () => {
+    const resource = new IdentityProviderResource(
+      {} as unknown as Cloudflare,
+      ACCOUNT_SCOPES,
+    );
+
+    // decode: spec → SDK fields
+    const sdkFields = resource.codec.decode({
+      kind: "IdentityProvider",
+      name: "My OIDC",
+      type: "oidc",
+      config: { client_id: "abc" },
+    });
+    assert.ok(isRecord(sdkFields));
+    assert.equal(sdkFields.name, "My OIDC");
+    assert.equal(sdkFields.type, "oidc");
+
+    // encode: state → normalised spec
+    const normalised = resource.codec.encode({
+      name: "My OIDC",
+      type: "oidc",
+    });
+    assert.ok(isRecord(normalised));
+    assert.equal(normalised.name, "My OIDC");
+    assert.equal(normalised.type, "oidc");
+  });
+
+  it("PagesCustomDomain codec maps domain↔name", () => {
+    const resource = new PagesCustomDomainResource(
+      {} as unknown as Cloudflare,
+      ACCOUNT_SCOPES,
+    );
+
+    // decode: spec → SDK fields
+    const sdkFields = resource.codec.decode({
+      kind: "PagesCustomDomain",
+      projectName: "my-site",
+      domain: "www.example.com",
+    });
+    assert.ok(isRecord(sdkFields));
+    assert.equal(sdkFields.name, "www.example.com");
+
+    // encode: state → normalised spec
+    const normalised = resource.codec.encode({
+      name: "www.example.com",
+      status: "active",
+    });
+    assert.ok(isRecord(normalised));
+    assert.equal(normalised.domain, "www.example.com");
+  });
+
+  it("codecs pass through unrecognised input unchanged", () => {
+    const resource = new DnsRecordResource({} as unknown as Cloudflare);
+    const garbage = { totally: "wrong" };
+    assert.strictEqual(resource.codec.decode(garbage), garbage);
+    assert.strictEqual(resource.codec.encode(garbage), garbage);
   });
 });

@@ -1,6 +1,7 @@
 import Cloudflare from "cloudflare";
 import type {
   ResourcePort,
+  ResourceCodec,
   ResourceScopes,
   ResolvedScopes,
 } from "@infrasync/core/provider";
@@ -81,6 +82,48 @@ function validateApiResponse(
   return result.data;
 }
 
+// ─── Codec schemas ──────────────────────────────────────────────────────────
+
+// ─── Codec schemas ──────────────────────────────────────────────────────────
+//
+// The codec maps only bidirectionally mappable fields.
+// projectName is identity-only (not in state) — not in the codec.
+// It belongs in identitySchema, not here.
+
+const codecInputSchema = z.object({
+  kind: z.literal("PagesCustomDomain"),
+  domain: z.string().trim().min(1),
+});
+
+const PAGES_DOMAIN_KIND = "PagesCustomDomain" as const;
+
+const codecOutputSchema = z.looseObject({
+  name: z.string().trim(),
+});
+
+const pagesDomainZodCodec = z.codec(codecInputSchema, codecOutputSchema, {
+  decode: (spec) => ({
+    name: spec.domain,
+  }),
+  encode: (state) => ({
+    kind: PAGES_DOMAIN_KIND,
+    domain: state.name,
+  }),
+});
+
+const cloudflarePagesDomainCodec: ResourceCodec = {
+  encode(state: unknown): unknown {
+    const result = codecOutputSchema.safeParse(state);
+    if (!result.success) return state;
+    return pagesDomainZodCodec.encode(result.data);
+  },
+  decode(spec: unknown): unknown {
+    const result = codecInputSchema.safeParse(spec);
+    if (!result.success) return spec;
+    return pagesDomainZodCodec.decode(result.data);
+  },
+};
+
 // ─── Resource implementation ─────────────────────────────────────────────────
 
 export class PagesCustomDomainResource implements ResourcePort<
@@ -92,6 +135,7 @@ export class PagesCustomDomainResource implements ResourcePort<
   readonly stateSchema = pagesCustomDomainStateSchema;
   readonly identitySchema = identitySchema;
   readonly desiredStateSchema = desiredStateSchema;
+  readonly codec = cloudflarePagesDomainCodec;
 
   static readonly scopes: ResourceScopes = {
     accountId: { config: "accountId" },

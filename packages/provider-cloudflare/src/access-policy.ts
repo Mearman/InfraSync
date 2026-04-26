@@ -5,6 +5,7 @@ import type {
 } from "cloudflare/resources/zero-trust/access/policies.js";
 import type {
   ResourcePort,
+  ResourceCodec,
   ResourceScopes,
   ResolvedScopes,
 } from "@infrasync/core/provider";
@@ -180,6 +181,64 @@ function buildUpdateParams(
   return params;
 }
 
+// ─── Codec schemas ──────────────────────────────────────────────────────────
+//
+// The codec maps only bidirectionally mappable fields.
+// applicationId is scope-resolved — not in state, not in the codec.
+// It belongs in identitySchema, not here.
+
+const decisionEnumSchema = z.enum(["allow", "deny", "non_identity", "bypass"]);
+
+const codecInputSchema = z.object({
+  kind: z.literal("AccessPolicy"),
+  name: z.string().trim().min(1),
+  decision: decisionEnumSchema,
+  include: accessRuleArraySchema,
+  exclude: accessRuleArraySchema.optional(),
+  require: accessRuleArraySchema.optional(),
+});
+
+const ACCESS_POLICY_KIND = "AccessPolicy" as const;
+
+const codecOutputSchema = z.looseObject({
+  name: z.string().trim(),
+  decision: z.string().trim(),
+  include: z.array(z.json()),
+  exclude: z.array(z.json()).optional(),
+  require: z.array(z.json()).optional(),
+});
+
+const accessPolicyZodCodec = z.codec(codecInputSchema, codecOutputSchema, {
+  decode: (spec) => ({
+    name: spec.name,
+    decision: spec.decision,
+    include: [...spec.include],
+    exclude: spec.exclude !== undefined ? [...spec.exclude] : undefined,
+    require: spec.require !== undefined ? [...spec.require] : undefined,
+  }),
+  encode: (state) => ({
+    kind: ACCESS_POLICY_KIND,
+    name: state.name,
+    decision: decisionEnumSchema.parse(state.decision),
+    include: state.include,
+    exclude: state.exclude,
+    require: state.require,
+  }),
+});
+
+const cloudflareAccessPolicyCodec: ResourceCodec = {
+  encode(state: unknown): unknown {
+    const result = codecOutputSchema.safeParse(state);
+    if (!result.success) return state;
+    return accessPolicyZodCodec.encode(result.data);
+  },
+  decode(spec: unknown): unknown {
+    const result = codecInputSchema.safeParse(spec);
+    if (!result.success) return spec;
+    return accessPolicyZodCodec.decode(result.data);
+  },
+};
+
 // ─── Resource implementation ─────────────────────────────────────────────────
 
 export class AccessPolicyResource implements ResourcePort<
@@ -191,6 +250,7 @@ export class AccessPolicyResource implements ResourcePort<
   readonly stateSchema = accessPolicyStateSchema;
   readonly identitySchema = identitySchema;
   readonly desiredStateSchema = desiredStateSchema;
+  readonly codec = cloudflareAccessPolicyCodec;
 
   readonly scopes: ResourceScopes = {
     accountId: { config: "accountId" },

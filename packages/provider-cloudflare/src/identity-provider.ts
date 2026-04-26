@@ -5,6 +5,7 @@ import type {
 } from "cloudflare/resources/zero-trust/identity-providers/identity-providers.js";
 import type {
   ResourcePort,
+  ResourceCodec,
   ResourceScopes,
   ResolvedScopes,
 } from "@infrasync/core/provider";
@@ -165,6 +166,67 @@ function buildUpdateParams(
   };
 }
 
+// ─── Codec schemas ──────────────────────────────────────────────────────────
+//
+// The codec maps only bidirectionally mappable fields.
+// config is write-only (not returned in state) — not in the codec.
+// It belongs in desiredStateSchema for spec comparison, not here.
+
+const idpTypeEnumSchema = z.enum([
+  "oidc",
+  "saml",
+  "google-apps",
+  "github",
+  "azureAD",
+  "okta",
+  "onelogin",
+  "centrify",
+  "facebook",
+  "linkedin",
+  "google",
+  "pingone",
+  "yandex",
+  "onetimepin",
+]);
+
+const codecInputSchema = z.object({
+  kind: z.literal("IdentityProvider"),
+  name: z.string().trim().min(1),
+  type: idpTypeEnumSchema,
+});
+
+const IDP_KIND = "IdentityProvider" as const;
+
+const codecOutputSchema = z.looseObject({
+  name: z.string().trim(),
+  type: z.string().trim(),
+});
+
+const identityProviderZodCodec = z.codec(codecInputSchema, codecOutputSchema, {
+  decode: (spec) => ({
+    name: spec.name,
+    type: spec.type,
+  }),
+  encode: (state) => ({
+    kind: IDP_KIND,
+    name: state.name,
+    type: idpTypeEnumSchema.parse(state.type),
+  }),
+});
+
+const cloudflareIdpCodec: ResourceCodec = {
+  encode(state: unknown): unknown {
+    const result = codecOutputSchema.safeParse(state);
+    if (!result.success) return state;
+    return identityProviderZodCodec.encode(result.data);
+  },
+  decode(spec: unknown): unknown {
+    const result = codecInputSchema.safeParse(spec);
+    if (!result.success) return spec;
+    return identityProviderZodCodec.decode(result.data);
+  },
+};
+
 // ─── Resource implementation ─────────────────────────────────────────────────
 
 export class IdentityProviderResource implements ResourcePort<
@@ -176,6 +238,7 @@ export class IdentityProviderResource implements ResourcePort<
   readonly stateSchema = identityProviderStateSchema;
   readonly identitySchema = identitySchema;
   readonly desiredStateSchema = desiredStateSchema;
+  readonly codec = cloudflareIdpCodec;
 
   readonly scopes: ResourceScopes = {
     accountId: { config: "accountId" },
