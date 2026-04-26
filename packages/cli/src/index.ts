@@ -671,6 +671,12 @@ async function loadConfigAdapters(
       adapters.set(name, adapter);
     }
   }
+  // Auto-register discovered plugins
+  if (config.plugins !== undefined) {
+    for (const plugin of config.plugins) {
+      adapters.set(plugin.adapterName, plugin);
+    }
+  }
   return adapters;
 }
 
@@ -806,6 +812,12 @@ async function run(command: RuntimeCommand, configPath: string): Promise<void> {
   if (config.adapters !== undefined) {
     for (const [name, adapter] of Object.entries(config.adapters)) {
       adapters.set(name, adapter);
+    }
+  }
+  // Auto-register discovered plugins
+  if (config.plugins !== undefined) {
+    for (const plugin of config.plugins) {
+      adapters.set(plugin.adapterName, plugin);
     }
   }
 

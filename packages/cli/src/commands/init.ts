@@ -106,6 +106,15 @@ function generateConfig(
   return `import { defineInfra } from "@infrasync/core/compiler";
 import { ${providerName} } from "${template.importPath}";
 
+// Register adapters so the CLI can connect to providers.
+export const adapters = { ${providerName} };
+
+// Uncomment to add custom resource plugins:
+// import { customResource } from "@infrasync/core/plugin";
+// export const plugins = [
+//   customResource({ ... }),
+// ];
+
 export default defineInfra("my-infra", (infra) => {
   const ${providerName} = infra.use(
     ${providerName}("prod", ${template.configFields}),

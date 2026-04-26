@@ -25,6 +25,8 @@ import type { ProviderAdapter } from "@infrasync/core/provider";
 export interface InfraConfig<TOutputs = unknown> {
   readonly infraResult: InfraResult<TOutputs>;
   readonly adapters?: Record<string, ProviderAdapter> | undefined;
+  /** Plugin adapters discovered from the config file's `plugins` export */
+  readonly plugins?: readonly ProviderAdapter[] | undefined;
 }
 
 // ─── Type guard ──────────────────────────────────────────────────────────────
@@ -94,8 +96,18 @@ export async function loadConfig(configPath: string): Promise<InfraConfig> {
       )
     : undefined;
 
+  // Discover plugins from `export const plugins = [...]`
+  const pluginsEntry = "plugins" in module ? module.plugins : undefined;
+  const plugins: ProviderAdapter[] | undefined = Array.isArray(pluginsEntry)
+    ? pluginsEntry.filter(
+        (entry): entry is ProviderAdapter =>
+          isRecord(entry) && "adapterName" in entry && "create" in entry,
+      )
+    : undefined;
+
   return {
     infraResult,
     adapters,
+    plugins,
   };
 }
