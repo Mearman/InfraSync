@@ -9,6 +9,7 @@ import {
   CachedProviderPort,
   FileCacheStore,
   MemoryCacheStore,
+  TieredCacheStore,
   type CacheStore,
 } from "../cache.js";
 import {
@@ -451,5 +452,138 @@ describe("CachedProviderPort", () => {
     const handler = cached.resourceHandler("TestResource");
     assert.equal(handler.codec, undefined);
     assert.equal(handler.scopes, undefined);
+  });
+});
+
+// ─── TieredCacheStore ─────────────────────────────────────────────────────────
+
+describe("TieredCacheStore", () => {
+  it("returns undefined when all stores miss", () => {
+    const tiered = new TieredCacheStore([
+      new MemoryCacheStore(),
+      new MemoryCacheStore(),
+    ]);
+    assert.equal(tiered.get("missing"), undefined);
+  });
+
+  it("returns undefined with empty store list", () => {
+    const tiered = new TieredCacheStore([]);
+    assert.equal(tiered.get("key"), undefined);
+    assert.equal(tiered.size(), 0);
+  });
+
+  it("reads from first store that has the key", () => {
+    const l1 = new MemoryCacheStore();
+    const l2 = new MemoryCacheStore();
+    l2.set("key1", "from-l2");
+
+    const tiered = new TieredCacheStore([l1, l2]);
+    assert.equal(tiered.get("key1"), "from-l2");
+  });
+
+  it("backfills earlier stores on read miss", () => {
+    const l1 = new MemoryCacheStore();
+    const l2 = new MemoryCacheStore();
+    l2.set("key1", "from-l2");
+
+    const tiered = new TieredCacheStore([l1, l2]);
+    tiered.get("key1");
+
+    // L1 should now have the value
+    assert.equal(l1.get("key1"), "from-l2");
+  });
+
+  it("reads from L1 without checking L2 when L1 has it", () => {
+    const l1 = new MemoryCacheStore();
+    const l2 = new MemoryCacheStore();
+    l1.set("key1", "from-l1");
+    l2.set("key1", "from-l2");
+
+    const tiered = new TieredCacheStore([l1, l2]);
+    assert.equal(tiered.get("key1"), "from-l1");
+  });
+
+  it("writes to all stores", () => {
+    const l1 = new MemoryCacheStore();
+    const l2 = new MemoryCacheStore();
+    const l3 = new MemoryCacheStore();
+
+    const tiered = new TieredCacheStore([l1, l2, l3]);
+    tiered.set("key1", "everywhere");
+
+    assert.equal(l1.get("key1"), "everywhere");
+    assert.equal(l2.get("key1"), "everywhere");
+    assert.equal(l3.get("key1"), "everywhere");
+  });
+
+  it("deletes from all stores", () => {
+    const l1 = new MemoryCacheStore();
+    const l2 = new MemoryCacheStore();
+    l1.set("key1", "a");
+    l2.set("key1", "b");
+
+    const tiered = new TieredCacheStore([l1, l2]);
+    tiered.delete("key1");
+
+    assert.equal(l1.get("key1"), undefined);
+    assert.equal(l2.get("key1"), undefined);
+  });
+
+  it("clears all stores and returns total count", () => {
+    const l1 = new MemoryCacheStore();
+    const l2 = new MemoryCacheStore();
+    l1.set("a", "1");
+    l1.set("b", "2");
+    l2.set("c", "3");
+    l2.set("d", "4");
+    l2.set("e", "5");
+
+    const tiered = new TieredCacheStore([l1, l2]);
+    assert.equal(tiered.clear(), 5);
+    assert.equal(l1.size(), 0);
+    assert.equal(l2.size(), 0);
+  });
+
+  it("reports size of first (fastest) store", () => {
+    const l1 = new MemoryCacheStore();
+    const l2 = new MemoryCacheStore();
+    l1.set("a", "1");
+    l2.set("b", "2");
+    l2.set("c", "3");
+
+    const tiered = new TieredCacheStore([l1, l2]);
+    assert.equal(tiered.size(), 1); // L1 has 1 entry
+  });
+
+  it("works with ResourceCache TTL logic", () => {
+    const tiered = new TieredCacheStore([
+      new MemoryCacheStore(),
+      new MemoryCacheStore(),
+    ]);
+    const cache = new ResourceCache({ store: tiered, defaultTtl: 60_000 });
+
+    cache.set("key1", { id: "abc" });
+    const result = cache.get("key1");
+    assert.deepEqual(result, { id: "abc" });
+  });
+
+  it("backfills through ResourceCache read path", () => {
+    const l1 = new MemoryCacheStore();
+    const l2 = new MemoryCacheStore();
+    const tiered = new TieredCacheStore([l1, l2]);
+    const cache = new ResourceCache({ store: tiered, defaultTtl: 60_000 });
+
+    // Write goes to both stores
+    cache.set("key1", { id: "abc" });
+    assert.ok(l1.get("key1") !== undefined);
+    assert.ok(l2.get("key1") !== undefined);
+
+    // Simulate L1 eviction
+    l1.delete("key1");
+
+    // Read should still work via L2, and backfill L1
+    const result = cache.get("key1");
+    assert.deepEqual(result, { id: "abc" });
+    assert.ok(l1.get("key1") !== undefined);
   });
 });

@@ -132,6 +132,91 @@ export class MemoryCacheStore implements CacheStore {
   }
 }
 
+// ─── TieredCacheStore ────────────────────────────────────────────────────────
+
+/**
+ * Ordered composite of multiple CacheStore backends.
+ *
+ * Reads walk the stores in order (fastest first) — first hit wins and
+ * backfills all earlier (faster) stores. Writes propagate to all stores.
+ * Deletes and clears hit every store.
+ *
+ * Typical usage — L1 memory → L2 filesystem:
+ *
+ * ```typescript
+ * const tiered = new TieredCacheStore([
+ *   new MemoryCacheStore(),
+ *   new FileCacheStore(),
+ * ]);
+ * const cache = new ResourceCache({ store: tiered });
+ * ```
+ *
+ * Or three tiers — memory → filesystem → remote:
+ *
+ * ```typescript
+ * const tiered = new TieredCacheStore([
+ *   new MemoryCacheStore(),
+ *   new FileCacheStore(),
+ *   new RedisCacheStore(redisClient),
+ * ]);
+ * ```
+ *
+ * Empty store list is allowed — all operations become no-ops.
+ */
+export class TieredCacheStore implements CacheStore {
+  private readonly stores: readonly CacheStore[];
+
+  constructor(stores: readonly CacheStore[]) {
+    this.stores = stores;
+  }
+
+  get(key: string): string | undefined {
+    for (let i = 0; i < this.stores.length; i++) {
+      const store = this.stores[i];
+      if (store === undefined) continue;
+      const value = store.get(key);
+      if (value !== undefined) {
+        // Backfill all faster stores that missed
+        for (let j = 0; j < i; j++) {
+          const backfill = this.stores[j];
+          if (backfill !== undefined) backfill.set(key, value);
+        }
+        return value;
+      }
+    }
+    return undefined;
+  }
+
+  set(key: string, value: string): void {
+    for (const store of this.stores) {
+      store.set(key, value);
+    }
+  }
+
+  delete(key: string): void {
+    for (const store of this.stores) {
+      store.delete(key);
+    }
+  }
+
+  clear(): number {
+    let total = 0;
+    for (const store of this.stores) {
+      total += store.clear();
+    }
+    return total;
+  }
+
+  size(): number {
+    // Report the size of the first (fastest) store —
+    // it's the most accurate reflection of hot entries.
+    if (this.stores.length === 0) return 0;
+    const first = this.stores[0];
+    if (first === undefined) return 0;
+    return first.size();
+  }
+}
+
 // ─── Cache entry schema ──────────────────────────────────────────────────────
 
 const cacheEntrySchema = z.object({

@@ -131,6 +131,7 @@ export default defineConfig(
         "error",
         { assertionStyle: "never" },
       ],
+      "@typescript-eslint/no-non-null-assertion": "error",
       "custom/banEslintDisable": "error",
       "no-restricted-syntax": [
         "error",
