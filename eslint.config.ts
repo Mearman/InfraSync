@@ -126,10 +126,7 @@ export default defineConfig(
       custom: customPlugin,
     },
     rules: {
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        { argsIgnorePattern: "^_" },
-      ],
+      "@typescript-eslint/no-unused-vars": "error",
       "@typescript-eslint/consistent-type-assertions": [
         "error",
         { assertionStyle: "never" },

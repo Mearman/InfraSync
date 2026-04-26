@@ -19,39 +19,41 @@
  *       domain: z.string().min(1),
  *       zoneId: z.string().min(1),
  *     }),
- *     read: async (spec) => {
- *       const response = await fetch(`/api/zones/${spec.zoneId}/domains`);
- *       const data = await response.json();
- *       return data.find((d: { domain: string }) => d.domain === spec.domain);
- *     },
- *     create: async (spec) => {
- *       const response = await fetch(`/api/zones/${spec.zoneId}/domains`, {
- *         method: "POST",
- *         body: JSON.stringify({ domain: spec.domain }),
- *       });
- *       return response.json();
- *     },
- *     update: async (id, spec) => {
- *       const response = await fetch(`/api/domains/${id}`, {
- *         method: "PATCH",
- *         body: JSON.stringify({ domain: spec.domain }),
- *       });
- *       return response.json();
+ *     stateSchema: z.json(),
+ *     handlers: {
+ *       read: async (spec) => {
+ *         const response = await fetch(`/api/zones/${spec.zoneId}/domains`);
+ *         const data = await response.json();
+ *         return data.find((d: { domain: string }) => d.domain === spec.domain);
+ *       },
+ *       create: async (spec) => {
+ *         const response = await fetch(`/api/zones/${spec.zoneId}/domains`, {
+ *           method: "POST",
+ *           body: JSON.stringify({ domain: spec.domain }),
+ *         });
+ *         return response.json();
+ *       },
+ *       update: async (id, spec) => {
+ *         const response = await fetch(`/api/domains/${id}`, {
+ *           method: "PATCH",
+ *           body: JSON.stringify({ domain: spec.domain }),
+ *         });
+ *         return response.json();
+ *       },
  *     },
  *   }),
  * ];
  * ```
  *
- * The engine discovers plugins from config file exports and integrates
- * them into the same DAG, scope resolution, and convergence checking
- * as built-in providers.
+ * Plugins integrate into the same DAG and convergence checking as
+ * built-in providers. Unlike providers, plugins have no connection
+ * lifecycle and no scope declarations — handlers manage their own state.
  */
 import * as z from "zod";
-import {
-  ResolvedScopes,
-  type ResourcePort,
-  type ProviderPort,
-  type ProviderAdapter,
+import type {
+  ResourcePort,
+  ProviderPort,
+  ProviderAdapter,
 } from "./provider.js";
 
 // ─── Plugin types ────────────────────────────────────────────────────────────
@@ -99,15 +101,14 @@ export interface CustomResourceConfig<
   readonly getStateId?: (state: unknown) => string;
 }
 
-// ─── Internal adapter wrapper ────────────────────────────────────────────────
+// ─── Internal ResourcePort wrapper ───────────────────────────────────────────
 
 /**
  * ResourcePort implementation that delegates to custom handlers.
  *
  * Validates spec through the provided Zod schema before passing to handlers.
- * Validates handler return values through the state schema.
  */
-class CustomResourcePort<
+class PluginResourcePort<
   TSpec extends z.ZodType,
   TState extends z.ZodType,
 > implements ResourcePort<TSpec, TState> {
@@ -165,27 +166,60 @@ class CustomResourcePort<
   }
 }
 
+// ─── PluginPort — the adapter-facing interface ───────────────────────────────
+
 /**
- * ProviderPort implementation that routes to a single custom resource.
+ * A plugin's adapter-facing port.
  *
- * The config schema is empty (no provider-level config) since plugins
- * manage their own connection state inside their handlers.
+ * Unlike ProviderPort, plugins have no connection lifecycle or scope
+ * declarations. The adapter wrapper handles the ProviderPort interface
+ * by routing to this simpler contract.
  */
-class CustomProviderPort<
+export interface PluginPort {
+  /** The resource kind this plugin handles */
+  readonly kind: string;
+
+  /** Get the ResourcePort for this plugin's resource kind */
+  getResourcePort(): ResourcePort;
+}
+
+class PluginPortImpl<
   TSpec extends z.ZodType,
   TState extends z.ZodType,
-> implements ProviderPort {
-  readonly name: string;
-  readonly configSchema = z.object({});
-
-  private readonly resourcePort: CustomResourcePort<TSpec, TState>;
+> implements PluginPort {
+  readonly kind: string;
+  private readonly resourcePort: PluginResourcePort<TSpec, TState>;
 
   constructor(config: CustomResourceConfig<TSpec, TState>) {
-    this.name = `plugin:${config.kind}`;
-    this.resourcePort = new CustomResourcePort(config);
+    this.kind = config.kind;
+    this.resourcePort = new PluginResourcePort(config);
   }
 
-  async connect(_config: unknown): Promise<void> {
+  getResourcePort(): ResourcePort {
+    return this.resourcePort;
+  }
+}
+
+// ─── Adapter bridge ──────────────────────────────────────────────────────────
+
+/**
+ * Minimal ProviderPort implementation that bridges a PluginPort into
+ * the engine's provider lifecycle.
+ *
+ * connect/disconnect are no-ops since plugins manage their own state.
+ * resourceHandler routes to the plugin's single ResourcePort.
+ */
+class PluginAdapterPort implements ProviderPort {
+  readonly name: string;
+  readonly configSchema = z.object({});
+  private readonly port: PluginPort;
+
+  constructor(port: PluginPort) {
+    this.name = `plugin:${port.kind}`;
+    this.port = port;
+  }
+
+  async connect(): Promise<void> {
     // Plugins manage their own connections inside handlers
   }
 
@@ -194,16 +228,16 @@ class CustomProviderPort<
   }
 
   supportedKinds(): string[] {
-    return [this.resourcePort.kind];
+    return [this.port.kind];
   }
 
-  resourceHandler(kind: string, _scopes: ResolvedScopes): ResourcePort {
-    if (kind === this.resourcePort.kind) {
-      return this.resourcePort;
+  resourceHandler(kind: string): ResourcePort {
+    if (kind !== this.port.kind) {
+      throw new Error(
+        `Plugin provider "${this.name}" does not support kind "${kind}"`,
+      );
     }
-    throw new Error(
-      `Plugin provider "${this.name}" does not support kind "${kind}"`,
-    );
+    return this.port.getResourcePort();
   }
 }
 
@@ -223,10 +257,10 @@ export function customResource<
   TSpec extends z.ZodType,
   TState extends z.ZodType = z.ZodType,
 >(config: CustomResourceConfig<TSpec, TState>): ProviderAdapter {
-  const port = new CustomProviderPort(config);
+  const port = new PluginPortImpl(config);
   return {
-    adapterName: port.name,
-    create: () => new CustomProviderPort(config),
+    adapterName: `plugin:${config.kind}`,
+    create: () => new PluginAdapterPort(port),
   };
 }
 

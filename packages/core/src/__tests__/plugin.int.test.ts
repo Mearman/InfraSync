@@ -11,7 +11,6 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import * as z from "zod";
 import { customResource } from "../plugin.js";
-import { ResolvedScopes } from "../provider.js";
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
@@ -101,7 +100,7 @@ describe("customResource plugin", () => {
   it("resourceHandler returns the custom ResourcePort", () => {
     const { adapter } = createTestPlugin();
     const port = adapter.create();
-    const handler = port.resourceHandler("TestWidget", ResolvedScopes.empty);
+    const handler = port.resourceHandler("TestWidget");
     assert.equal(handler.kind, "TestWidget");
   });
 
@@ -109,7 +108,7 @@ describe("customResource plugin", () => {
     const { adapter } = createTestPlugin();
     const port = adapter.create();
     assert.throws(
-      () => port.resourceHandler("OtherKind", ResolvedScopes.empty),
+      () => port.resourceHandler("OtherKind"),
       (err: unknown) => {
         assert.ok(err instanceof Error);
         assert.match(err.message, /does not support kind/);
@@ -121,7 +120,7 @@ describe("customResource plugin", () => {
   it("read validates spec and calls handler", async () => {
     const { adapter, readSpy } = createTestPlugin();
     const port = adapter.create();
-    const handler = port.resourceHandler("TestWidget", ResolvedScopes.empty);
+    const handler = port.resourceHandler("TestWidget");
 
     const result = await handler.read({
       kind: "TestWidget",
@@ -139,7 +138,7 @@ describe("customResource plugin", () => {
       read: () => Promise.resolve(undefined),
     });
     const port = adapter.create();
-    const handler = port.resourceHandler("TestWidget", ResolvedScopes.empty);
+    const handler = port.resourceHandler("TestWidget");
 
     const result = await handler.read({
       kind: "TestWidget",
@@ -152,7 +151,7 @@ describe("customResource plugin", () => {
   it("create validates spec and calls handler", async () => {
     const { adapter, createSpy } = createTestPlugin();
     const port = adapter.create();
-    const handler = port.resourceHandler("TestWidget", ResolvedScopes.empty);
+    const handler = port.resourceHandler("TestWidget");
 
     const result = await handler.create({
       kind: "TestWidget",
@@ -168,7 +167,7 @@ describe("customResource plugin", () => {
   it("update validates spec and calls handler with id", async () => {
     const { adapter, updateSpy } = createTestPlugin();
     const port = adapter.create();
-    const handler = port.resourceHandler("TestWidget", ResolvedScopes.empty);
+    const handler = port.resourceHandler("TestWidget");
 
     const result = await handler.update("widget-123", {
       kind: "TestWidget",
@@ -184,7 +183,7 @@ describe("customResource plugin", () => {
   it("throws on invalid spec", async () => {
     const { adapter } = createTestPlugin();
     const port = adapter.create();
-    const handler = port.resourceHandler("TestWidget", ResolvedScopes.empty);
+    const handler = port.resourceHandler("TestWidget");
 
     await assert.rejects(
       () => handler.create({ kind: "TestWidget" }),
@@ -199,7 +198,7 @@ describe("customResource plugin", () => {
   it("getStateId extracts id from state by default", () => {
     const { adapter } = createTestPlugin();
     const port = adapter.create();
-    const handler = port.resourceHandler("TestWidget", ResolvedScopes.empty);
+    const handler = port.resourceHandler("TestWidget");
 
     const id = handler.getStateId({ id: "abc-123", name: "test" });
     assert.equal(id, "abc-123");
@@ -230,10 +229,7 @@ describe("customResource plugin", () => {
     });
 
     const port = adapter.create();
-    const handler = port.resourceHandler(
-      "CustomIdWidget",
-      ResolvedScopes.empty,
-    );
+    const handler = port.resourceHandler("CustomIdWidget");
 
     const id = handler.getStateId({ widgetId: "w-test", name: "test" });
     assert.equal(id, "w-test");
@@ -242,7 +238,7 @@ describe("customResource plugin", () => {
   it("specSchema applies defaults from schema", async () => {
     const { adapter, createSpy } = createTestPlugin();
     const port = adapter.create();
-    const handler = port.resourceHandler("TestWidget", ResolvedScopes.empty);
+    const handler = port.resourceHandler("TestWidget");
 
     // enabled has default(true) — omitted from input
     await handler.create({

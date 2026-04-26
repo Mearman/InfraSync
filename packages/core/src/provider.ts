@@ -249,8 +249,9 @@ export interface ProviderPort<TConfig extends z.ZodType = z.ZodType> {
    * parameter.
    *
    * For resources that declare no scopes, `scopes` is `ResolvedScopes.empty`.
+   * Optional for providers that don't use scope resolution (e.g. plugins).
    */
-  resourceHandler(kind: string, scopes: ResolvedScopes): ResourcePort;
+  resourceHandler(kind: string, scopes?: ResolvedScopes): ResourcePort;
 }
 
 // ─── ProviderAdapter (plain object, no assertions) ───────────────────────────
