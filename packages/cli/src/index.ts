@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import { resolve } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
 import { loadConfig } from "./loader.js";
 import { loadAdapters, loadIR } from "./ir-loader.js";
 import { buildRegistry } from "./registry.js";
@@ -14,6 +15,7 @@ import { runTerraformShowJson } from "./commands/terraform-show-json.js";
 import type { InfraIR } from "@infrasync/core/types";
 import { importTfConfigJson } from "@infrasync/adapter-terraform-config-json/import-config-json";
 import { exportTfConfigJson } from "@infrasync/adapter-terraform-config-json/export-config-json";
+import type { ResourceMapper } from "@infrasync/adapter-terraform-config-json/export-config-json";
 import { cloudflareResourceMappers } from "@infrasync/adapter-terraform-config-json/cloudflare-mappers";
 import {
   importStateJson,
@@ -349,10 +351,7 @@ async function runExportTfConfigCommand(): Promise<void> {
 
   const exportOptions: {
     providerSources?: Record<string, string>;
-    resourceMappers?: Record<
-      string,
-      import("@infrasync/adapter-terraform-config-json/export-config-json").ResourceMapper[]
-    >;
+    resourceMappers?: Record<string, ResourceMapper[]>;
   } = {};
 
   if (Object.keys(providerSourceOverrides).length > 0) {
@@ -366,9 +365,7 @@ async function runExportTfConfigCommand(): Promise<void> {
 
   const result = exportTfConfigJson(ir, exportOptions);
 
-  const { writeFile } = await import("node:fs/promises");
-  const { resolve: pathResolve } = await import("node:path");
-  await writeFile(pathResolve(outPath), result.content, "utf-8");
+  await writeFile(resolve(outPath), result.content, "utf-8");
 
   console.log(`Wrote ${resolve(outPath)}`);
 
@@ -435,7 +432,6 @@ async function runImportTerraformConfig(filePath: string): Promise<void> {
     `Importing Terraform Configuration JSON from ${resolve(filePath)}...`,
   );
 
-  const { readFile } = await import("node:fs/promises");
   const raw = await readFile(resolve(filePath), "utf-8");
 
   const result = importTfConfigJson(raw);
@@ -450,7 +446,6 @@ async function runImportTerraformConfig(filePath: string): Promise<void> {
 async function runImportTerraformPlan(filePath: string): Promise<void> {
   console.log(`Importing Terraform plan JSON from ${resolve(filePath)}...`);
 
-  const { readFile } = await import("node:fs/promises");
   const raw = await readFile(resolve(filePath), "utf-8");
 
   const result = importPlanJson(raw);
@@ -493,7 +488,6 @@ async function runImportTerraformPlanBinary(
 async function runImportTerraformState(filePath: string): Promise<void> {
   console.log(`Importing Terraform state JSON from ${resolve(filePath)}...`);
 
-  const { readFile } = await import("node:fs/promises");
   const raw = await readFile(resolve(filePath), "utf-8");
 
   const result = importStateJson(raw);
@@ -576,7 +570,6 @@ async function writeImportOutput(
 ): Promise<void> {
   const outPath = args.values.out;
   if (outPath !== undefined) {
-    const { writeFile } = await import("node:fs/promises");
     await writeFile(
       resolve(outPath),
       JSON.stringify(document, null, 2) + "\n",

@@ -137,7 +137,12 @@ export default defineConfig(
         {
           message:
             "Dynamic imports are forbidden — use static imports instead.",
-          selector: 'CallExpression[callee.type="Import"]',
+          selector: "ImportExpression",
+        },
+        {
+          message:
+            "Inline type imports via import() are forbidden — use a static import instead.",
+          selector: "TSImportType",
         },
       ],
       "prettier/prettier": "error",
@@ -153,6 +158,13 @@ export default defineConfig(
       // Mock adapter methods are async to satisfy the ResourcePort interface
       // but don't await anything internally
       "@typescript-eslint/require-await": "off",
+      // Underscore-prefixed params in mocks/stubs that satisfy interface signatures
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_" },
+      ],
+      // Test mocks require type coercion to satisfy SDK interfaces
+      "@typescript-eslint/consistent-type-assertions": "off",
     },
   },
   eslintPluginZod.configs.recommended,

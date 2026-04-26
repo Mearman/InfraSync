@@ -18,7 +18,13 @@ import type {
   StepOutcome,
   ExecutionResult,
 } from "./schemas.js";
-import type { ProviderPort, ResourcePort } from "@infrasync/core/provider";
+import {
+  ResolvedScopes,
+  type ProviderPort,
+  type ResourcePort,
+} from "@infrasync/core/provider";
+import { exportTfConfigJson } from "@infrasync/adapter-terraform-config-json/export-config-json";
+import { cloudflareResourceMappers } from "@infrasync/adapter-terraform-config-json/cloudflare-mappers";
 import type { InfraIR, ResourceIR } from "@infrasync/core/types";
 import type { TerraformIR } from "@infrasync/core-ir/schemas";
 
@@ -338,11 +344,6 @@ async function executeTerraformStep(
     case "update":
     case "replace-create": {
       // Generate *.tf.json and apply via Terraform CLI
-      const { exportTfConfigJson } =
-        await import("@infrasync/adapter-terraform-config-json/export-config-json");
-      const { cloudflareResourceMappers } =
-        await import("@infrasync/adapter-terraform-config-json/cloudflare-mappers");
-
       const tfResult = exportTfConfigJson(infraIR, {
         resourceMappers: { cloudflare: cloudflareResourceMappers },
       });
@@ -423,7 +424,7 @@ function resolveInfraHandler(
       `Provider instance "${resource.provider}" not connected for resource "${resource.name}"`,
     );
   }
-  return provider.resourceHandler(resource.kind);
+  return provider.resourceHandler(resource.kind, ResolvedScopes.empty);
 }
 
 function toSnakeCase(input: string): string {
