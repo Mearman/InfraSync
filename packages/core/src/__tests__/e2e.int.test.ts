@@ -519,3 +519,96 @@ describe("End-to-end: cache integration", () => {
     assert.ok(l1.get("test-key") !== undefined);
   });
 });
+
+// ─── Read-mode resources ──────────────────────────────────────────────────────
+
+describe("End-to-end: read-mode resources", () => {
+  it("surfaces state for read-mode resources", async () => {
+    const provider = new ScopedProvider();
+    const adapters = new Map([
+      ["scoped", defineProvider("scoped", () => provider)],
+    ]);
+
+    // First run: create a managed resource
+    const engine1 = new SyncEngine(adapters);
+    const createInfra = defineInfra("setup", (infra) => {
+      const prov = infra.provider("sp", scopedAdapter, {
+        accountId: "acc-123",
+      });
+      prov.resource("Widget", "w1", {
+        kind: "Widget",
+        name: "w1",
+        label: "managed",
+      });
+      return { outputs: {} };
+    });
+
+    const result1 = await engine1.execute(createInfra.toIR());
+    assert.equal(at(result1.resources, 0).action, "create");
+    assert.ok(at(result1.resources, 0).state !== undefined);
+
+    // Second run: read the same resource in read mode
+    const engine2 = new SyncEngine(adapters);
+    const readInfra = defineInfra("read-test", (infra) => {
+      const prov = infra.provider("sp", scopedAdapter, {
+        accountId: "acc-123",
+      });
+      // Read-mode: engine queries state but never mutates
+      prov.resource(
+        "Widget",
+        "w1-read",
+        {
+          kind: "Widget",
+          name: "w1",
+        },
+        { mode: "read" },
+      );
+      return { outputs: {} };
+    });
+
+    const result2 = await engine2.execute(readInfra.toIR());
+    assert.equal(result2.resources.length, 1);
+
+    // The read-mode resource
+    const readOutcome = at(result2.resources, 0);
+    assert.equal(readOutcome.action, "read");
+    assert.equal(readOutcome.status, "success");
+    // State is surfaced for monitoring/auditing
+    assert.ok(readOutcome.state !== undefined);
+    // Verify the state has expected fields
+    const readState = readOutcome.state;
+    assert.ok(
+      typeof readState === "object" &&
+        readState !== null &&
+        "name" in readState,
+    );
+  });
+
+  it("surfaces undefined state for non-existent read-mode resources", async () => {
+    const adapters = new Map([["scoped", scopedAdapter]]);
+    const engine = new SyncEngine(adapters);
+
+    const infra = defineInfra("read-missing", (infra) => {
+      const prov = infra.provider("sp", scopedAdapter, {
+        accountId: "acc-123",
+      });
+      prov.resource(
+        "Widget",
+        "missing-read",
+        {
+          kind: "Widget",
+          name: "nonexistent",
+        },
+        { mode: "read" },
+      );
+      return { outputs: {} };
+    });
+
+    const result = await engine.execute(infra.toIR());
+    const readOutcome = at(result.resources, 0);
+    assert.equal(readOutcome.action, "read");
+    assert.equal(readOutcome.status, "success");
+    // Resource doesn't exist — state is undefined
+    assert.equal(readOutcome.state, undefined);
+  });
+});

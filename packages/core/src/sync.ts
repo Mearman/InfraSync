@@ -41,6 +41,15 @@ export interface ResourceOutcome {
   readonly name: string;
   readonly action: PlanAction;
   readonly status: "success" | "failed";
+  /**
+   * The provider state for this resource.
+   *
+   * For read-mode: the current state from the provider.
+   * For manage-mode: the state after create/update, or the current state
+   * if no changes were needed (no-op). Undefined if the read failed or
+   * the resource didn't exist and mode was "read".
+   */
+  readonly state: unknown;
 }
 
 /** The result of a sync execution. */
@@ -209,7 +218,12 @@ export class SyncEngine {
         resource: resource.name,
         message: `Provider instance "${resource.provider}" not connected`,
       });
-      outcomes.push({ name: resource.name, action: "read", status: "failed" });
+      outcomes.push({
+        name: resource.name,
+        action: "read",
+        status: "failed",
+        state: undefined,
+      });
       return;
     }
 
@@ -227,7 +241,12 @@ export class SyncEngine {
       const message =
         err instanceof Error ? err.message : "Unknown ref resolution error";
       issues.push({ resource: resource.name, message });
-      outcomes.push({ name: resource.name, action: "read", status: "failed" });
+      outcomes.push({
+        name: resource.name,
+        action: "read",
+        status: "failed",
+        state: undefined,
+      });
       return;
     }
 
@@ -235,7 +254,12 @@ export class SyncEngine {
     const specResult = handlerPrototype.specSchema.safeParse(resolvedSpec);
     if (!specResult.success) {
       issues.push(...collectZodIssues(resource.name, specResult.error));
-      outcomes.push({ name: resource.name, action: "read", status: "failed" });
+      outcomes.push({
+        name: resource.name,
+        action: "read",
+        status: "failed",
+        state: undefined,
+      });
       return;
     }
 
@@ -264,6 +288,7 @@ export class SyncEngine {
           name: resource.name,
           action: "read",
           status: "failed",
+          state: undefined,
         });
         return;
       }
@@ -279,6 +304,7 @@ export class SyncEngine {
           name: resource.name,
           action: "read",
           status: "failed",
+          state: undefined,
         });
         return;
       }
@@ -292,7 +318,12 @@ export class SyncEngine {
     const action = computePlan(resource.mode, state);
 
     if (action === "read") {
-      outcomes.push({ name: resource.name, action: "read", status: "success" });
+      outcomes.push({
+        name: resource.name,
+        action: "read",
+        status: "success",
+        state,
+      });
       return;
     }
 
@@ -313,6 +344,7 @@ export class SyncEngine {
             name: resource.name,
             action: "no-op",
             status: "success",
+            state,
           });
           return;
         }
@@ -327,6 +359,7 @@ export class SyncEngine {
           name: resource.name,
           action: "update",
           status: "failed",
+          state: undefined,
         });
         return;
       }
@@ -334,7 +367,7 @@ export class SyncEngine {
 
     // 6. Apply (if not dry run)
     if (dryRun) {
-      outcomes.push({ name: resource.name, action, status: "success" });
+      outcomes.push({ name: resource.name, action, status: "success", state });
       return;
     }
 
@@ -353,13 +386,23 @@ export class SyncEngine {
       const responseResult = handler.stateSchema.safeParse(result);
       if (!responseResult.success) {
         issues.push(...collectZodIssues(resource.name, responseResult.error));
-        outcomes.push({ name: resource.name, action, status: "failed" });
+        outcomes.push({
+          name: resource.name,
+          action,
+          status: "failed",
+          state: undefined,
+        });
         return;
       }
 
       // Update state map with the new state
       stateMap.set(resource.name, responseResult.data);
-      outcomes.push({ name: resource.name, action, status: "success" });
+      outcomes.push({
+        name: resource.name,
+        action,
+        status: "success",
+        state: responseResult.data,
+      });
     } catch (err) {
       if (err instanceof ProviderApiError) {
         issues.push(
@@ -368,7 +411,12 @@ export class SyncEngine {
             message: `${issue.path.map(String).join(".")}: ${issue.message}`,
           })),
         );
-        outcomes.push({ name: resource.name, action, status: "failed" });
+        outcomes.push({
+          name: resource.name,
+          action,
+          status: "failed",
+          state: undefined,
+        });
         return;
       }
       throw err;

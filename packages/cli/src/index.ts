@@ -851,12 +851,26 @@ async function run(command: RuntimeCommand, configPath: string): Promise<void> {
 
 // ─── Output formatting ───────────────────────────────────────────────────────
 
+/** Shared type for resource outcomes in CLI output */
+interface CliResourceOutcome {
+  readonly name: string;
+  readonly action: string;
+  readonly status: string;
+  readonly state: unknown;
+}
+
+/** Print a single resource outcome line */
+function formatResource(resource: CliResourceOutcome): string {
+  const icon = resource.status === "success" ? "✓" : "✗";
+  if (resource.action === "read") {
+    const stateLabel = resource.state !== undefined ? "found" : "not found";
+    return `  ${icon} ${resource.name}: read (${stateLabel})`;
+  }
+  return `  ${icon} ${resource.name}: ${resource.action} (${resource.status})`;
+}
+
 function printPlan(result: {
-  readonly resources: readonly {
-    readonly name: string;
-    readonly action: string;
-    readonly status: string;
-  }[];
+  readonly resources: readonly CliResourceOutcome[];
   readonly issues: readonly {
     readonly resource: string;
     readonly message: string;
@@ -870,10 +884,7 @@ function printPlan(result: {
   }
 
   for (const resource of result.resources) {
-    const icon = resource.status === "success" ? "✓" : "✗";
-    console.log(
-      `  ${icon} ${resource.name}: ${resource.action} (${resource.status})`,
-    );
+    console.log(formatResource(resource));
   }
 
   if (result.issues.length > 0) {
@@ -885,11 +896,7 @@ function printPlan(result: {
 }
 
 function printApply(result: {
-  readonly resources: readonly {
-    readonly name: string;
-    readonly action: string;
-    readonly status: string;
-  }[];
+  readonly resources: readonly CliResourceOutcome[];
   readonly issues: readonly {
     readonly resource: string;
     readonly message: string;
@@ -903,10 +910,7 @@ function printApply(result: {
   }
 
   for (const resource of result.resources) {
-    const icon = resource.status === "success" ? "✓" : "✗";
-    console.log(
-      `  ${icon} ${resource.name}: ${resource.action} (${resource.status})`,
-    );
+    console.log(formatResource(resource));
   }
 
   if (result.issues.length > 0) {

@@ -29,6 +29,7 @@ export interface ApplyOutput {
     readonly name: string;
     readonly action: string;
     readonly status: string;
+    readonly state: unknown;
   }[];
   readonly issues: readonly {
     readonly resource: string;
