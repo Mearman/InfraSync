@@ -880,11 +880,13 @@ interface ProviderPort<TConfig extends ZodType> {
 	supportedKinds(): string[];
 
 	/** Route a resource operation to the correct handler for a given kind */
-	resourceHandler(kind: string): ResourcePort;
+	resourceHandler(kind: string, scopes: ResolvedScopes): ResourcePort;
 }
 ```
 
 The engine creates one `ProviderPort` instance per provider instance entry in `InfraIR`. Each instance calls `configSchema.safeParse(rawConfig)` before `connect()`. If validation fails, all issues are collected and reported before any API calls are made — the adapter never receives invalid config. Multiple entries with the same adapter type (e.g. `"awsProd"` and `"awsStaging"`) each get independent adapter instances with separate SDK clients.
+
+`resourceHandler(kind, scopes)` takes a `ResolvedScopes` parameter. The engine resolves scopes from provider config and resolved spec references before creating the handler, so the handler receives fully-resolved scope values at construction time — resource methods (`read`/`create`/`update`) never deal with scope resolution.
 
 #### `ResourcePort` — the resource-level interface
 
@@ -919,6 +921,15 @@ interface ResourcePort<
 	 * Must be a subset of specSchema.
 	 */
 	readonly desiredStateSchema: ZodObject<any>;
+
+	/**
+	 * Scope declarations for this resource kind.
+	 * Maps scope names to their source (config or ref).
+	 * When present, the engine resolves these before creating the handler
+	 * and passes the resolved values via resourceHandler(kind, scopes).
+	 * The handler stores resolved scopes internally — methods do not receive scopes.
+	 */
+	readonly scopes?: ResourceScopes;
 
 	/**
 	 * Query the provider API for resources matching the identity fields in spec.
@@ -1123,6 +1134,30 @@ sequenceDiagram
         end
     end
 ```
+
+### Scope Resolution: Separating "What" from "Where"
+
+Some resources need contextual information that isn't part of the spec itself. A Cloudflare AccessPolicy belongs to an account and is scoped to an application — the account ID comes from provider config, the application ID comes from a resolved reference. The spec defines *what* to create; scopes define *where* to create it.
+
+**Scope declarations** on `ResourcePort` map scope names to sources:
+
+```typescript
+// On the resource class
+readonly scopes: ResourceScopes = {
+  accountId: { config: "accountId" },   // from provider config
+  applicationId: { ref: "applicationId" }, // from resolved spec field
+};
+```
+
+**Resolution flow:**
+
+1. The engine creates a **prototype handler** with `ResolvedScopes.empty` to read scope declarations.
+2. Config scopes are resolved from the provider's validated config.
+3. Ref scopes are resolved from the spec after ref resolution.
+4. The engine creates the **actual handler** with fully resolved scopes via `resourceHandler(kind, scopes)`.
+5. The handler stores resolved scopes internally — `read()`, `create()`, `update()` use `this.resolvedScopes.get("accountId")` without any parameter.
+
+This ensures scopes are resolved once at the correct boundary (between spec validation and handler creation), and resource methods stay focused on provider API interaction.
 
 ### Codecs: Normalised Resource Specs Across Providers
 
