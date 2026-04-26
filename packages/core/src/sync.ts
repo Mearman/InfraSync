@@ -19,6 +19,8 @@ import {
 } from "./resource.js";
 import type { SecretResolver } from "./resource.js";
 import { ProviderApiError } from "./errors.js";
+import type { ResourceCache } from "./cache.js";
+import { CachedProviderPort } from "./cache.js";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -28,6 +30,10 @@ export interface SyncOptions {
   readonly mode?: "plan" | "apply";
   /** Secret resolver. Defaults to envSecretResolver (reads from process.env). */
   readonly secretResolver?: SecretResolver;
+  /** Optional cache for provider read results. When provided, wraps all provider instances. */
+  readonly cache?: ResourceCache;
+  /** Cache TTL in milliseconds for this run. Default: cache.defaultTtl */
+  readonly cacheTtl?: number;
 }
 
 /** Per-resource outcome from a sync run. */
@@ -79,6 +85,8 @@ export class SyncEngine {
         configs,
         issues,
         secretResolver,
+        options?.cache,
+        options?.cacheTtl,
       );
       if (issues.length > 0) {
         return { resources: [], issues };
@@ -121,6 +129,8 @@ export class SyncEngine {
     configs: Map<string, Record<string, unknown>>,
     issues: ResourceIssue[],
     secretResolver: SecretResolver,
+    cache: ResourceCache | undefined,
+    cacheTtl: number | undefined,
   ): Promise<void> {
     for (const provider of ir.providers) {
       const adapter = this.adapters.get(provider.adapterName);
@@ -147,7 +157,18 @@ export class SyncEngine {
       }
 
       await instance.connect(resolvedConfig);
-      instances.set(provider.key, instance);
+
+      // Wrap with cache if configured
+      const maybeCached =
+        cache !== undefined
+          ? new CachedProviderPort(
+              instance,
+              cache,
+              cacheTtl !== undefined ? { ttl: cacheTtl } : undefined,
+            )
+          : instance;
+
+      instances.set(provider.key, maybeCached);
       if (isRecord(result.data)) {
         configs.set(provider.key, result.data);
       }
