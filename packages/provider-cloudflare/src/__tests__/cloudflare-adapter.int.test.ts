@@ -19,6 +19,8 @@ import { AccessApplicationResource } from "../access-app.js";
 import { IdentityProviderResource } from "../identity-provider.js";
 import { PagesCustomDomainResource } from "../pages-domain.js";
 import { DnsRecordResource } from "../dns-record.js";
+import { AccessGroupResource } from "../access-group.js";
+import { TunnelResource } from "../tunnel.js";
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
@@ -625,5 +627,207 @@ describe("Codec bidirectional field mapping", () => {
     const garbage = { totally: "wrong" };
     assert.strictEqual(resource.codec.decode(garbage), garbage);
     assert.strictEqual(resource.codec.encode(garbage), garbage);
+  });
+});
+
+// ─── AccessGroup tests ────────────────────────────────────────────────────────
+
+describe("AccessGroupResource", () => {
+  it("queries groups by name in read", async () => {
+    const listSpy = mock.fn(() => ({
+      result: [
+        { id: "grp-1", name: "Allow Devs", include: [] },
+        { id: "grp-2", name: "Contractors", include: [] },
+      ],
+    }));
+    const mockClient = {
+      zeroTrust: {
+        access: {
+          groups: {
+            list: listSpy,
+            create: mock.fn(),
+            update: mock.fn(),
+          },
+        },
+      },
+    };
+    const resource = new AccessGroupResource(
+      asClient(mockClient),
+      ACCOUNT_SCOPES,
+    );
+
+    const result = await resource.read({
+      kind: "AccessGroup",
+      name: "Allow Devs",
+      include: [{ email_domain: { domain: "example.com" } }],
+    });
+
+    assert.ok(result !== undefined);
+    assert.ok(isRecord(result));
+    assert.equal(result.id, "grp-1");
+  });
+
+  it("returns undefined when group not found", async () => {
+    const mockClient = {
+      zeroTrust: {
+        access: {
+          groups: {
+            list: mock.fn(() => ({ result: [] })),
+            create: mock.fn(),
+            update: mock.fn(),
+          },
+        },
+      },
+    };
+    const resource = new AccessGroupResource(
+      asClient(mockClient),
+      ACCOUNT_SCOPES,
+    );
+
+    const result = await resource.read({
+      kind: "AccessGroup",
+      name: "Missing Group",
+      include: [],
+    });
+
+    assert.equal(result, undefined);
+  });
+
+  it("passes include/exclude to create", async () => {
+    const createSpy = mock.fn(() => ({
+      id: "grp-new",
+      name: "Test Group",
+      include: [],
+    }));
+    const mockClient = {
+      zeroTrust: {
+        access: {
+          groups: {
+            list: mock.fn(() => ({ result: [] })),
+            create: createSpy,
+            update: mock.fn(),
+          },
+        },
+      },
+    };
+    const resource = new AccessGroupResource(
+      asClient(mockClient),
+      ACCOUNT_SCOPES,
+    );
+
+    await resource.create({
+      kind: "AccessGroup",
+      name: "Test Group",
+      include: [{ email_domain: { domain: "example.com" } }],
+      exclude: [{ ip: { ip: "10.0.0.0/8" } }],
+    });
+
+    assert.equal(createSpy.mock.callCount(), 1);
+    const params = objectArg(createSpy.mock.calls, 0, 0);
+    assert.ok(Array.isArray(params.include));
+    assert.ok(Array.isArray(params.exclude));
+  });
+
+  it("declares accountId scope", () => {
+    const resource = new AccessGroupResource(
+      {} as unknown as Cloudflare,
+      ACCOUNT_SCOPES,
+    );
+    const scopeEntry = scopeAt(resource.scopes, "accountId");
+    assert.ok("config" in scopeEntry);
+    assert.equal(scopeEntry.config, "accountId");
+  });
+});
+
+// ─── Tunnel tests ─────────────────────────────────────────────────────────────
+
+describe("TunnelResource", () => {
+  it("queries tunnels by name in read", async () => {
+    const listSpy = mock.fn(() => ({
+      result: [
+        { id: "tun-1", name: "blog", status: "healthy" },
+        { id: "tun-2", name: "api", status: "inactive" },
+      ],
+    }));
+    const mockClient = {
+      zeroTrust: {
+        tunnels: {
+          cloudflared: {
+            list: listSpy,
+            create: mock.fn(),
+            edit: mock.fn(),
+          },
+        },
+      },
+    };
+    const resource = new TunnelResource(asClient(mockClient), ACCOUNT_SCOPES);
+
+    const result = await resource.read({
+      kind: "Tunnel",
+      name: "blog",
+    });
+
+    assert.ok(result !== undefined);
+    assert.ok(isRecord(result));
+    assert.equal(result.id, "tun-1");
+  });
+
+  it("returns undefined when tunnel not found", async () => {
+    const mockClient = {
+      zeroTrust: {
+        tunnels: {
+          cloudflared: {
+            list: mock.fn(() => ({ result: [] })),
+            create: mock.fn(),
+            edit: mock.fn(),
+          },
+        },
+      },
+    };
+    const resource = new TunnelResource(asClient(mockClient), ACCOUNT_SCOPES);
+
+    const result = await resource.read({ kind: "Tunnel", name: "missing" });
+    assert.equal(result, undefined);
+  });
+
+  it("passes name and config_src to create", async () => {
+    const createSpy = mock.fn(() => ({
+      id: "tun-new",
+      name: "my-tunnel",
+      status: "inactive",
+    }));
+    const mockClient = {
+      zeroTrust: {
+        tunnels: {
+          cloudflared: {
+            list: mock.fn(() => ({ result: [] })),
+            create: createSpy,
+            edit: mock.fn(),
+          },
+        },
+      },
+    };
+    const resource = new TunnelResource(asClient(mockClient), ACCOUNT_SCOPES);
+
+    await resource.create({
+      kind: "Tunnel",
+      name: "my-tunnel",
+      configSrc: "cloudflare",
+    });
+
+    assert.equal(createSpy.mock.callCount(), 1);
+    const params = objectArg(createSpy.mock.calls, 0, 0);
+    assert.equal(params.name, "my-tunnel");
+    assert.equal(params.config_src, "cloudflare");
+  });
+
+  it("declares accountId scope", () => {
+    const resource = new TunnelResource(
+      {} as unknown as Cloudflare,
+      ACCOUNT_SCOPES,
+    );
+    const scopeEntry = scopeAt(resource.scopes, "accountId");
+    assert.ok("config" in scopeEntry);
+    assert.equal(scopeEntry.config, "accountId");
   });
 });

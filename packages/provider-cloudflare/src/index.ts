@@ -12,6 +12,8 @@ import { AccessApplicationResource } from "./access-app.js";
 import { AccessPolicyResource } from "./access-policy.js";
 import { IdentityProviderResource } from "./identity-provider.js";
 import { PagesCustomDomainResource } from "./pages-domain.js";
+import { AccessGroupResource } from "./access-group.js";
+import { TunnelResource } from "./tunnel.js";
 
 // ─── Config schema ───────────────────────────────────────────────────────────
 
@@ -70,6 +72,8 @@ export class CloudflareProvider implements ProviderPort<
       "AccessPolicy",
       "IdentityProvider",
       "PagesCustomDomain",
+      "AccessGroup",
+      "Tunnel",
     ];
   }
 
@@ -91,6 +95,10 @@ export class CloudflareProvider implements ProviderPort<
         return new IdentityProviderResource(this.client, scopes);
       case "PagesCustomDomain":
         return new PagesCustomDomainResource(this.client, scopes);
+      case "AccessGroup":
+        return new AccessGroupResource(this.client, scopes);
+      case "Tunnel":
+        return new TunnelResource(this.client, scopes);
       default:
         throw new Error(`Cloudflare: unsupported resource kind "${kind}"`);
     }
