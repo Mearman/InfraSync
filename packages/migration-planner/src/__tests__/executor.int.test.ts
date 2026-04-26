@@ -15,7 +15,11 @@ import {
   cloudflarePlugin,
 } from "../index.js";
 import type { ExecutionContext } from "../executor.js";
-import type { ProviderPort, ResourcePort } from "@infrasync/core/provider";
+import {
+  ResolvedScopes,
+  type ProviderPort,
+  type ResourcePort,
+} from "@infrasync/core/provider";
 import type { InfraIR } from "@infrasync/core/types";
 import type { TerraformIR } from "@infrasync/core-ir/schemas";
 
@@ -136,7 +140,7 @@ function createMockProvider(callLog: CallLog[]): ProviderPort {
     supportedKinds() {
       return ["DnsRecord"];
     },
-    resourceHandler(kind: string): ResourcePort {
+    resourceHandler(kind: string, _scopes: ResolvedScopes): ResourcePort {
       if (kind === "DnsRecord" || kind === "CloudflareRecord") return handler;
       throw new Error(`Unknown kind: ${kind}`);
     },

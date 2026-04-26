@@ -11,7 +11,11 @@ import { defineInfra } from "../compiler.js";
 import { declarative } from "../declarative.js";
 import { RefToken, refable } from "../refs.js";
 import { defineProvider } from "../provider.js";
-import type { ProviderPort, ResourcePort } from "../provider.js";
+import type {
+  ProviderPort,
+  ResourcePort,
+  ResolvedScopes,
+} from "../provider.js";
 import { buildDag, topologicalSortByLevel } from "../dag.js";
 import { computePlan } from "../plan.js";
 import { SyncEngine } from "../sync.js";
@@ -144,7 +148,7 @@ class MockProvider implements ProviderPort {
     return ["MockResource"];
   }
 
-  resourceHandler(kind: string): ResourcePort {
+  resourceHandler(kind: string, _scopes: ResolvedScopes): ResourcePort {
     if (kind === "MockResource") {
       return new MockResourceHandler(this.store);
     }

@@ -1,0 +1,473 @@
+/**
+ * Integration tests for Cloudflare adapter resources.
+ *
+ * Uses mock Cloudflare SDK clients to verify that each resource adapter
+ * calls the correct SDK endpoints with the correct parameters,
+ * including scope resolution via constructor injection.
+ */
+import { describe, it, mock } from "node:test";
+import assert from "node:assert/strict";
+import type Cloudflare from "cloudflare";
+import {
+  ResolvedScopes,
+  type ResourceScopes,
+  type ScopeSource,
+} from "@infrasync/core/provider";
+import { isRecord } from "@infrasync/core/resource";
+import { AccessPolicyResource } from "../access-policy.js";
+import { AccessApplicationResource } from "../access-app.js";
+import { IdentityProviderResource } from "../identity-provider.js";
+
+// ─── Test helpers ────────────────────────────────────────────────────────────
+
+const ACCOUNT_ID = "test-account-id";
+const APPLICATION_ID = "app-123";
+const POLICY_ID = "policy-456";
+
+const ACCOUNT_SCOPES = new ResolvedScopes([["accountId", ACCOUNT_ID]]);
+
+const POLICY_SCOPES = new ResolvedScopes([
+  ["accountId", ACCOUNT_ID],
+  ["applicationId", APPLICATION_ID],
+]);
+
+/** Non-null assertion for array index access under noUncheckedIndexedAccess. */
+function at<T>(arr: readonly T[], index: number): T {
+  const value = arr[index];
+  if (value === undefined) {
+    throw new Error(`Index ${String(index)} out of bounds`);
+  }
+  return value;
+}
+
+/** Extract string argument from a mock call by position. */
+function stringArg(
+  calls: { readonly arguments: readonly unknown[] }[],
+  callIndex: number,
+  argIndex: number,
+): string {
+  const call = at(calls, callIndex);
+  const value = at(call.arguments, argIndex);
+  if (typeof value !== "string") {
+    throw new Error(
+      `Expected string at call[${String(callIndex)}].args[${String(argIndex)}], got ${typeof value}`,
+    );
+  }
+  return value;
+}
+
+/** Extract object argument from a mock call by position. */
+function objectArg(
+  calls: { readonly arguments: readonly unknown[] }[],
+  callIndex: number,
+  argIndex: number,
+): Record<string, unknown> {
+  const call = at(calls, callIndex);
+  const value = at(call.arguments, argIndex);
+  if (!isRecord(value)) {
+    throw new Error(
+      `Expected object at call[${String(callIndex)}].args[${String(argIndex)}], got ${typeof value}`,
+    );
+  }
+  return value;
+}
+
+/** Cast helper for mock Cloudflare client. */
+function asClient(mockObj: object): Cloudflare {
+  return mockObj as unknown as Cloudflare;
+}
+
+/** Narrow a Record index access after key-existence is verified by assertion. */
+function scopeAt(scopes: ResourceScopes, key: string): ScopeSource {
+  const value = (scopes as Record<string, ScopeSource>)[key];
+  if (value === undefined) {
+    throw new Error(`Scope key '${key}' not found`);
+  }
+  return value;
+}
+
+// ─── AccessPolicyResource ────────────────────────────────────────────────────
+
+describe("AccessPolicyResource", () => {
+  it("passes applicationId to create SDK call (app-scoped API)", async () => {
+    const createSpy = mock.fn(() => ({
+      id: POLICY_ID,
+      name: "Allow Team",
+      decision: "allow",
+      include: [],
+    }));
+    const mockClient = {
+      zeroTrust: {
+        access: {
+          applications: {
+            policies: {
+              list: mock.fn(() => ({ result: [] })),
+              create: createSpy,
+              update: mock.fn(),
+            },
+          },
+        },
+      },
+    };
+
+    const resource = new AccessPolicyResource(
+      asClient(mockClient),
+      POLICY_SCOPES,
+    );
+
+    await resource.create({
+      kind: "AccessPolicy",
+      applicationId: APPLICATION_ID,
+      name: "Allow Team",
+      decision: "allow",
+      include: [{ email_domain: { domain: "example.com" } }],
+    });
+
+    assert.equal(createSpy.mock.callCount(), 1, "expected one create call");
+    assert.equal(stringArg(createSpy.mock.calls, 0, 0), APPLICATION_ID);
+  });
+
+  it("passes applicationId and policyId to update SDK call (app-scoped API)", async () => {
+    const updateSpy = mock.fn(() => ({
+      id: POLICY_ID,
+      name: "Allow Team",
+      decision: "allow",
+      include: [],
+    }));
+    const mockClient = {
+      zeroTrust: {
+        access: {
+          applications: {
+            policies: {
+              list: mock.fn(() => ({ result: [] })),
+              create: mock.fn(),
+              update: updateSpy,
+            },
+          },
+        },
+      },
+    };
+
+    const resource = new AccessPolicyResource(
+      asClient(mockClient),
+      POLICY_SCOPES,
+    );
+
+    await resource.update(POLICY_ID, {
+      kind: "AccessPolicy",
+      applicationId: APPLICATION_ID,
+      name: "Allow Team",
+      decision: "allow",
+      include: [{ email_domain: { domain: "example.com" } }],
+    });
+
+    assert.equal(updateSpy.mock.callCount(), 1, "expected one update call");
+    assert.equal(
+      stringArg(updateSpy.mock.calls, 0, 0),
+      APPLICATION_ID,
+      "first arg must be appId",
+    );
+    assert.equal(
+      stringArg(updateSpy.mock.calls, 0, 1),
+      POLICY_ID,
+      "second arg must be policyId",
+    );
+  });
+
+  it("queries policies scoped to the application in read", async () => {
+    const listSpy = mock.fn(() => ({
+      result: [
+        {
+          id: POLICY_ID,
+          name: "Allow Team",
+          decision: "allow",
+          include: [],
+        },
+      ],
+    }));
+    const mockClient = {
+      zeroTrust: {
+        access: {
+          applications: {
+            policies: {
+              list: listSpy,
+              create: mock.fn(),
+              update: mock.fn(),
+            },
+          },
+        },
+      },
+    };
+
+    const resource = new AccessPolicyResource(
+      asClient(mockClient),
+      POLICY_SCOPES,
+    );
+
+    await resource.read({
+      kind: "AccessPolicy",
+      applicationId: APPLICATION_ID,
+      name: "Allow Team",
+      decision: "allow",
+      include: [],
+    });
+
+    assert.equal(listSpy.mock.callCount(), 1);
+    assert.equal(stringArg(listSpy.mock.calls, 0, 0), APPLICATION_ID);
+  });
+
+  it("declares accountId and applicationId scopes", () => {
+    const resource = new AccessPolicyResource(
+      {} as unknown as Cloudflare,
+      POLICY_SCOPES,
+    );
+    assert.deepEqual(Object.keys(resource.scopes), [
+      "accountId",
+      "applicationId",
+    ]);
+    const scopeAccountId = scopeAt(resource.scopes, "accountId");
+    assert.ok("config" in scopeAccountId);
+    assert.equal(scopeAccountId.config, "accountId");
+    const scopeAppId = scopeAt(resource.scopes, "applicationId");
+    assert.ok("ref" in scopeAppId);
+    assert.equal(scopeAppId.ref, "applicationId");
+  });
+});
+
+// ─── AccessApplicationResource ───────────────────────────────────────────────
+
+describe("AccessApplicationResource", () => {
+  it("passes allowedIdps to create SDK call", async () => {
+    const createSpy = mock.fn(() => ({
+      id: "new-app-id",
+      domain: "app.example.com",
+      type: "self_hosted",
+      name: "My App",
+      session_duration: "24h",
+      allowed_idps: ["idp-1", "idp-2"],
+    }));
+    const mockClient = {
+      zeroTrust: {
+        access: {
+          applications: {
+            list: mock.fn(() => ({ result: [] })),
+            create: createSpy,
+            update: mock.fn(),
+          },
+        },
+      },
+    };
+
+    const resource = new AccessApplicationResource(
+      asClient(mockClient),
+      ACCOUNT_SCOPES,
+    );
+
+    await resource.create({
+      kind: "AccessApplication",
+      domain: "app.example.com",
+      name: "My App",
+      sessionDuration: "24h",
+      allowedIdps: ["idp-1", "idp-2"],
+    });
+
+    assert.equal(createSpy.mock.callCount(), 1);
+    const params = objectArg(createSpy.mock.calls, 0, 0);
+    assert.ok("allowed_idps" in params, "params must include allowed_idps");
+    assert.deepEqual(params.allowed_idps, ["idp-1", "idp-2"]);
+  });
+
+  it("passes allowedIdps to update SDK call", async () => {
+    const updateSpy = mock.fn(() => ({
+      id: "existing-app-id",
+      domain: "app.example.com",
+      type: "self_hosted",
+      name: "My App",
+      allowed_idps: ["idp-1"],
+    }));
+    const mockClient = {
+      zeroTrust: {
+        access: {
+          applications: {
+            list: mock.fn(() => ({ result: [] })),
+            create: mock.fn(),
+            update: updateSpy,
+          },
+        },
+      },
+    };
+
+    const resource = new AccessApplicationResource(
+      asClient(mockClient),
+      ACCOUNT_SCOPES,
+    );
+
+    await resource.update("existing-app-id", {
+      kind: "AccessApplication",
+      domain: "app.example.com",
+      name: "My App",
+      allowedIdps: ["idp-1"],
+    });
+
+    assert.equal(updateSpy.mock.callCount(), 1);
+    const params = objectArg(updateSpy.mock.calls, 0, 1);
+    assert.ok("allowed_idps" in params, "params must include allowed_idps");
+    assert.deepEqual(params.allowed_idps, ["idp-1"]);
+  });
+
+  it("omits allowedIdps from params when not in spec", async () => {
+    const createSpy = mock.fn(() => ({
+      id: "new-app-id",
+      domain: "app.example.com",
+      type: "self_hosted",
+      name: "My App",
+    }));
+    const mockClient = {
+      zeroTrust: {
+        access: {
+          applications: {
+            list: mock.fn(() => ({ result: [] })),
+            create: createSpy,
+            update: mock.fn(),
+          },
+        },
+      },
+    };
+
+    const resource = new AccessApplicationResource(
+      asClient(mockClient),
+      ACCOUNT_SCOPES,
+    );
+
+    await resource.create({
+      kind: "AccessApplication",
+      domain: "app.example.com",
+      name: "My App",
+    });
+
+    const params = objectArg(createSpy.mock.calls, 0, 0);
+    assert.ok(
+      !("allowed_idps" in params),
+      "allowed_idps should be absent when not in spec",
+    );
+  });
+
+  it("declares accountId scope", () => {
+    const resource = new AccessApplicationResource(
+      {} as unknown as Cloudflare,
+      ACCOUNT_SCOPES,
+    );
+    const scopeEntry = scopeAt(resource.scopes, "accountId");
+    assert.ok("config" in scopeEntry);
+    assert.equal(scopeEntry.config, "accountId");
+  });
+});
+
+// ─── IdentityProviderResource ────────────────────────────────────────────────
+
+describe("IdentityProviderResource", () => {
+  it("matches identity providers by name AND type in read", async () => {
+    const mockIdps = [
+      { id: "idp-1", name: "My Provider", type: "onetimepin" },
+      { id: "idp-2", name: "My Provider", type: "google" },
+    ];
+
+    const mockClient = {
+      zeroTrust: {
+        identityProviders: {
+          list: mock.fn(() => ({ result: mockIdps })),
+          create: mock.fn(),
+          update: mock.fn(),
+        },
+      },
+    };
+
+    const resource = new IdentityProviderResource(
+      asClient(mockClient),
+      ACCOUNT_SCOPES,
+    );
+
+    const result = await resource.read({
+      kind: "IdentityProvider",
+      name: "My Provider",
+      type: "google",
+      config: {},
+    });
+
+    assert.ok(result !== undefined, "should find a matching IdP");
+    assert.ok(isRecord(result));
+    assert.equal(
+      result.id,
+      "idp-2",
+      "should match the Google IdP, not the OTP one",
+    );
+  });
+
+  it("returns undefined when name matches but type does not", async () => {
+    const mockIdps = [{ id: "idp-1", name: "My Provider", type: "onetimepin" }];
+
+    const mockClient = {
+      zeroTrust: {
+        identityProviders: {
+          list: mock.fn(() => ({ result: mockIdps })),
+          create: mock.fn(),
+          update: mock.fn(),
+        },
+      },
+    };
+
+    const resource = new IdentityProviderResource(
+      asClient(mockClient),
+      ACCOUNT_SCOPES,
+    );
+
+    const result = await resource.read({
+      kind: "IdentityProvider",
+      name: "My Provider",
+      type: "google",
+      config: {},
+    });
+
+    assert.equal(result, undefined, "should not match when type differs");
+  });
+
+  it("returns matching IdP when only one exists with that name", async () => {
+    const mockIdps = [{ id: "idp-1", name: "Email OTP", type: "onetimepin" }];
+
+    const mockClient = {
+      zeroTrust: {
+        identityProviders: {
+          list: mock.fn(() => ({ result: mockIdps })),
+          create: mock.fn(),
+          update: mock.fn(),
+        },
+      },
+    };
+
+    const resource = new IdentityProviderResource(
+      asClient(mockClient),
+      ACCOUNT_SCOPES,
+    );
+
+    const result = await resource.read({
+      kind: "IdentityProvider",
+      name: "Email OTP",
+      type: "onetimepin",
+      config: {},
+    });
+
+    assert.ok(result !== undefined);
+    assert.ok(isRecord(result));
+    assert.equal(result.id, "idp-1");
+  });
+
+  it("declares accountId scope", () => {
+    const resource = new IdentityProviderResource(
+      {} as unknown as Cloudflare,
+      ACCOUNT_SCOPES,
+    );
+    const scopeEntry = scopeAt(resource.scopes, "accountId");
+    assert.ok("config" in scopeEntry);
+    assert.equal(scopeEntry.config, "accountId");
+  });
+});

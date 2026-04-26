@@ -1,5 +1,9 @@
 import Cloudflare from "cloudflare";
-import type { ResourcePort } from "@infrasync/core/provider";
+import type {
+  ResourcePort,
+  ResourceScopes,
+  ResolvedScopes,
+} from "@infrasync/core/provider";
 import { RefToken } from "@infrasync/core/refs";
 import type { RefBuilder } from "@infrasync/core/handles";
 import * as z from "zod";
@@ -89,9 +93,13 @@ export class PagesCustomDomainResource implements ResourcePort<
   readonly identitySchema = identitySchema;
   readonly desiredStateSchema = desiredStateSchema;
 
+  static readonly scopes: ResourceScopes = {
+    accountId: { config: "accountId" },
+  };
+
   constructor(
     private readonly client: Cloudflare,
-    private readonly accountId: string,
+    private readonly resolvedScopes: ResolvedScopes,
   ) {}
 
   getStateId = getStateId;
@@ -104,7 +112,7 @@ export class PagesCustomDomainResource implements ResourcePort<
 
     const domains = await this.client.pages.projects.domains.list(
       parsed.data.projectName,
-      { account_id: this.accountId },
+      { account_id: this.resolvedScopes.get("accountId") },
     );
     const match = domains.result.find((d) => {
       if ("name" in d && typeof d.name === "string") {
@@ -125,7 +133,7 @@ export class PagesCustomDomainResource implements ResourcePort<
     const response = await this.client.pages.projects.domains.create(
       parsed.data.projectName,
       {
-        account_id: this.accountId,
+        account_id: this.resolvedScopes.get("accountId"),
         name: parsed.data.domain,
       },
     );
@@ -143,7 +151,7 @@ export class PagesCustomDomainResource implements ResourcePort<
       parsed.data.projectName,
       id,
       {
-        account_id: this.accountId,
+        account_id: this.resolvedScopes.get("accountId"),
         body: { name: parsed.data.domain },
       },
     );

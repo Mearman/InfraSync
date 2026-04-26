@@ -3,7 +3,11 @@ import type {
   IdentityProviderCreateParams,
   IdentityProviderUpdateParams,
 } from "cloudflare/resources/zero-trust/identity-providers/identity-providers.js";
-import type { ResourcePort } from "@infrasync/core/provider";
+import type {
+  ResourcePort,
+  ResourceScopes,
+  ResolvedScopes,
+} from "@infrasync/core/provider";
 import { RefToken } from "@infrasync/core/refs";
 import type { RefBuilder } from "@infrasync/core/handles";
 import * as z from "zod";
@@ -173,9 +177,13 @@ export class IdentityProviderResource implements ResourcePort<
   readonly identitySchema = identitySchema;
   readonly desiredStateSchema = desiredStateSchema;
 
+  readonly scopes: ResourceScopes = {
+    accountId: { config: "accountId" },
+  };
+
   constructor(
     private readonly client: Cloudflare,
-    private readonly accountId: string,
+    private readonly resolvedScopes: ResolvedScopes,
   ) {}
 
   getStateId = getStateId;
@@ -187,11 +195,16 @@ export class IdentityProviderResource implements ResourcePort<
     }
 
     const idps = await this.client.zeroTrust.identityProviders.list({
-      account_id: this.accountId,
+      account_id: this.resolvedScopes.get("accountId"),
     });
     const match = idps.result.find((idp) => {
-      if ("name" in idp && typeof idp.name === "string") {
-        return idp.name === parsed.data.name;
+      if (
+        "name" in idp &&
+        typeof idp.name === "string" &&
+        "type" in idp &&
+        typeof idp.type === "string"
+      ) {
+        return idp.name === parsed.data.name && idp.type === parsed.data.type;
       }
       return false;
     });
@@ -207,7 +220,12 @@ export class IdentityProviderResource implements ResourcePort<
     }
     const { name, type, config } = parsed.data;
 
-    const params = buildCreateParams(this.accountId, name, type, config);
+    const params = buildCreateParams(
+      this.resolvedScopes.get("accountId"),
+      name,
+      type,
+      config,
+    );
     const response =
       await this.client.zeroTrust.identityProviders.create(params);
 
@@ -221,7 +239,12 @@ export class IdentityProviderResource implements ResourcePort<
     }
     const { name, type, config } = parsed.data;
 
-    const params = buildUpdateParams(this.accountId, name, type, config);
+    const params = buildUpdateParams(
+      this.resolvedScopes.get("accountId"),
+      name,
+      type,
+      config,
+    );
     const response = await this.client.zeroTrust.identityProviders.update(
       id,
       params,

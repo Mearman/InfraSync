@@ -18,7 +18,8 @@
   "scripts": {
     "_build": "tsdown",
     "_typecheck": "tsc -p tsconfig.json --noEmit",
-    "_lint": "eslint . --cache"
+    "_lint": "eslint . --cache",
+    "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
   },
   "dependencies": {
     "cloudflare": "5.2.0"

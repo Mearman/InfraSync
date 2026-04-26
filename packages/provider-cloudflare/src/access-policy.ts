@@ -3,7 +3,11 @@ import type {
   PolicyCreateParams,
   PolicyUpdateParams,
 } from "cloudflare/resources/zero-trust/access/policies.js";
-import type { ResourcePort } from "@infrasync/core/provider";
+import type {
+  ResourcePort,
+  ResourceScopes,
+  ResolvedScopes,
+} from "@infrasync/core/provider";
 import { RefToken, refable } from "@infrasync/core/refs";
 import type { RefBuilder } from "@infrasync/core/handles";
 import * as z from "zod";
@@ -188,9 +192,14 @@ export class AccessPolicyResource implements ResourcePort<
   readonly identitySchema = identitySchema;
   readonly desiredStateSchema = desiredStateSchema;
 
+  readonly scopes: ResourceScopes = {
+    accountId: { config: "accountId" },
+    applicationId: { ref: "applicationId" },
+  };
+
   constructor(
     private readonly client: Cloudflare,
-    private readonly accountId: string,
+    private readonly resolvedScopes: ResolvedScopes,
   ) {}
 
   getStateId = getStateId;
@@ -204,8 +213,8 @@ export class AccessPolicyResource implements ResourcePort<
     // Use the application-scoped policies list to find policies for this application
     const policies =
       await this.client.zeroTrust.access.applications.policies.list(
-        parsed.data.applicationId,
-        { account_id: this.accountId },
+        this.resolvedScopes.get("applicationId"),
+        { account_id: this.resolvedScopes.get("accountId") },
       );
     const match = policies.result.find((p) => {
       if ("name" in p && typeof p.name === "string") {
@@ -225,14 +234,18 @@ export class AccessPolicyResource implements ResourcePort<
     const { name, decision, include, exclude, require } = parsed.data;
 
     const params = buildCreateParams(
-      this.accountId,
+      this.resolvedScopes.get("accountId"),
       name,
       decision,
       include,
       exclude,
       require,
     );
-    const response = await this.client.zeroTrust.access.policies.create(params);
+    const response =
+      await this.client.zeroTrust.access.applications.policies.create(
+        this.resolvedScopes.get("applicationId"),
+        params,
+      );
 
     return validateApiResponse(response, "create");
   }
@@ -245,17 +258,19 @@ export class AccessPolicyResource implements ResourcePort<
     const { name, decision, include, exclude, require } = parsed.data;
 
     const params = buildUpdateParams(
-      this.accountId,
+      this.resolvedScopes.get("accountId"),
       name,
       decision,
       include,
       exclude,
       require,
     );
-    const response = await this.client.zeroTrust.access.policies.update(
-      id,
-      params,
-    );
+    const response =
+      await this.client.zeroTrust.access.applications.policies.update(
+        this.resolvedScopes.get("applicationId"),
+        id,
+        params,
+      );
 
     return validateApiResponse(response, "update");
   }

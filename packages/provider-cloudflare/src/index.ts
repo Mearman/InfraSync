@@ -3,6 +3,7 @@ import type {
   ProviderPort,
   ResourcePort,
   ProviderAdapter,
+  ResolvedScopes,
 } from "@infrasync/core/provider";
 import { defineProvider } from "@infrasync/core/provider";
 import * as z from "zod";
@@ -45,7 +46,6 @@ export class CloudflareProvider implements ProviderPort<
   readonly configSchema = cloudflareConfigSchema;
 
   private client: Cloudflare | undefined;
-  private accountId: string | undefined;
 
   async connect(config: unknown): Promise<void> {
     const result = cloudflareConfigSchema.safeParse(config);
@@ -55,13 +55,11 @@ export class CloudflareProvider implements ProviderPort<
       );
     }
     this.client = new Cloudflare({ apiToken: result.data.apiToken });
-    this.accountId = result.data.accountId;
     await Promise.resolve();
   }
 
   async disconnect(): Promise<void> {
     this.client = undefined;
-    this.accountId = undefined;
     await Promise.resolve();
   }
 
@@ -75,27 +73,24 @@ export class CloudflareProvider implements ProviderPort<
     ];
   }
 
-  resourceHandler(kind: string): ResourcePort {
+  resourceHandler(kind: string, scopes: ResolvedScopes): ResourcePort {
     if (this.client === undefined) {
       throw new Error(
         "Cloudflare provider not connected — call connect() first",
       );
-    }
-    if (this.accountId === undefined) {
-      throw new Error("Cloudflare provider not connected — accountId not set");
     }
 
     switch (kind) {
       case "DnsRecord":
         return new DnsRecordResource(this.client);
       case "AccessApplication":
-        return new AccessApplicationResource(this.client, this.accountId);
+        return new AccessApplicationResource(this.client, scopes);
       case "AccessPolicy":
-        return new AccessPolicyResource(this.client, this.accountId);
+        return new AccessPolicyResource(this.client, scopes);
       case "IdentityProvider":
-        return new IdentityProviderResource(this.client, this.accountId);
+        return new IdentityProviderResource(this.client, scopes);
       case "PagesCustomDomain":
-        return new PagesCustomDomainResource(this.client, this.accountId);
+        return new PagesCustomDomainResource(this.client, scopes);
       default:
         throw new Error(`Cloudflare: unsupported resource kind "${kind}"`);
     }

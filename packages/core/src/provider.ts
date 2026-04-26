@@ -21,6 +21,96 @@ export interface ResourceCodec {
   decode(spec: unknown): unknown;
 }
 
+// ─── Scopes ──────────────────────────────────────────────────────────────────
+
+/**
+ * How a scope value is sourced.
+ *
+ * - `{ config: "accountId" }` — derived from a field in the provider config.
+ *   The engine resolves these from the validated config passed to `connect()`.
+ *
+ * - `{ ref: "applicationId" }` — derived from a refable spec field that has
+ *   already been resolved by the engine. The adapter declares which spec
+ *   field carries the parent resource ID; the engine extracts it after
+ *   ref resolution.
+ */
+export type ScopeSource =
+  | { readonly config: string }
+  | { readonly ref: string };
+
+/**
+ * Scope declarations on a ResourcePort.
+ *
+ * Keys are scope names used in adapter code (e.g. `accountId`, `applicationId`).
+ * Values describe how the engine resolves each scope.
+ *
+ * Example:
+ * ```typescript
+ * readonly scopes = {
+ *   accountId: { config: "accountId" },
+ *   applicationId: { ref: "applicationId" },
+ * };
+ * ```
+ */
+export type ResourceScopes = Readonly<Record<string, ScopeSource>>;
+
+/**
+ * Resolved scope values. Created by the engine and passed to
+ * `resourceHandler(kind, scopes)` at handler construction time.
+ *
+ * Access via `.get(name)` which returns `string` (never undefined). The engine
+ * guarantees all declared scopes are present — if one is missing, it threw
+ * `ScopeError` during resolution before the handler was ever created.
+ */
+export class ResolvedScopes {
+  private readonly entries: ReadonlyMap<string, string>;
+
+  constructor(entries: readonly (readonly [string, string])[]) {
+    this.entries = new Map(entries);
+    Object.freeze(this);
+  }
+
+  /**
+   * Get a resolved scope value by name.
+   *
+   * Returns `string` — never undefined. The engine resolves all declared
+   * scopes before creating the handler, so this always succeeds for
+   * correctly declared scope names.
+   *
+   * @throws ScopeError if the scope name was not declared (adapter bug)
+   */
+  get(name: string): string {
+    const value = this.entries.get(name);
+    if (value === undefined) {
+      throw new ScopeError(
+        name,
+        { ref: name },
+        "resolved scope is missing — this is an engine bug",
+      );
+    }
+    return value;
+  }
+
+  /**
+   * Create an empty ResolvedScopes for resources that declare no scopes.
+   */
+  static readonly empty: ResolvedScopes = new ResolvedScopes([]);
+}
+
+/**
+ * Error thrown when a scope cannot be resolved.
+ */
+export class ScopeError extends Error {
+  constructor(
+    public readonly scopeName: string,
+    public readonly source: ScopeSource,
+    reason: string,
+  ) {
+    super(`Scope "${scopeName}": ${reason}`);
+    this.name = "ScopeError";
+  }
+}
+
 // ─── ResourcePort ────────────────────────────────────────────────────────────
 
 /**
@@ -87,6 +177,18 @@ export interface ResourcePort<
   readonly codec?: ResourceCodec;
 
   /**
+   * Scopes this resource operates within.
+   *
+   * Declares how each scope is sourced — from provider config or from a
+   * refable spec field. The engine resolves all declared scopes before
+   * creating the handler via `resourceHandler(kind, scopes)`.
+   *
+   * Resources that don't need scopes (e.g. DnsRecord which derives its
+   * zone at runtime) simply omit this property.
+   */
+  readonly scopes?: ResourceScopes;
+
+  /**
    * Query the provider API for resources matching the identity fields in spec.
    * Returns undefined if the resource does not exist.
    *
@@ -138,8 +240,17 @@ export interface ProviderPort<TConfig extends z.ZodType = z.ZodType> {
   /** List all resource kinds this provider supports */
   supportedKinds(): string[];
 
-  /** Route a resource operation to the correct handler for a given kind */
-  resourceHandler(kind: string): ResourcePort;
+  /**
+   * Create a resource handler for the given kind, with resolved scopes.
+   *
+   * The engine resolves all declared scopes (from config and ref fields)
+   * before calling this method. The handler captures scopes at construction
+   * time — read/create/update methods have clean signatures with no scopes
+   * parameter.
+   *
+   * For resources that declare no scopes, `scopes` is `ResolvedScopes.empty`.
+   */
+  resourceHandler(kind: string, scopes: ResolvedScopes): ResourcePort;
 }
 
 // ─── ProviderAdapter (plain object, no assertions) ───────────────────────────

@@ -3,7 +3,11 @@ import type {
   ApplicationCreateParams,
   ApplicationUpdateParams,
 } from "cloudflare/resources/zero-trust/access/applications/applications.js";
-import type { ResourcePort } from "@infrasync/core/provider";
+import type {
+  ResourcePort,
+  ResourceScopes,
+  ResolvedScopes,
+} from "@infrasync/core/provider";
 import { RefToken, refable } from "@infrasync/core/refs";
 import type { RefBuilder } from "@infrasync/core/handles";
 import * as z from "zod";
@@ -75,6 +79,17 @@ const apiResponseSchema = z.looseObject({
   updated_at: z.string().trim().optional(),
 });
 
+const resolvedAppSpecSchema = z.object({
+  kind: z.literal("AccessApplication"),
+  domain: z.string().trim().min(1),
+  type: z.literal("self_hosted").optional(),
+  name: z.string().trim().min(1),
+  sessionDuration: z.string().trim().optional(),
+  autoRedirectToIdentity: z.boolean().optional(),
+  appLauncherVisible: z.boolean().optional(),
+  allowedIdps: z.array(z.string().trim()).optional(),
+});
+
 const identitySchema = accessApplicationSpecSchema.pick({ domain: true });
 
 const desiredStateSchema = accessApplicationSpecSchema.pick({
@@ -114,6 +129,7 @@ function buildSelfHostedParams(
   sessionDuration: string | undefined,
   autoRedirectToIdentity: boolean | undefined,
   appLauncherVisible: boolean | undefined,
+  allowedIdps: readonly string[] | undefined,
 ): ApplicationCreateParams.SelfHostedApplication {
   const params: ApplicationCreateParams.SelfHostedApplication = {
     account_id: accountId,
@@ -126,6 +142,7 @@ function buildSelfHostedParams(
     params.auto_redirect_to_identity = autoRedirectToIdentity;
   if (appLauncherVisible !== undefined)
     params.app_launcher_visible = appLauncherVisible;
+  if (allowedIdps !== undefined) params.allowed_idps = [...allowedIdps];
   return params;
 }
 
@@ -136,6 +153,7 @@ function buildSelfHostedUpdateParams(
   sessionDuration: string | undefined,
   autoRedirectToIdentity: boolean | undefined,
   appLauncherVisible: boolean | undefined,
+  allowedIdps: readonly string[] | undefined,
 ): ApplicationUpdateParams.SelfHostedApplication {
   const params: ApplicationUpdateParams.SelfHostedApplication = {
     account_id: accountId,
@@ -148,6 +166,7 @@ function buildSelfHostedUpdateParams(
     params.auto_redirect_to_identity = autoRedirectToIdentity;
   if (appLauncherVisible !== undefined)
     params.app_launcher_visible = appLauncherVisible;
+  if (allowedIdps !== undefined) params.allowed_idps = [...allowedIdps];
   return params;
 }
 
@@ -163,9 +182,13 @@ export class AccessApplicationResource implements ResourcePort<
   readonly identitySchema = identitySchema;
   readonly desiredStateSchema = desiredStateSchema;
 
+  readonly scopes: ResourceScopes = {
+    accountId: { config: "accountId" },
+  };
+
   constructor(
     private readonly client: Cloudflare,
-    private readonly accountId: string,
+    private readonly resolvedScopes: ResolvedScopes,
   ) {}
 
   getStateId = getStateId;
@@ -177,7 +200,7 @@ export class AccessApplicationResource implements ResourcePort<
     }
 
     const apps = await this.client.zeroTrust.access.applications.list({
-      account_id: this.accountId,
+      account_id: this.resolvedScopes.get("accountId"),
     });
     const match = apps.result.find((app) => {
       if ("domain" in app) {
@@ -194,7 +217,7 @@ export class AccessApplicationResource implements ResourcePort<
   }
 
   async create(spec: unknown): Promise<unknown> {
-    const parsed = accessApplicationSpecSchema.safeParse(spec);
+    const parsed = resolvedAppSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError("cloudflare", "create", parsed.error.issues);
     }
@@ -204,15 +227,17 @@ export class AccessApplicationResource implements ResourcePort<
       sessionDuration,
       autoRedirectToIdentity,
       appLauncherVisible,
+      allowedIdps,
     } = parsed.data;
 
     const params = buildSelfHostedParams(
-      this.accountId,
+      this.resolvedScopes.get("accountId"),
       domain,
       name,
       sessionDuration,
       autoRedirectToIdentity,
       appLauncherVisible,
+      allowedIdps,
     );
     const response =
       await this.client.zeroTrust.access.applications.create(params);
@@ -221,7 +246,7 @@ export class AccessApplicationResource implements ResourcePort<
   }
 
   async update(id: string, spec: unknown): Promise<unknown> {
-    const parsed = accessApplicationSpecSchema.safeParse(spec);
+    const parsed = resolvedAppSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError("cloudflare", "update", parsed.error.issues);
     }
@@ -231,15 +256,17 @@ export class AccessApplicationResource implements ResourcePort<
       sessionDuration,
       autoRedirectToIdentity,
       appLauncherVisible,
+      allowedIdps,
     } = parsed.data;
 
     const params = buildSelfHostedUpdateParams(
-      this.accountId,
+      this.resolvedScopes.get("accountId"),
       domain,
       name,
       sessionDuration,
       autoRedirectToIdentity,
       appLauncherVisible,
+      allowedIdps,
     );
     const response = await this.client.zeroTrust.access.applications.update(
       id,

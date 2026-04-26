@@ -1,5 +1,9 @@
 import type { InfraIR } from "./types.js";
-import type { ProviderAdapter, ProviderPort } from "./provider.js";
+import {
+  ResolvedScopes,
+  type ProviderAdapter,
+  type ProviderPort,
+} from "./provider.js";
 import type { DagNode } from "./dag.js";
 import type { ResourceIssue } from "./resource.js";
 import { buildDag, topologicalSortByLevel } from "./dag.js";
@@ -7,8 +11,10 @@ import { computePlan, type PlanAction } from "./plan.js";
 import {
   collectZodIssues,
   deepEqual,
+  isRecord,
   resolveConfigSecrets,
   resolveRefs,
+  resolveScopes,
   envSecretResolver,
 } from "./resource.js";
 import type { SecretResolver } from "./resource.js";
@@ -62,11 +68,18 @@ export class SyncEngine {
 
     // 1. Create and connect adapter instances
     const instances = new Map<string, ProviderPort>();
+    const configs = new Map<string, Record<string, unknown>>();
 
     try {
       const secretResolver = options?.secretResolver ?? envSecretResolver;
 
-      await this.connectProviders(ir, instances, issues, secretResolver);
+      await this.connectProviders(
+        ir,
+        instances,
+        configs,
+        issues,
+        secretResolver,
+      );
       if (issues.length > 0) {
         return { resources: [], issues };
       }
@@ -84,6 +97,7 @@ export class SyncEngine {
             this.processNode(
               node,
               instances,
+              configs,
               stateMap,
               issues,
               outcomes,
@@ -104,6 +118,7 @@ export class SyncEngine {
   private async connectProviders(
     ir: InfraIR,
     instances: Map<string, ProviderPort>,
+    configs: Map<string, Record<string, unknown>>,
     issues: ResourceIssue[],
     secretResolver: SecretResolver,
   ): Promise<void> {
@@ -133,6 +148,9 @@ export class SyncEngine {
 
       await instance.connect(resolvedConfig);
       instances.set(provider.key, instance);
+      if (isRecord(result.data)) {
+        configs.set(provider.key, result.data);
+      }
     }
   }
   private async disconnectProviders(
@@ -155,6 +173,7 @@ export class SyncEngine {
   private async processNode(
     node: DagNode,
     instances: Map<string, ProviderPort>,
+    configs: Map<string, Record<string, unknown>>,
     stateMap: Map<string, unknown>,
     issues: ResourceIssue[],
     outcomes: ResourceOutcome[],
@@ -173,8 +192,11 @@ export class SyncEngine {
       return;
     }
 
-    // Look up resource handler
-    const handler = provider.resourceHandler(resource.kind);
+    // Look up resource handler — first get the prototype to read scope declarations
+    const handlerPrototype = provider.resourceHandler(
+      resource.kind,
+      ResolvedScopes.empty,
+    );
 
     // 1. Resolve refs in the compiled spec
     let resolvedSpec: unknown;
@@ -189,12 +211,21 @@ export class SyncEngine {
     }
 
     // 2. Validate the resolved spec
-    const specResult = handler.specSchema.safeParse(resolvedSpec);
+    const specResult = handlerPrototype.specSchema.safeParse(resolvedSpec);
     if (!specResult.success) {
       issues.push(...collectZodIssues(resource.name, specResult.error));
       outcomes.push({ name: resource.name, action: "read", status: "failed" });
       return;
     }
+
+    // 2b. Resolve scopes and create the real handler with them injected
+    const providerConfig = configs.get(resource.provider);
+    const scopes = resolveScopes(
+      handlerPrototype.scopes,
+      resolvedSpec,
+      providerConfig,
+    );
+    const handler = provider.resourceHandler(resource.kind, scopes);
 
     // 3. Read current state from the provider
     let state: unknown;

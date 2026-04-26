@@ -1,4 +1,86 @@
 import type { RefTokenIR, SecretSourceIR } from "./types.js";
+import type { ResourceScopes, ScopeSource } from "./provider.js";
+import { ResolvedScopes, ScopeError } from "./provider.js";
+
+// ─── Scope resolution ───────────────────────────────────────────────────────
+
+/**
+ * Resolve all declared scopes for a resource.
+ *
+ * Config scopes are extracted from the validated provider config.
+ * Ref scopes are extracted from the resolved spec (after ref resolution).
+ *
+ * @throws ScopeError if a scope value cannot be resolved
+ */
+export function resolveScopes(
+  scopeDecls: ResourceScopes | undefined,
+  resolvedSpec: unknown,
+  providerConfig: Record<string, unknown> | undefined,
+): ResolvedScopes {
+  if (scopeDecls === undefined) return ResolvedScopes.empty;
+
+  const result: (readonly [string, string])[] = [];
+
+  for (const [name, source] of Object.entries(scopeDecls)) {
+    result.push([
+      name,
+      resolveScopeValue(name, source, resolvedSpec, providerConfig),
+    ]);
+  }
+
+  return new ResolvedScopes(result);
+}
+
+function resolveScopeValue(
+  name: string,
+  source: ScopeSource,
+  resolvedSpec: unknown,
+  providerConfig: Record<string, unknown> | undefined,
+): string {
+  if ("config" in source) {
+    return resolveConfigScope(name, source, providerConfig);
+  }
+  return resolveRefScope(name, source, resolvedSpec);
+}
+
+function resolveConfigScope(
+  name: string,
+  source: { readonly config: string },
+  providerConfig: Record<string, unknown> | undefined,
+): string {
+  const value = providerConfig?.[source.config];
+  if (typeof value !== "string") {
+    throw new ScopeError(
+      name,
+      source,
+      `config field "${source.config}" is ${value === undefined ? "missing from provider config" : `not a string (got ${typeof value})`}`,
+    );
+  }
+  return value;
+}
+
+function resolveRefScope(
+  name: string,
+  source: { readonly ref: string },
+  resolvedSpec: unknown,
+): string {
+  if (!isRecord(resolvedSpec)) {
+    throw new ScopeError(
+      name,
+      source,
+      `spec is not a record, cannot extract field "${source.ref}"`,
+    );
+  }
+  const value = resolvedSpec[source.ref];
+  if (typeof value !== "string") {
+    throw new ScopeError(
+      name,
+      source,
+      `ref field "${source.ref}" is ${value === undefined ? "missing from spec" : `not a string (got ${typeof value})`}`,
+    );
+  }
+  return value;
+}
 
 // ─── Secret resolver ─────────────────────────────────────────────────────────
 
