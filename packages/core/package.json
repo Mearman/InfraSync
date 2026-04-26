@@ -15,7 +15,7 @@
     "_build": "tsdown",
     "_typecheck": "tsc -p tsconfig.json --noEmit",
     "_lint": "eslint . --cache",
-    "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
+    "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts' 'src/__tests__/*.unit.test.ts'"
   },
   "dependencies": {
     "zod": "4.3.6"
