@@ -51,6 +51,7 @@ export const accessPolicySpecSchema = z.object({
   include: accessRuleArraySchema,
   exclude: accessRuleArraySchema.optional(),
   require: accessRuleArraySchema.optional(),
+  precedence: z.int().min(0).optional(),
 });
 
 export type AccessPolicySpec = z.infer<typeof accessPolicySpecSchema>;
@@ -69,6 +70,7 @@ const resolvedSpecSchema = z.object({
   include: accessRuleArraySchema,
   exclude: accessRuleArraySchema.optional(),
   require: accessRuleArraySchema.optional(),
+  precedence: z.int().min(0).optional(),
 });
 
 const accessPolicyStateSchema = z
@@ -139,14 +141,12 @@ function buildCreateParams(
   include: readonly unknown[],
   exclude: readonly unknown[] | undefined,
   require: readonly unknown[] | undefined,
+  precedence: number | undefined,
 ): PolicyCreateParams {
-  // Build the base params that TypeScript can verify
   const params: PolicyCreateParams = {
     account_id: accountId,
     name,
     decision,
-    // AccessRuleParam is a deep union that our Zod schema can't produce.
-    // Structurally correct at runtime; SDK validates at the API boundary.
     include: Object.assign([], [...include]),
   };
   if (exclude !== undefined) {
@@ -154,6 +154,10 @@ function buildCreateParams(
   }
   if (require !== undefined) {
     params.require = Object.assign([], [...require]);
+  }
+  // precedence is accepted by the Cloudflare API but not modelled in SDK types
+  if (precedence !== undefined) {
+    Object.assign(params, { precedence });
   }
   return params;
 }
@@ -165,6 +169,7 @@ function buildUpdateParams(
   include: readonly unknown[],
   exclude: readonly unknown[] | undefined,
   require: readonly unknown[] | undefined,
+  precedence: number | undefined,
 ): PolicyUpdateParams {
   const params: PolicyUpdateParams = {
     account_id: accountId,
@@ -177,6 +182,10 @@ function buildUpdateParams(
   }
   if (require !== undefined) {
     params.require = Object.assign([], [...require]);
+  }
+  // precedence is accepted by the Cloudflare API but not modelled in SDK types
+  if (precedence !== undefined) {
+    Object.assign(params, { precedence });
   }
   return params;
 }
@@ -196,6 +205,7 @@ const codecInputSchema = z.object({
   include: accessRuleArraySchema,
   exclude: accessRuleArraySchema.optional(),
   require: accessRuleArraySchema.optional(),
+  precedence: z.int().min(0).optional(),
 });
 
 const ACCESS_POLICY_KIND = "AccessPolicy" as const;
@@ -206,6 +216,7 @@ const codecOutputSchema = z.looseObject({
   include: z.array(z.json()),
   exclude: z.array(z.json()).optional(),
   require: z.array(z.json()).optional(),
+  precedence: z.number().optional(),
 });
 
 const accessPolicyZodCodec = z.codec(codecInputSchema, codecOutputSchema, {
@@ -215,6 +226,7 @@ const accessPolicyZodCodec = z.codec(codecInputSchema, codecOutputSchema, {
     include: [...spec.include],
     exclude: spec.exclude !== undefined ? [...spec.exclude] : undefined,
     require: spec.require !== undefined ? [...spec.require] : undefined,
+    precedence: spec.precedence,
   }),
   encode: (state) => ({
     kind: ACCESS_POLICY_KIND,
@@ -223,6 +235,7 @@ const accessPolicyZodCodec = z.codec(codecInputSchema, codecOutputSchema, {
     include: state.include,
     exclude: state.exclude,
     require: state.require,
+    precedence: state.precedence,
   }),
 });
 
@@ -291,7 +304,8 @@ export class AccessPolicyResource implements ResourcePort<
     if (!parsed.success) {
       throw new ProviderApiError("cloudflare", "create", parsed.error.issues);
     }
-    const { name, decision, include, exclude, require } = parsed.data;
+    const { name, decision, include, exclude, require, precedence } =
+      parsed.data;
 
     const params = buildCreateParams(
       this.resolvedScopes.get("accountId"),
@@ -300,6 +314,7 @@ export class AccessPolicyResource implements ResourcePort<
       include,
       exclude,
       require,
+      precedence,
     );
     const response =
       await this.client.zeroTrust.access.applications.policies.create(
@@ -315,7 +330,8 @@ export class AccessPolicyResource implements ResourcePort<
     if (!parsed.success) {
       throw new ProviderApiError("cloudflare", "update", parsed.error.issues);
     }
-    const { name, decision, include, exclude, require } = parsed.data;
+    const { name, decision, include, exclude, require, precedence } =
+      parsed.data;
 
     const params = buildUpdateParams(
       this.resolvedScopes.get("accountId"),
@@ -324,6 +340,7 @@ export class AccessPolicyResource implements ResourcePort<
       include,
       exclude,
       require,
+      precedence,
     );
     const response =
       await this.client.zeroTrust.access.applications.policies.update(
