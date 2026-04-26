@@ -12,6 +12,7 @@ import { exportCdktfTypeScript } from "./commands/export-cdktf-ts.js";
 import { runFidelityCommand } from "./commands/fidelity.js";
 import { runMigrateCommand } from "./commands/migrate.js";
 import { runTerraformShowJson } from "./commands/terraform-show-json.js";
+import { runInitCommand } from "./commands/init.js";
 import type { InfraIR } from "@infrasync/core/types";
 import { importTfConfigJson } from "@infrasync/adapter-terraform-config-json/import-config-json";
 import { exportTfConfigJson } from "@infrasync/adapter-terraform-config-json/export-config-json";
@@ -130,6 +131,7 @@ Usage:
   infrasync <command> [options]
 
 Commands:
+  init                Scaffold a new InfraSync project
   apply               Apply configuration from a config file
   plan                Preview changes without applying
   drift               Show drift between desired and actual state
@@ -194,13 +196,19 @@ const command = args.positionals[0];
 
 if (command === undefined) {
   console.error(
-    "Error: no command specified. Use 'plan', 'apply', 'drift', 'fidelity', 'import', or 'export'.",
+    "Error: no command specified. Use 'init', 'plan', 'apply', 'drift', 'fidelity', 'import', or 'export'.",
   );
   console.error("Run 'infrasync --help' for usage.");
   process.exit(1);
 }
 
-if (command === "export") {
+if (command === "init") {
+  runInitCommand(args.positionals.slice(1)).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Fatal: ${message}`);
+    process.exit(1);
+  });
+} else if (command === "export") {
   runExportCommand().catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Fatal: ${message}`);
