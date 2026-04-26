@@ -750,4 +750,57 @@ describe("End-to-end: declarative resources", () => {
     assert.equal(result.resources[0]?.action, "create");
     assert.equal(result.resources[0]?.status, "success");
   });
+
+  it("surfaces field-level diff on convergence update", async () => {
+    // Shared provider instance so state persists between engine runs
+    const sharedProvider = new ScopedProvider();
+    const sharedAdapter = defineProvider("scoped", () => sharedProvider);
+    const adapters = new Map([["scoped", sharedAdapter]]);
+    const engine = new SyncEngine(adapters);
+
+    // First run: create with label="v1"
+    const infra1 = defineInfra("diff-test-1", (infra) => {
+      const prov = infra.provider("sp", sharedAdapter, { accountId: "acc-1" });
+      prov.resource("Widget", "w1", {
+        kind: "Widget",
+        name: "w1",
+        label: "v1",
+      });
+      return { outputs: {} };
+    });
+
+    const result1 = await engine.execute(infra1.toIR());
+    assert.equal(result1.resources[0]?.action, "create");
+    assert.equal(result1.resources[0]?.status, "success");
+    // Create outcomes have empty diff
+    assert.deepEqual(result1.resources[0]?.diff, []);
+
+    // Second run: update with label="v2"
+    const infra2 = defineInfra("diff-test-2", (infra) => {
+      const prov = infra.provider("sp", sharedAdapter, { accountId: "acc-1" });
+      prov.resource("Widget", "w1", {
+        kind: "Widget",
+        name: "w1",
+        label: "v2",
+      });
+      return { outputs: {} };
+    });
+
+    const result2 = await engine.execute(infra2.toIR());
+    assert.equal(result2.resources[0]?.action, "update");
+    assert.equal(result2.resources[0]?.status, "success");
+
+    // The diff should show the label divergence
+    // Codec maps label_text → label, so diff is on 'label' field
+    const diff = result2.resources[0]?.diff;
+    assert.ok(diff !== undefined);
+    assert.equal(
+      diff.length,
+      1,
+      `Expected 1 diff, got: ${JSON.stringify(diff)}`,
+    );
+    assert.equal(diff[0]?.path, "label");
+    assert.equal(diff[0]?.desired, "v2");
+    assert.equal(diff[0]?.actual, "v1");
+  });
 });

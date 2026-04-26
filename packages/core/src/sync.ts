@@ -5,12 +5,13 @@ import {
   type ProviderPort,
 } from "./provider.js";
 import type { DagNode } from "./dag.js";
-import type { ResourceIssue } from "./resource.js";
+import type { ResourceIssue, FieldDiff } from "./resource.js";
 import { buildDag, topologicalSortByLevel } from "./dag.js";
 import { computePlan, type PlanAction } from "./plan.js";
 import {
   collectZodIssues,
   deepEqual,
+  deepDiff,
   isRecord,
   resolveConfigSecrets,
   resolveRefs,
@@ -50,6 +51,33 @@ export interface ResourceOutcome {
    * the resource didn't exist and mode was "read".
    */
   readonly state: unknown;
+  /**
+   * Field-level diff between desired and actual state.
+   *
+   * Only populated when action is "update" — shows which fields diverged
+   * between the desired spec and the current provider state.
+   * Empty for create, read, no-op, and failed outcomes.
+   */
+  readonly diff: readonly FieldDiff[];
+}
+
+// ─── Outcome factory ─────────────────────────────────────────────────────────
+
+function fail(
+  name: string,
+  action: PlanAction,
+  diff: readonly FieldDiff[] = [],
+): ResourceOutcome {
+  return { name, action, status: "failed", state: undefined, diff };
+}
+
+function succeed(
+  name: string,
+  action: PlanAction,
+  state: unknown,
+  diff: readonly FieldDiff[] = [],
+): ResourceOutcome {
+  return { name, action, status: "success", state, diff };
 }
 
 /** The result of a sync execution. */
@@ -218,12 +246,7 @@ export class SyncEngine {
         resource: resource.name,
         message: `Provider instance "${resource.provider}" not connected`,
       });
-      outcomes.push({
-        name: resource.name,
-        action: "read",
-        status: "failed",
-        state: undefined,
-      });
+      outcomes.push(fail(resource.name, "read"));
       return;
     }
 
@@ -241,12 +264,7 @@ export class SyncEngine {
       const message =
         err instanceof Error ? err.message : "Unknown ref resolution error";
       issues.push({ resource: resource.name, message });
-      outcomes.push({
-        name: resource.name,
-        action: "read",
-        status: "failed",
-        state: undefined,
-      });
+      outcomes.push(fail(resource.name, "read"));
       return;
     }
 
@@ -266,12 +284,7 @@ export class SyncEngine {
     const specResult = handlerPrototype.specSchema.safeParse(resolvedSpec);
     if (!specResult.success) {
       issues.push(...collectZodIssues(resource.name, specResult.error));
-      outcomes.push({
-        name: resource.name,
-        action: "read",
-        status: "failed",
-        state: undefined,
-      });
+      outcomes.push(fail(resource.name, "read"));
       return;
     }
 
@@ -296,12 +309,7 @@ export class SyncEngine {
             message: `${issue.path.map(String).join(".")}: ${issue.message}`,
           })),
         );
-        outcomes.push({
-          name: resource.name,
-          action: "read",
-          status: "failed",
-          state: undefined,
-        });
+        outcomes.push(fail(resource.name, "read"));
         return;
       }
       throw err;
@@ -312,12 +320,7 @@ export class SyncEngine {
       const stateResult = handler.stateSchema.safeParse(state);
       if (!stateResult.success) {
         issues.push(...collectZodIssues(resource.name, stateResult.error));
-        outcomes.push({
-          name: resource.name,
-          action: "read",
-          status: "failed",
-          state: undefined,
-        });
+        outcomes.push(fail(resource.name, "read"));
         return;
       }
       state = stateResult.data;
@@ -330,16 +333,12 @@ export class SyncEngine {
     const action = computePlan(resource.mode, state);
 
     if (action === "read") {
-      outcomes.push({
-        name: resource.name,
-        action: "read",
-        status: "success",
-        state,
-      });
+      outcomes.push(succeed(resource.name, "read", state));
       return;
     }
 
     // Check convergence for manage-mode resources
+    let updateDiff: readonly FieldDiff[] = [];
     if (action === "update" && state !== undefined) {
       // Normalise provider state through the codec if one exists,
       // so convergence checking compares apples to apples.
@@ -352,14 +351,11 @@ export class SyncEngine {
 
       if (desiredResult.success && actualResult.success) {
         if (deepEqual(desiredResult.data, actualResult.data)) {
-          outcomes.push({
-            name: resource.name,
-            action: "no-op",
-            status: "success",
-            state,
-          });
+          outcomes.push(succeed(resource.name, "no-op", state));
           return;
         }
+        // Compute field-level diff for the update action
+        updateDiff = deepDiff(desiredResult.data, actualResult.data);
       } else {
         if (!desiredResult.success) {
           issues.push(...collectZodIssues(resource.name, desiredResult.error));
@@ -367,19 +363,14 @@ export class SyncEngine {
         if (!actualResult.success) {
           issues.push(...collectZodIssues(resource.name, actualResult.error));
         }
-        outcomes.push({
-          name: resource.name,
-          action: "update",
-          status: "failed",
-          state: undefined,
-        });
+        outcomes.push(fail(resource.name, "update"));
         return;
       }
     }
 
     // 6. Apply (if not dry run)
     if (dryRun) {
-      outcomes.push({ name: resource.name, action, status: "success", state });
+      outcomes.push(succeed(resource.name, action, state));
       return;
     }
 
@@ -398,23 +389,20 @@ export class SyncEngine {
       const responseResult = handler.stateSchema.safeParse(result);
       if (!responseResult.success) {
         issues.push(...collectZodIssues(resource.name, responseResult.error));
-        outcomes.push({
-          name: resource.name,
-          action,
-          status: "failed",
-          state: undefined,
-        });
+        outcomes.push(fail(resource.name, action));
         return;
       }
 
       // Update state map with the new state
       stateMap.set(resource.name, responseResult.data);
-      outcomes.push({
-        name: resource.name,
-        action,
-        status: "success",
-        state: responseResult.data,
-      });
+      outcomes.push(
+        succeed(
+          resource.name,
+          action,
+          responseResult.data,
+          action === "update" ? updateDiff : [],
+        ),
+      );
     } catch (err) {
       if (err instanceof ProviderApiError) {
         issues.push(
@@ -423,12 +411,7 @@ export class SyncEngine {
             message: `${issue.path.map(String).join(".")}: ${issue.message}`,
           })),
         );
-        outcomes.push({
-          name: resource.name,
-          action,
-          status: "failed",
-          state: undefined,
-        });
+        outcomes.push(fail(resource.name, action));
         return;
       }
       throw err;

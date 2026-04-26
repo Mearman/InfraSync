@@ -288,3 +288,74 @@ export function collectZodIssues(
         : issue.message,
   }));
 }
+
+/** Type guard that narrows to unknown[] without the any[] from Array.isArray. */
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+/**
+ * Compute field-level differences between two values.
+ *
+ * Returns a flat list of divergent paths with desired and actual values.
+ * Only descends into objects and arrays — primitives are compared directly.
+ */
+export function deepDiff(
+  desired: unknown,
+  actual: unknown,
+  pathPrefix = "",
+): FieldDiff[] {
+  // Same reference or deep equal — no diff
+  if (deepEqual(desired, actual)) return [];
+
+  // Both are records — recurse into keys
+  if (isRecord(desired) && isRecord(actual)) {
+    const diffs: FieldDiff[] = [];
+    const allKeys = new Set([...Object.keys(desired), ...Object.keys(actual)]);
+    for (const key of allKeys) {
+      const childPath = pathPrefix.length > 0 ? `${pathPrefix}.${key}` : key;
+      const desiredVal = desired[key];
+      const actualVal = actual[key];
+      if (!(key in desired)) {
+        // Field in actual but not desired — extra field
+        diffs.push({ path: childPath, desired: undefined, actual: actualVal });
+      } else if (!(key in actual)) {
+        // Field in desired but not actual — missing field
+        diffs.push({ path: childPath, desired: desiredVal, actual: undefined });
+      } else {
+        diffs.push(...deepDiff(desiredVal, actualVal, childPath));
+      }
+    }
+    return diffs;
+  }
+
+  // Both are arrays — compare element-by-element
+  // Array.isArray narrows to any[], so we use a type guard for proper typing.
+  if (isUnknownArray(desired) && isUnknownArray(actual)) {
+    const diffs: FieldDiff[] = [];
+    const maxLen = Math.max(desired.length, actual.length);
+    for (let i = 0; i < maxLen; i++) {
+      const childPath = `${pathPrefix}[${String(i)}]`;
+      const desiredVal = desired[i];
+      const actualVal = actual[i];
+      if (i >= desired.length) {
+        diffs.push({ path: childPath, desired: undefined, actual: actualVal });
+      } else if (i >= actual.length) {
+        diffs.push({ path: childPath, desired: desiredVal, actual: undefined });
+      } else {
+        diffs.push(...deepDiff(desiredVal, actualVal, childPath));
+      }
+    }
+    return diffs;
+  }
+
+  // Primitive or type mismatch — single diff
+  return [{ path: pathPrefix || "$", desired, actual }];
+}
+
+/** A single field divergence. Re-exported from sync.ts. */
+export interface FieldDiff {
+  readonly path: string;
+  readonly desired: unknown;
+  readonly actual: unknown;
+}
