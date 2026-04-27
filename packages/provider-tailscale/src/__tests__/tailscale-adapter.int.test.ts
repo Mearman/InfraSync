@@ -58,7 +58,7 @@ describe("Tailscale adapter", () => {
     const provider = new TailscaleProvider();
     assert.throws(
       () => provider.resourceHandler("Unknown", ResolvedScopes.empty),
-      /unsupported resource kind/,
+      /not connected|No resource registered/,
     );
   });
 

@@ -3,7 +3,7 @@ import type {
   ResourceScopes,
   ResolvedScopes,
 } from "@infrasync/core/provider";
-import type { TailscaleClient } from "./client.js";
+import { TailscaleClient, requireClient } from "./client.js";
 import * as z from "zod";
 import { ProviderApiError } from "@infrasync/core/errors";
 
@@ -186,7 +186,7 @@ export class ACLPolicyResource implements ResourcePort<
   };
 
   constructor(
-    private readonly client: TailscaleClient,
+    private readonly client: TailscaleClient | undefined,
     private readonly resolvedScopes: ResolvedScopes,
   ) {}
 
@@ -197,7 +197,7 @@ export class ACLPolicyResource implements ResourcePort<
 
   async read(): Promise<unknown> {
     const tailnet = this.resolvedScopes.get("tailnetId");
-    return this.client.getAcl(tailnet);
+    return requireClient(this.client).getAcl(tailnet);
   }
 
   async create(spec: unknown): Promise<unknown> {
@@ -207,7 +207,7 @@ export class ACLPolicyResource implements ResourcePort<
     }
     const tailnet = this.resolvedScopes.get("tailnetId");
     const apiPolicy = specToApiPolicy(parsed.data);
-    return this.client.setAcl(tailnet, apiPolicy);
+    return requireClient(this.client).setAcl(tailnet, apiPolicy);
   }
 
   async update(id: string, spec: unknown): Promise<unknown> {

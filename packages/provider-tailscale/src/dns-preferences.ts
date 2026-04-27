@@ -3,7 +3,7 @@ import type {
   ResourceScopes,
   ResolvedScopes,
 } from "@infrasync/core/provider";
-import type { TailscaleClient } from "./client.js";
+import { TailscaleClient, requireClient } from "./client.js";
 import * as z from "zod";
 import { ProviderApiError } from "@infrasync/core/errors";
 
@@ -43,7 +43,7 @@ export class DNSPreferencesResource implements ResourcePort<
   };
 
   constructor(
-    private readonly client: TailscaleClient,
+    private readonly client: TailscaleClient | undefined,
     private readonly resolvedScopes: ResolvedScopes,
   ) {}
 
@@ -54,7 +54,7 @@ export class DNSPreferencesResource implements ResourcePort<
 
   async read(): Promise<unknown> {
     const tailnet = this.resolvedScopes.get("tailnetId");
-    return this.client.getDnsPreferences(tailnet);
+    return requireClient(this.client).getDnsPreferences(tailnet);
   }
 
   async create(spec: unknown): Promise<unknown> {
@@ -63,7 +63,7 @@ export class DNSPreferencesResource implements ResourcePort<
       throw new ProviderApiError("tailscale", "create", parsed.error.issues);
     }
     const tailnet = this.resolvedScopes.get("tailnetId");
-    return this.client.setDnsPreferences(tailnet, {
+    return requireClient(this.client).setDnsPreferences(tailnet, {
       magicDNS: parsed.data.magicDNS,
     });
   }

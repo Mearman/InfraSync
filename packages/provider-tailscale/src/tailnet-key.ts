@@ -6,7 +6,7 @@ import type {
 } from "@infrasync/core/provider";
 import { RefToken } from "@infrasync/core/refs";
 import type { RefBuilder } from "@infrasync/core/handles";
-import type { TailscaleClient } from "./client.js";
+import { TailscaleClient, requireClient } from "./client.js";
 import * as z from "zod";
 import { ProviderApiError } from "@infrasync/core/errors";
 
@@ -207,7 +207,7 @@ export class TailnetKeyResource implements ResourcePort<
   };
 
   constructor(
-    private readonly client: TailscaleClient,
+    private readonly client: TailscaleClient | undefined,
     private readonly resolvedScopes: ResolvedScopes,
   ) {}
 
@@ -230,7 +230,7 @@ export class TailnetKeyResource implements ResourcePort<
 
     // List all keys and find by description (our identity field).
     // Tailscale doesn't support looking up keys by description directly.
-    const rawList = await this.client.listKeys(tailnet);
+    const rawList = await requireClient(this.client).listKeys(tailnet);
     const listResult = keyListResponseSchema.safeParse(rawList);
     if (!listResult.success) return undefined;
 
@@ -239,7 +239,7 @@ export class TailnetKeyResource implements ResourcePort<
     );
     if (match === undefined) return undefined;
 
-    return this.client.getKey(tailnet, match.id);
+    return requireClient(this.client).getKey(tailnet, match.id);
   }
 
   async create(spec: unknown): Promise<unknown> {
@@ -248,7 +248,10 @@ export class TailnetKeyResource implements ResourcePort<
       throw new ProviderApiError("tailscale", "create", parsed.error.issues);
     }
     const tailnet = this.resolvedScopes.get("tailnetId");
-    return this.client.createKey(tailnet, buildCreateRequest(parsed.data));
+    return requireClient(this.client).createKey(
+      tailnet,
+      buildCreateRequest(parsed.data),
+    );
   }
 
   async update(id: string, spec: unknown): Promise<unknown> {
@@ -259,6 +262,9 @@ export class TailnetKeyResource implements ResourcePort<
       throw new ProviderApiError("tailscale", "update", parsed.error.issues);
     }
     const tailnet = this.resolvedScopes.get("tailnetId");
-    return this.client.createKey(tailnet, buildCreateRequest(parsed.data));
+    return requireClient(this.client).createKey(
+      tailnet,
+      buildCreateRequest(parsed.data),
+    );
   }
 }

@@ -3,8 +3,12 @@ import type {
   ResourcePort,
   ProviderAdapter,
   ResolvedScopes,
+  ResourceRegistry,
 } from "@infrasync/core/provider";
-import { defineProvider } from "@infrasync/core/provider";
+import {
+  defineProvider,
+  ResourceRegistry as Registry,
+} from "@infrasync/core/provider";
 import * as z from "zod";
 import { TailscaleClient } from "./client.js";
 import { ACLPolicyResource } from "./acl-policy.js";
@@ -47,7 +51,40 @@ export class TailscaleProvider implements ProviderPort<
   readonly name = "tailscale";
   readonly configSchema = tailscaleConfigSchema;
 
+  /** Pluggable resource registry for extending Tailscale resources. */
+  readonly registry: ResourceRegistry = new Registry();
+
   private client: TailscaleClient | undefined;
+
+  constructor() {
+    // Each factory closes over `this`. The client may be undefined until
+    // connect() is called — resources validate client presence at operation
+    // time, not at handler construction time.
+    this.registry.register(
+      "ACLPolicy",
+      (scopes) => new ACLPolicyResource(this.client, scopes),
+    );
+
+    this.registry.register(
+      "TailnetKey",
+      (scopes) => new TailnetKeyResource(this.client, scopes),
+    );
+
+    this.registry.register(
+      "DNSNameservers",
+      (scopes) => new DNSNameserversResource(this.client, scopes),
+    );
+
+    this.registry.register(
+      "DNSSearchPaths",
+      (scopes) => new DNSSearchPathsResource(this.client, scopes),
+    );
+
+    this.registry.register(
+      "DNSPreferences",
+      (scopes) => new DNSPreferencesResource(this.client, scopes),
+    );
+  }
 
   async connect(config: unknown): Promise<void> {
     const result = tailscaleConfigSchema.safeParse(config);
@@ -66,36 +103,11 @@ export class TailscaleProvider implements ProviderPort<
   }
 
   supportedKinds(): string[] {
-    return [
-      "ACLPolicy",
-      "TailnetKey",
-      "DNSNameservers",
-      "DNSSearchPaths",
-      "DNSPreferences",
-    ];
+    return this.registry.kinds();
   }
 
   resourceHandler(kind: string, scopes: ResolvedScopes): ResourcePort {
-    if (this.client === undefined) {
-      throw new Error(
-        "Tailscale provider not connected — call connect() first",
-      );
-    }
-
-    switch (kind) {
-      case "ACLPolicy":
-        return new ACLPolicyResource(this.client, scopes);
-      case "TailnetKey":
-        return new TailnetKeyResource(this.client, scopes);
-      case "DNSNameservers":
-        return new DNSNameserversResource(this.client, scopes);
-      case "DNSSearchPaths":
-        return new DNSSearchPathsResource(this.client, scopes);
-      case "DNSPreferences":
-        return new DNSPreferencesResource(this.client, scopes);
-      default:
-        throw new Error(`Tailscale: unsupported resource kind "${kind}"`);
-    }
+    return this.registry.create(kind, scopes);
   }
 }
 

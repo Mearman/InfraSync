@@ -163,3 +163,17 @@ export class TailscaleClient {
     return response.json();
   }
 }
+
+/**
+ * Narrowing helper — returns the client or throws if not connected.
+ * Used by resource handlers that receive `TailscaleClient | undefined`
+ * from the registry.
+ */
+export function requireClient(
+  client: TailscaleClient | undefined,
+): TailscaleClient {
+  if (client === undefined) {
+    throw new Error("Tailscale provider not connected — call connect() first");
+  }
+  return client;
+}
