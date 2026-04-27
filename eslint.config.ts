@@ -56,6 +56,49 @@ const testFileNamingRule: Rule.RuleModule = {
 };
 
 /**
+ * Bans redundant variable re-assignments where a new identifier is just an alias
+ * for an existing one (e.g. `const foo = bar;`). Forces using the original directly.
+ *
+ * Variables prefixed with `_` are excluded (discard bindings).
+ */
+const noPointlessReassignments: Rule.RuleModule = {
+  meta: {
+    type: "problem",
+    messages: {
+      pointlessReassignment:
+        "Pointless reassignment. {{ name }} is just an alias for {{ value }}. Use the original directly instead.",
+    },
+  },
+  create(context) {
+    return {
+      VariableDeclarator(node) {
+        // Only flag const bindings — let bindings may be reassigned later
+        if (
+          node.parent.type !== "VariableDeclaration" ||
+          node.parent.kind !== "const"
+        ) {
+          return;
+        }
+        if (node.id.type !== "Identifier" || node.init?.type !== "Identifier") {
+          return;
+        }
+        if (node.id.name.startsWith("_")) {
+          return;
+        }
+        context.report({
+          node,
+          messageId: "pointlessReassignment",
+          data: {
+            name: node.id.name,
+            value: node.init.name,
+          },
+        });
+      },
+    };
+  },
+};
+
+/**
  * Bans all eslint-disable comments (inline, block, and next-line variants).
  * Forces developers to fix the underlying issue rather than silencing the linter.
  */
@@ -94,6 +137,7 @@ const customPlugin = {
   rules: {
     testFileNaming: testFileNamingRule,
     banEslintDisable: banEslintDisableRule,
+    noPointlessReassignments,
   },
 };
 
@@ -132,6 +176,7 @@ export default defineConfig(
         { assertionStyle: "never" },
       ],
       "custom/banEslintDisable": "error",
+      "custom/noPointlessReassignments": "error",
       "no-restricted-syntax": [
         "error",
         {

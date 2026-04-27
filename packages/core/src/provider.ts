@@ -254,6 +254,95 @@ export interface ProviderPort<TConfig extends z.ZodType = z.ZodType> {
   resourceHandler(kind: string, scopes?: ResolvedScopes): ResourcePort;
 }
 
+// ─── ResourceRegistry ────────────────────────────────────────────────────────
+
+/**
+ * Factory function that creates a ResourcePort given resolved scopes.
+ *
+ * The provider captures its own typed client in the closure at registration
+ * time, so the factory only needs scopes. This avoids type assertions at
+ * the registry boundary — the provider's type knowledge stays in the provider.
+ */
+export type ResourceFactory = (scopes: ResolvedScopes) => ResourcePort;
+
+/**
+ * A pluggable registry mapping resource kinds to their factory functions.
+ *
+ * Providers create a registry and register built-in resource kinds at
+ * construction time. Users can extend a provider by registering additional
+ * resource kinds — no switch statements, no provider modification needed.
+ *
+ * Factories capture the provider's typed client in their closure, so the
+ * registry never needs to know about client types. No type assertions.
+ *
+ * Usage in a provider:
+ *
+ * ```typescript
+ * class CloudflareProvider implements ProviderPort {
+ *   readonly registry = new ResourceRegistry();
+ *   private client: Cloudflare | undefined;
+ *
+ *   constructor() {
+ *     // Built-in resources — client captured in closure
+ *     this.registry.register("DnsRecord", (scopes) => {
+ *       if (this.client === undefined) throw new Error("not connected");
+ *       return new DnsRecordResource(this.client);
+ *     });
+ *   }
+ *
+ *   resourceHandler(kind: string, scopes: ResolvedScopes): ResourcePort {
+ *     return this.registry.create(kind, scopes);
+ *   }
+ * }
+ * ```
+ *
+ * Extension by users:
+ *
+ * ```typescript
+ * const provider = new CloudflareProvider();
+ * provider.registry.register("MyCustomResource", (scopes) => {
+ *   if (provider.client === undefined) throw new Error("not connected");
+ *   return new MyCustomResource(provider.client, scopes);
+ * });
+ * ```
+ */
+export class ResourceRegistry {
+  private readonly factories = new Map<string, ResourceFactory>();
+
+  /**
+   * Register a resource kind and its factory function.
+   *
+   * Overwrites any existing registration for the same kind — allows
+   * users to override built-in handlers if needed.
+   */
+  register(kind: string, factory: ResourceFactory): void {
+    this.factories.set(kind, factory);
+  }
+
+  /**
+   * Create a ResourcePort for the given kind.
+   *
+   * @throws Error if the kind is not registered.
+   */
+  create(kind: string, scopes: ResolvedScopes): ResourcePort {
+    const factory = this.factories.get(kind);
+    if (factory === undefined) {
+      throw new Error(`No resource registered for kind "${kind}"`);
+    }
+    return factory(scopes);
+  }
+
+  /** List all registered resource kinds. */
+  kinds(): string[] {
+    return [...this.factories.keys()];
+  }
+
+  /** Check whether a resource kind is registered. */
+  has(kind: string): boolean {
+    return this.factories.has(kind);
+  }
+}
+
 // ─── ProviderAdapter (plain object, no assertions) ───────────────────────────
 
 /**
