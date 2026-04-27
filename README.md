@@ -18,7 +18,7 @@ An alternative to Terraform for teams who want infrastructure-as-code without th
 | Compiler (authoring → IR) | ✅ Done | `compileToIR()`, ref serialisation, secret resolution |
 | DAG builder | ✅ Done | Kahn's algorithm, DFS cycle detection, depth-level grouping |
 | Sync engine | ✅ Done | Plan/apply, ref resolution, deep equality, convergence checking |
-| Cloudflare provider | ✅ Done | DNS records, Access applications, Access policies, Identity providers, Pages custom domains |
+| Cloudflare provider | ✅ Done | DNS records, Access applications, Access policies, Access groups, Identity providers, Pages custom domains, Tunnels, Zones, R2 buckets, Worker routes, Pages projects, Email routing rules |
 | Typed provider handle | ✅ Done | `createCloudflareHandle()` with typed convenience methods |
 | CLI | ✅ Done | `plan`, `apply`, `drift`, `fidelity`, `export cdktf-ts`, `export terraform-config`, `import terraform-config`, `import terraform-plan`, `import terraform-state`, `migrate` |
 | Build pipeline | ✅ Done | tsdown with ESM + DTS, library and CLI entry points |
@@ -1419,10 +1419,37 @@ Adapters live in `src/providers/<name>/` and are registered with the sync engine
 
 | Provider | Status | Resource Kinds | Terraform Provider | npm SDK | REST API |
 |----------|--------|----------------|-------------------|---------|----------|
-| **Cloudflare** | Initial | `DnsRecord`, `AccessApplication`, `AccessPolicy`, `AccessGroup`, `IdentityProvider`, `PagesCustomDomain`, `Tunnel` | [cloudflare/cloudflare](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs) | [`cloudflare`](https://www.npmjs.com/package/cloudflare) | [API Reference](https://developers.cloudflare.com/api/) |
+| **Cloudflare** | Initial | `DnsRecord`, `AccessApplication`, `AccessPolicy`, `AccessGroup`, `IdentityProvider`, `PagesCustomDomain`, `Tunnel`, `Zone`, `R2Bucket`, `WorkerRoute`, `PagesProject`, `EmailRoutingRule` | [cloudflare/cloudflare](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs) | [`cloudflare`](https://www.npmjs.com/package/cloudflare) | [API Reference](https://developers.cloudflare.com/api/) |
 | **AWS** | Planned | `S3Bucket`, `DynamodbTable`, `LambdaFunction`, `IamRole`, `IamPolicy`, `CloudFrontDistribution`, `Route53Record`, `Ec2SecurityGroup`, `SnsTopic`, `SqsQueue` | [hashicorp/aws](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) | [`@aws-sdk/client-*`](https://www.npmjs.com/package/@aws-sdk/client-s3) | [S3 API Reference](https://docs.aws.amazon.com/AmazonS3/latest/API/) |
 | **GCP** | Planned | `StorageBucket`, `CloudFunction`, `IamServiceAccount`, `DnsRecordSet`, `PubSubTopic`, `CloudRunService` | [hashicorp/google](https://registry.terraform.io/providers/hashicorp/google/latest/docs) | [`@google-cloud/*`](https://www.npmjs.com/package/@google-cloud/storage) | [Cloud Storage APIs](https://cloud.google.com/storage/docs/apis) |
 | **Tailscale** | Initial | `ACLPolicy`, `TailnetKey`, `DNSNameservers`, `DNSSearchPaths`, `DNSPreferences` | [tailscale/tailscale](https://registry.terraform.io/providers/tailscale/tailscale/latest/docs) | — | [Tailscale API](https://tailscale.com/kb/1101/api) |
+
+#### Cloudflare Resource References
+
+| Resource | Terraform Resource | REST API | SDK Module |
+|----------|--------------------|----------|------------|
+| `DnsRecord` | [`cloudflare_record`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/record) | [DNS Records](https://developers.cloudflare.com/api/resources/dns/subresources/records/) | `client.dns.records` |
+| `AccessApplication` | [`cloudflare_access_application`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/access_application) | [Access Applications](https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/) | `client.zeroTrust.access.applications` |
+| `AccessPolicy` | [`cloudflare_access_policy`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/access_policy) | [Access Policies](https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/subresources/policies/) | `client.zeroTrust.access.applications.policies` |
+| `AccessGroup` | [`cloudflare_access_group`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/access_group) | [Access Groups](https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/groups/) | `client.zeroTrust.access.groups` |
+| `IdentityProvider` | [`cloudflare_access_identity_provider`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/access_identity_provider) | [Identity Providers](https://developers.cloudflare.com/api/resources/zero_trust/subresources/identity_providers/) | `client.zeroTrust.identityProviders` |
+| `PagesCustomDomain` | [`cloudflare_pages_custom_domain`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/pages_custom_domain) | [Pages Domains](https://developers.cloudflare.com/api/resources/pages/subresources/projects/subresources/domains/) | `client.pages.projects.domains` |
+| `Tunnel` | [`cloudflare_tunnel`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/tunnel) | [Tunnels](https://developers.cloudflare.com/api/resources/zero_trust/subresources/tunnels/subresources/cloudflared/) | `client.zeroTrust.tunnels.cloudflared` |
+| `Zone` | [`cloudflare_zone`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/zone) | [Zones](https://developers.cloudflare.com/api/resources/zones/) | `client.zones` |
+| `R2Bucket` | [`cloudflare_r2_bucket`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/r2_bucket) | [R2 Buckets](https://developers.cloudflare.com/api/resources/r2/subresources/buckets/) | `client.r2.buckets` |
+| `WorkerRoute` | [`cloudflare_worker_route`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/worker_route) | [Workers Routes](https://developers.cloudflare.com/api/resources/workers/subresources/routes/) | `client.workers.routes` |
+| `PagesProject` | [`cloudflare_pages_project`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/pages_project) | [Pages Projects](https://developers.cloudflare.com/api/resources/pages/subresources/projects/) | `client.pages.projects` |
+| `EmailRoutingRule` | [`cloudflare_email_routing_rule`](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/email_routing_rule) | [Email Routing Rules](https://developers.cloudflare.com/api/resources/email_routing/subresources/rules/) | `client.emailRouting.rules` |
+
+#### Tailscale Resource References
+
+| Resource | Terraform Resource | REST API | SDK Method |
+|----------|--------------------|----------|------------|
+| `ACLPolicy` | [`tailscale_acl`](https://registry.terraform.io/providers/tailscale/tailscale/latest/docs/resources/acl) | [GET/POST /tailnet/{tailnet}/acl](https://tailscale.com/kb/1101/api#post-acl) | `client.getAcl()` / `client.setAcl()` |
+| `TailnetKey` | [`tailscale_tailnet_key`](https://registry.terraform.io/providers/tailscale/tailscale/latest/docs/resources/tailnet_key) | [POST /tailnet/{tailnet}/keys](https://tailscale.com/kb/1101/api#post-key) | `client.createKey()` / `client.listKeys()` |
+| `DNSNameservers` | [`tailscale_dns_nameservers`](https://registry.terraform.io/providers/tailscale/tailscale/latest/docs/resources/dns_nameservers) | [GET/POST /tailnet/{tailnet}/dns/nameservers](https://tailscale.com/kb/1101/api) | `client.getDnsNameservers()` / `client.setDnsNameservers()` |
+| `DNSSearchPaths` | [`tailscale_dns_search_paths`](https://registry.terraform.io/providers/tailscale/tailscale/latest/docs/resources/dns_search_paths) | [GET/POST /tailnet/{tailnet}/dns/searchpaths](https://tailscale.com/kb/1101/api) | `client.getDnsSearchPaths()` / `client.setDnsSearchPaths()` |
+| `DNSPreferences` | [`tailscale_dns_preferences`](https://registry.terraform.io/providers/tailscale/tailscale/latest/docs/resources/dns_preferences) | [GET/POST /tailnet/{tailnet}/dns/preferences](https://tailscale.com/kb/1101/api) | `client.getDnsPreferences()` / `client.setDnsPreferences()` |
 
 Built-in providers may expose rich typed convenience methods such as `awsProd.s3Bucket(...)` or `cf.dnsRecord(...)`. Custom providers should assume only the generic baseline API: `provider.resource(kind, id, spec)`. Rich typed helpers for custom providers can be layered on later, but the generic form is the stable contract.
 
@@ -1705,14 +1732,21 @@ packages/
         cloudflare.ts          # Cloudflare-specific: DnsRecord mappings, CBD mitigation for destructive fields
   provider-cloudflare/         # @infrasync/cloudflare
     src/
-      index.ts                 # Cloudflare adapter registration
+      index.ts                 # Cloudflare adapter + ResourceRegistry
       handle.ts                # createCloudflareHandle() typed convenience methods
       access-app.ts            # AccessApplication resource handler
       access-policy.ts         # AccessPolicy resource handler
+      access-group.ts          # AccessGroup resource handler
       dns-record.ts            # DnsRecord resource handler + codec
       identity-provider.ts     # IdentityProvider resource handler
       pages-domain.ts          # PagesCustomDomain resource handler
-      helpers.ts               # Shared Cloudflare API helpers
+      tunnel.ts                # Tunnel resource handler
+      zone.ts                  # Zone resource handler
+      r2-bucket.ts             # R2Bucket resource handler
+      worker-route.ts          # WorkerRoute resource handler
+      pages-project.ts         # PagesProject resource handler
+      email-routing-rule.ts    # EmailRoutingRule resource handler
+      helpers.ts               # Shared Cloudflare API helpers (findByName, findByPattern)
   cli/                         # @infrasync/cli
     src/
       index.ts                 # CLI entry point
