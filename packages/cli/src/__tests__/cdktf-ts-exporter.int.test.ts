@@ -55,10 +55,9 @@ function isWarningEntry(
   value: unknown,
 ): value is { readonly code: string; readonly message: string } {
   if (typeof value !== "object" || value === null) return false;
-  const candidate = value;
-  if (!("code" in candidate) || !("message" in candidate)) return false;
-  const codeValue = candidate.code;
-  const messageValue = candidate.message;
+  if (!("code" in value) || !("message" in value)) return false;
+  const codeValue = value.code;
+  const messageValue = value.message;
   return typeof codeValue === "string" && typeof messageValue === "string";
 }
 
@@ -181,11 +180,9 @@ for (const fixture of fixtures) {
         `Invalid warnings fixture: ${fixture.name}/golden/warnings.json`,
       );
     }
-    const goldenWarnings = goldenWarningsParsed;
-
     assert.deepEqual(
       result.warnings,
-      goldenWarnings,
+      goldenWarningsParsed,
       `Warnings mismatch for ${fixture.name}`,
     );
   });

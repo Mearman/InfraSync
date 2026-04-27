@@ -752,8 +752,7 @@ async function runRuntimeCommand(rawCommand: string): Promise<void> {
     process.exit(1);
   }
 
-  const command: RuntimeCommand = rawCommand;
-
+  // After the guard, rawCommand is narrowed to RuntimeCommand
   if (args.values.ir !== undefined) {
     if (args.values.adapters === undefined) {
       console.error(
@@ -763,12 +762,12 @@ async function runRuntimeCommand(rawCommand: string): Promise<void> {
       process.exit(1);
     }
 
-    await runWithIR(command, args.values.ir, args.values.adapters);
+    await runWithIR(rawCommand, args.values.ir, args.values.adapters);
     return;
   }
 
   const configPath = resolve(args.values.config ?? "infra.config.ts");
-  await run(command, configPath);
+  await run(rawCommand, configPath);
 }
 
 // ─── IR file execution ───────────────────────────────────────────────────────
