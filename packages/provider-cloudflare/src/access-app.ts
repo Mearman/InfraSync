@@ -268,11 +268,8 @@ export class AccessApplicationResource implements ResourcePort<
       account_id: this.resolvedScopes.get("accountId"),
     });
     const match = apps.result.find((app) => {
-      if ("domain" in app) {
-        const appRecord = app;
-        if ("domain" in appRecord && typeof appRecord.domain === "string") {
-          return appRecord.domain === parsed.data.domain;
-        }
+      if ("domain" in app && typeof app.domain === "string") {
+        return app.domain === parsed.data.domain;
       }
       return false;
     });

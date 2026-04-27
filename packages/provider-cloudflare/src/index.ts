@@ -4,8 +4,12 @@ import type {
   ResourcePort,
   ProviderAdapter,
   ResolvedScopes,
+  ResourceRegistry,
 } from "@infrasync/core/provider";
-import { defineProvider } from "@infrasync/core/provider";
+import {
+  defineProvider,
+  ResourceRegistry as Registry,
+} from "@infrasync/core/provider";
 import * as z from "zod";
 import { DnsRecordResource } from "./dns-record.js";
 import { AccessApplicationResource } from "./access-app.js";
@@ -14,6 +18,11 @@ import { IdentityProviderResource } from "./identity-provider.js";
 import { PagesCustomDomainResource } from "./pages-domain.js";
 import { AccessGroupResource } from "./access-group.js";
 import { TunnelResource } from "./tunnel.js";
+import { ZoneResource } from "./zone.js";
+import { R2BucketResource } from "./r2-bucket.js";
+import { WorkerRouteResource } from "./worker-route.js";
+import { PagesProjectResource } from "./pages-project.js";
+import { EmailRoutingRuleResource } from "./email-routing-rule.js";
 
 // ─── Config schema ───────────────────────────────────────────────────────────
 
@@ -47,7 +56,97 @@ export class CloudflareProvider implements ProviderPort<
   readonly name = "cloudflare";
   readonly configSchema = cloudflareConfigSchema;
 
+  /**
+   * Pluggable resource registry. Users can register additional resource kinds
+   * after the provider is created:
+   *
+   * ```typescript
+   * const provider = new CloudflareProvider();
+   * provider.registry.register("MyResource", (scopes) => {
+   *   return new MyResource(provider.connectedClient(), scopes);
+   * });
+   * ```
+   */
+  readonly registry: ResourceRegistry = new Registry();
+
   private client: Cloudflare | undefined;
+
+  constructor() {
+    // Built-in resources — each factory calls connectedClient() to get the
+    // narrowed Cloudflare instance. No type assertions needed.
+    this.registry.register("DnsRecord", () => {
+      const client = this.connectedClient();
+      return new DnsRecordResource(client);
+    });
+
+    this.registry.register("AccessApplication", (scopes) => {
+      const client = this.connectedClient();
+      return new AccessApplicationResource(client, scopes);
+    });
+
+    this.registry.register("AccessPolicy", (scopes) => {
+      const client = this.connectedClient();
+      return new AccessPolicyResource(client, scopes);
+    });
+
+    this.registry.register("IdentityProvider", (scopes) => {
+      const client = this.connectedClient();
+      return new IdentityProviderResource(client, scopes);
+    });
+
+    this.registry.register("PagesCustomDomain", (scopes) => {
+      const client = this.connectedClient();
+      return new PagesCustomDomainResource(client, scopes);
+    });
+
+    this.registry.register("AccessGroup", (scopes) => {
+      const client = this.connectedClient();
+      return new AccessGroupResource(client, scopes);
+    });
+
+    this.registry.register("Tunnel", (scopes) => {
+      const client = this.connectedClient();
+      return new TunnelResource(client, scopes);
+    });
+
+    this.registry.register("Zone", (scopes) => {
+      const client = this.connectedClient();
+      return new ZoneResource(client, scopes);
+    });
+
+    this.registry.register("R2Bucket", (scopes) => {
+      const client = this.connectedClient();
+      return new R2BucketResource(client, scopes);
+    });
+
+    this.registry.register("WorkerRoute", (scopes) => {
+      const client = this.connectedClient();
+      return new WorkerRouteResource(client, scopes);
+    });
+
+    this.registry.register("PagesProject", (scopes) => {
+      const client = this.connectedClient();
+      return new PagesProjectResource(client, scopes);
+    });
+
+    this.registry.register("EmailRoutingRule", (scopes) => {
+      const client = this.connectedClient();
+      return new EmailRoutingRuleResource(client, scopes);
+    });
+  }
+
+  /**
+   * Returns the connected Cloudflare client, or throws if not connected.
+   * Narrowing helper — avoids type assertions in registry closures.
+   */
+  connectedClient(): Cloudflare {
+    if (this.client === undefined) {
+      throw new Error(
+        "Cloudflare provider not connected — call connect() first",
+      );
+    }
+    return this.client;
+  }
 
   async connect(config: unknown): Promise<void> {
     const result = cloudflareConfigSchema.safeParse(config);
@@ -66,41 +165,10 @@ export class CloudflareProvider implements ProviderPort<
   }
 
   supportedKinds(): string[] {
-    return [
-      "DnsRecord",
-      "AccessApplication",
-      "AccessPolicy",
-      "IdentityProvider",
-      "PagesCustomDomain",
-      "AccessGroup",
-      "Tunnel",
-    ];
+    return this.registry.kinds();
   }
 
   resourceHandler(kind: string, scopes: ResolvedScopes): ResourcePort {
-    if (this.client === undefined) {
-      throw new Error(
-        "Cloudflare provider not connected — call connect() first",
-      );
-    }
-
-    switch (kind) {
-      case "DnsRecord":
-        return new DnsRecordResource(this.client);
-      case "AccessApplication":
-        return new AccessApplicationResource(this.client, scopes);
-      case "AccessPolicy":
-        return new AccessPolicyResource(this.client, scopes);
-      case "IdentityProvider":
-        return new IdentityProviderResource(this.client, scopes);
-      case "PagesCustomDomain":
-        return new PagesCustomDomainResource(this.client, scopes);
-      case "AccessGroup":
-        return new AccessGroupResource(this.client, scopes);
-      case "Tunnel":
-        return new TunnelResource(this.client, scopes);
-      default:
-        throw new Error(`Cloudflare: unsupported resource kind "${kind}"`);
-    }
+    return this.registry.create(kind, scopes);
   }
 }

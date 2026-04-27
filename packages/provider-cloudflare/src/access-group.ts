@@ -11,7 +11,7 @@ import type {
 } from "@infrasync/core/provider";
 import * as z from "zod";
 import { ProviderApiError } from "@infrasync/core/errors";
-import { getStateId } from "./helpers.js";
+import { getStateId, findByName } from "./helpers.js";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
@@ -195,17 +195,7 @@ export class AccessGroupResource implements ResourcePort<
     const groups = await this.client.zeroTrust.access.groups.list({
       account_id: this.resolvedScopes.get("accountId"),
     });
-    const match = groups.result.find((group: unknown) => {
-      if (typeof group === "object" && group !== null && "name" in group) {
-        const desc = Object.getOwnPropertyDescriptor(group, "name");
-        return (
-          desc !== undefined &&
-          typeof desc.value === "string" &&
-          desc.value === parsed.data.name
-        );
-      }
-      return false;
-    });
+    const match = findByName(groups.result, parsed.data.name);
     if (match === undefined) return undefined;
     return validateApiResponse(match, "read");
   }

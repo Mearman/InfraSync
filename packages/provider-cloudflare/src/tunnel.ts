@@ -11,7 +11,7 @@ import type {
 } from "@infrasync/core/provider";
 import * as z from "zod";
 import { ProviderApiError } from "@infrasync/core/errors";
-import { getStateId } from "./helpers.js";
+import { getStateId, findByName } from "./helpers.js";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
@@ -199,17 +199,7 @@ export class TunnelResource implements ResourcePort<
     const tunnels = await this.client.zeroTrust.tunnels.cloudflared.list({
       account_id: this.resolvedScopes.get("accountId"),
     });
-    const match = tunnels.result.find((tunnel: unknown) => {
-      if (typeof tunnel === "object" && tunnel !== null && "name" in tunnel) {
-        const desc = Object.getOwnPropertyDescriptor(tunnel, "name");
-        return (
-          desc !== undefined &&
-          typeof desc.value === "string" &&
-          desc.value === parsed.data.name
-        );
-      }
-      return false;
-    });
+    const match = findByName(tunnels.result, parsed.data.name);
     if (match === undefined) return undefined;
     return validateApiResponse(match, "read");
   }
