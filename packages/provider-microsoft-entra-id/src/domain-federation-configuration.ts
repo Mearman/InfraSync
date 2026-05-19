@@ -31,7 +31,7 @@ export const buildDomainFederationConfigurationRefs: RefBuilder<
 
 export const domainFederationConfigurationSpecSchema = z.strictObject({
   kind: z.literal("DomainFederationConfiguration"),
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).optional(),
   domain: z.string().trim().min(1),
   issuerUri: z.url(),
   displayName: z.string().trim().min(1),
