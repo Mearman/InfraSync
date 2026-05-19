@@ -4,8 +4,8 @@
  * Targets the Inbound SAML SSO Profiles API
  * (https://cloud.google.com/identity/docs/reference/rest/v1/inboundSamlSsoProfiles).
  *
- * The `@googleapis/admin` package only covers the legacy Admin SDK (Directory
- * API); the Cloud Identity REST surface is reached directly via
+ * The Cloud Identity REST surface is not covered by the Admin SDK
+ * (Directory API) generated clients, so it is reached directly via
  * `google-auth-library`'s `request()`. Each method returns `Promise<unknown>` —
  * callers validate with Zod at their boundaries.
  *

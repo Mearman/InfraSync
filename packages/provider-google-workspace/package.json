@@ -22,7 +22,6 @@
     "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
   },
   "dependencies": {
-    "@googleapis/admin": "30.3.0",
     "google-auth-library": "10.6.2"
   },
   "peerDependencies": {
