@@ -95,11 +95,12 @@ export async function buildCredential(
       },
     });
 
-    if (authenticationRecord === undefined) {
-      const record = await credential.authenticate([GRAPH_DEFAULT_SCOPE]);
-      if (record !== undefined) {
-        await saveAuthRecord(record);
-      }
+    // Always pre-warm the token before returning. This serialises auth so that
+    // concurrent resource reads (which each call getToken internally) don't
+    // each race to trigger their own device-code prompt when the cache is cold.
+    const record = await credential.authenticate([GRAPH_DEFAULT_SCOPE]);
+    if (record !== undefined && authenticationRecord === undefined) {
+      await saveAuthRecord(record);
     }
 
     return credential;

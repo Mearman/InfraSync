@@ -392,17 +392,17 @@ export class DirectoryClient {
    * List all non-suspended users in the given domain.
    * Pages automatically — returns the full user list.
    */
-  async listActiveUsers(domain: string): Promise<readonly DirectoryUser[]> {
+  async listActiveUsers(domain?: string): Promise<readonly DirectoryUser[]> {
     const users: unknown[] = [];
     let pageToken: string | undefined;
 
     do {
       const params: Record<string, string> = {
         customer: this.customerId,
-        domain,
         maxResults: "500",
         query: "isSuspended=false",
       };
+      if (domain !== undefined) params.domain = domain;
       if (pageToken !== undefined) params.pageToken = pageToken;
 
       const response = await this.auth.request<unknown>({
