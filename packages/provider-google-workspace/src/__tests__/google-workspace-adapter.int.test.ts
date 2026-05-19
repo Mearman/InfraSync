@@ -6,10 +6,16 @@ import {
   samlAppSpecSchema,
   buildSamlAppRefs,
   createGoogleWorkspaceHandle,
+  SamlAppResource,
 } from "@infrasync/google-workspace/index";
+import {
+  CloudIdentityClient,
+  type GoogleRequester,
+} from "@infrasync/google-workspace/client";
 import { ResolvedScopes } from "@infrasync/core/provider";
 import type { ResourceHandle } from "@infrasync/core/handles";
 import { RefToken } from "@infrasync/core/refs";
+import { ProviderApiError } from "@infrasync/core/errors";
 
 describe("Google Workspace adapter", () => {
   it("validates oauth-user config", () => {
@@ -288,6 +294,110 @@ describe("Google Workspace adapter", () => {
           },
         }),
       /not connected/,
+    );
+  });
+
+  // ─── LRO error boundary ───────────────────────────────────────────────────
+
+  /**
+   * Build a `GoogleRequester` stub that returns the supplied LRO response
+   * regardless of the request. Used to drive `awaitOperation` into the
+   * failure paths without hitting the network.
+   */
+  function stubRequester(operation: Record<string, unknown>): GoogleRequester {
+    return {
+      async request(): Promise<{ data: unknown }> {
+        await Promise.resolve();
+        return { data: operation };
+      },
+    } as unknown as GoogleRequester;
+  }
+
+  const validSamlSpec = {
+    kind: "SamlApp" as const,
+    displayName: "App",
+    idpConfig: {
+      entityId: "https://accounts.google.com/o/saml2?idpid=X",
+      singleSignOnServiceUri: "https://accounts.google.com/o/saml2/idp?idpid=X",
+    },
+    spConfig: {
+      entityId: "urn:example:sp",
+      assertionConsumerServiceUri: "https://example.com/acs",
+    },
+  };
+
+  function firstIssueMessage(err: ProviderApiError): string {
+    const first = err.issues[0];
+    if (first === undefined) {
+      throw new Error("expected at least one issue on ProviderApiError");
+    }
+    return first.message;
+  }
+
+  it("SamlApp.create wraps OperationFailedError in ProviderApiError", async () => {
+    const requester = stubRequester({
+      name: "operations/failed-op",
+      done: true,
+      error: { code: 13, message: "internal failure" },
+    });
+    const client = new CloudIdentityClient(requester);
+    const resource = new SamlAppResource(client);
+
+    await assert.rejects(
+      () => resource.create(validSamlSpec),
+      (err: unknown) => {
+        assert.ok(err instanceof ProviderApiError);
+        assert.equal(err.provider, "google-workspace");
+        assert.equal(err.operation, "create");
+        assert.equal(err.issues.length, 1);
+        assert.match(firstIssueMessage(err), /operations\/failed-op/);
+        return true;
+      },
+    );
+  });
+
+  it("SamlApp.update wraps OperationFailedError in ProviderApiError", async () => {
+    const requester = stubRequester({
+      name: "operations/failed-op",
+      done: true,
+      error: { code: 7, message: "permission denied" },
+    });
+    const client = new CloudIdentityClient(requester);
+    const resource = new SamlAppResource(client);
+
+    await assert.rejects(
+      () => resource.update("inboundSamlSsoProfiles/01abc23", validSamlSpec),
+      (err: unknown) => {
+        assert.ok(err instanceof ProviderApiError);
+        assert.equal(err.operation, "update");
+        assert.match(firstIssueMessage(err), /permission denied/);
+        return true;
+      },
+    );
+  });
+
+  it("SamlApp.create re-throws existing ProviderApiError unchanged", async () => {
+    // A `ProviderApiError` raised inside the requester must propagate
+    // unchanged from `toProviderApiError` — re-wrapping would discard the
+    // original `provider`, `operation`, and `issues` fields.
+    const sentinel = new ProviderApiError("google-workspace", "create", [
+      { path: ["sentinel"], message: "sentinel" },
+    ]);
+    const requester: GoogleRequester = {
+      async request(): Promise<{ data: unknown }> {
+        await Promise.resolve();
+        throw sentinel;
+      },
+    } as unknown as GoogleRequester;
+    const client = new CloudIdentityClient(requester);
+    const resource = new SamlAppResource(client);
+
+    await assert.rejects(
+      () => resource.create(validSamlSpec),
+      (err: unknown) => {
+        assert.strictEqual(err, sentinel);
+        return true;
+      },
     );
   });
 });

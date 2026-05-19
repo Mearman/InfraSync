@@ -13,6 +13,7 @@ import { RefToken } from "@infrasync/core/refs";
 import type { RefBuilder } from "@infrasync/core/handles";
 import { ProviderApiError } from "@infrasync/core/errors";
 import { CloudIdentityClient, requireClient } from "./client.js";
+import { toProviderApiError } from "./helpers.js";
 
 // ─── Ref type ────────────────────────────────────────────────────────────────
 
@@ -254,8 +255,12 @@ export class SamlAppResource implements ResourcePort<
     }
 
     const body = buildProfileBody(parsed.data);
-    const response = await requireClient(this.client).createProfile(body);
-    return validateProfileResponse(response, "create");
+    try {
+      const response = await requireClient(this.client).createProfile(body);
+      return validateProfileResponse(response, "create");
+    } catch (error) {
+      throw toProviderApiError(error, "create");
+    }
   }
 
   async update(id: string, spec: unknown): Promise<unknown> {
@@ -270,11 +275,15 @@ export class SamlAppResource implements ResourcePort<
 
     const profileId = id.includes("/") ? extractProfileId(id) : id;
     const body = buildProfileBody(parsed.data);
-    const response = await requireClient(this.client).updateProfile(
-      profileId,
-      SAML_APP_UPDATE_MASK,
-      body,
-    );
-    return validateProfileResponse(response, "update");
+    try {
+      const response = await requireClient(this.client).updateProfile(
+        profileId,
+        SAML_APP_UPDATE_MASK,
+        body,
+      );
+      return validateProfileResponse(response, "update");
+    } catch (error) {
+      throw toProviderApiError(error, "update");
+    }
   }
 }
