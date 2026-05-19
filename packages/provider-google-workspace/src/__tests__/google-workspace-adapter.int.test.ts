@@ -479,6 +479,75 @@ describe("Google Workspace adapter", () => {
     });
   });
 
+  it("listProfiles paginates and searches across every page", async () => {
+    // Cloud Identity lists are paginated; a tenant with more profiles than
+    // fit on one page would have its target missed by `read()` if only the
+    // first page were searched, producing a spurious create that fails on
+    // the API's uniqueness constraint.
+    interface CapturedRequest {
+      readonly params: Record<string, unknown> | undefined;
+    }
+    const captured: CapturedRequest[] = [];
+    const pages: { data: unknown }[] = [
+      {
+        data: {
+          inboundSamlSsoProfiles: [
+            {
+              name: "inboundSamlSsoProfiles/page1-only",
+              displayName: "Other App",
+            },
+          ],
+          nextPageToken: "next",
+        },
+      },
+      {
+        data: {
+          inboundSamlSsoProfiles: [
+            {
+              name: "inboundSamlSsoProfiles/page2-target",
+              displayName: "Target App",
+            },
+          ],
+        },
+      },
+    ];
+    const requester: GoogleRequester = {
+      async request(opts: {
+        params?: Record<string, unknown>;
+      }): Promise<{ data: unknown }> {
+        await Promise.resolve();
+        captured.push({ params: opts.params });
+        const page = pages.shift();
+        if (page === undefined) {
+          throw new Error("requester called more times than pages provided");
+        }
+        return page;
+      },
+    } as unknown as GoogleRequester;
+
+    const client = new CloudIdentityClient(requester, "C00xyz789");
+    const resource = new SamlAppResource(client);
+
+    const result = await resource.read({
+      ...validSamlSpec,
+      displayName: "Target App",
+    });
+
+    // Both pages were fetched.
+    assert.equal(captured.length, 2);
+    // First request omits pageToken.
+    const firstParams = captured[0]?.params;
+    assert.ok(firstParams !== undefined);
+    assert.equal(firstParams.pageToken, undefined);
+    // Second request supplies the previous page's nextPageToken.
+    const secondParams = captured[1]?.params;
+    assert.ok(secondParams !== undefined);
+    assert.equal(secondParams.pageToken, "next");
+    // Match was found on page 2.
+    assert.ok(typeof result === "object" && result !== null);
+    assert.equal((result as { displayName: string }).displayName, "Target App");
+  });
+
   it("SamlApp.read wraps requester errors in ProviderApiError", async () => {
     // The list HTTP GET in `read()` does not poll an LRO, but it can still
     // throw a GaxiosError (or any other plain Error) on network/HTTP failure.

@@ -119,6 +119,31 @@ export function buildRequester(options: AuthOptions): GoogleRequester {
   });
 }
 
+// ─── List pagination ─────────────────────────────────────────────────────────
+
+/**
+ * Minimal envelope for a single page of the inbound SAML SSO profiles list.
+ * `inboundSamlSsoProfiles` is intentionally typed as `unknown[]` — page-level
+ * validation only needs to read the pagination token; individual profile
+ * shape is validated by the caller's schema.
+ */
+const listProfilesPageSchema = z.looseObject({
+  inboundSamlSsoProfiles: z.array(z.unknown()).optional(),
+  nextPageToken: z.string().trim().optional(),
+});
+
+function parseListProfilesPage(
+  raw: unknown,
+): z.infer<typeof listProfilesPageSchema> {
+  const result = listProfilesPageSchema.safeParse(raw);
+  if (!result.success) {
+    throw new Error(
+      `Cloud Identity listProfiles response failed validation: ${result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
+    );
+  }
+  return result.data;
+}
+
 // ─── Long-running operation polling ──────────────────────────────────────────
 
 /**
@@ -175,18 +200,47 @@ export class CloudIdentityClient {
     return response.data;
   }
 
-  async listProfiles(extraFilter?: string): Promise<unknown> {
+  /**
+   * Fetch every page of the inbound SAML SSO profiles list and return the
+   * accumulated profiles as raw objects.
+   *
+   * Cloud Identity paginates the list endpoint with `nextPageToken`; without
+   * traversing every page the caller may miss profiles whose `displayName`
+   * landed beyond the first page, producing spurious creates that fail on
+   * the API's uniqueness constraint.
+   *
+   * Each page envelope is validated internally to read `nextPageToken`; the
+   * profile objects themselves are returned untyped so the caller's schema
+   * remains the single source of truth for profile shape.
+   */
+  async listProfiles(extraFilter?: string): Promise<readonly unknown[]> {
     const customerFilter = `customer=="customers/${this.customerId}"`;
     const filter =
       extraFilter === undefined
         ? customerFilter
         : `${customerFilter} ${extraFilter}`;
-    const response = await this.auth.request<unknown>({
-      url: `${CLOUD_IDENTITY_BASE}/inboundSamlSsoProfiles`,
-      method: "GET",
-      params: { filter },
-    });
-    return response.data;
+
+    const profiles: unknown[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const params: Record<string, string> = { filter };
+      if (pageToken !== undefined) {
+        params.pageToken = pageToken;
+      }
+      const response = await this.auth.request<unknown>({
+        url: `${CLOUD_IDENTITY_BASE}/inboundSamlSsoProfiles`,
+        method: "GET",
+        params,
+      });
+      const page = parseListProfilesPage(response.data);
+      if (page.inboundSamlSsoProfiles !== undefined) {
+        profiles.push(...page.inboundSamlSsoProfiles);
+      }
+      pageToken = page.nextPageToken;
+    } while (pageToken !== undefined && pageToken.length > 0);
+
+    return profiles;
   }
 
   async createProfile(body: Record<string, unknown>): Promise<unknown> {

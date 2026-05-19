@@ -99,11 +99,6 @@ const profileResponseSchema = z.looseObject({
   spConfig: z.looseObject({}).optional(),
 });
 
-const listResponseSchema = z.looseObject({
-  inboundSamlSsoProfiles: z.array(profileResponseSchema).optional(),
-  nextPageToken: z.string().trim().optional(),
-});
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -229,24 +224,21 @@ export class SamlAppResource implements ResourcePort<
     }
 
     try {
-      const raw = await requireClient(this.client).listProfiles();
-      const list = listResponseSchema.safeParse(raw);
-      if (!list.success) {
-        throw new ProviderApiError(
-          "google-workspace",
-          "read",
-          list.error.issues,
-        );
+      const profiles = await requireClient(this.client).listProfiles();
+      for (const raw of profiles) {
+        const parsedProfile = profileResponseSchema.safeParse(raw);
+        if (!parsedProfile.success) {
+          throw new ProviderApiError(
+            "google-workspace",
+            "read",
+            parsedProfile.error.issues,
+          );
+        }
+        if (parsedProfile.data.displayName === parsed.data.displayName) {
+          return parsedProfile.data;
+        }
       }
-
-      const profiles = list.data.inboundSamlSsoProfiles;
-      if (profiles === undefined) return undefined;
-      const match = profiles.find(
-        (profile) => profile.displayName === parsed.data.displayName,
-      );
-      if (match === undefined) return undefined;
-
-      return validateProfileResponse(match, "read");
+      return undefined;
     } catch (error) {
       throw toProviderApiError(error, "read");
     }
