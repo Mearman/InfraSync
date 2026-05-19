@@ -150,7 +150,16 @@ export interface OperationError {
  * reports an error or times out.
  */
 export class CloudIdentityClient {
-  constructor(private readonly auth: GoogleRequester) {}
+  /**
+   * Customer scope for list queries. Threaded into the Cloud Identity
+   * `filter` query parameter as `customer=="customers/${customerId}"` so
+   * multi-tenant scenarios get the correct scope. See
+   * https://cloud.google.com/identity/docs/reference/rest/v1/inboundSamlSsoProfiles/list#query-parameters
+   */
+  constructor(
+    private readonly auth: GoogleRequester,
+    private readonly customerId: string,
+  ) {}
 
   async getProfile(profileId: string): Promise<unknown> {
     const response = await this.auth.request<unknown>({
@@ -160,12 +169,16 @@ export class CloudIdentityClient {
     return response.data;
   }
 
-  async listProfiles(filter?: string): Promise<unknown> {
-    const params = filter === undefined ? undefined : { filter };
+  async listProfiles(extraFilter?: string): Promise<unknown> {
+    const customerFilter = `customer=="customers/${this.customerId}"`;
+    const filter =
+      extraFilter === undefined
+        ? customerFilter
+        : `${customerFilter} ${extraFilter}`;
     const response = await this.auth.request<unknown>({
       url: `${CLOUD_IDENTITY_BASE}/inboundSamlSsoProfiles`,
       method: "GET",
-      params,
+      params: { filter },
     });
     return response.data;
   }

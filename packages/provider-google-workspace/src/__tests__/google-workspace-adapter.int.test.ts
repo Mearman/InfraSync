@@ -77,6 +77,39 @@ describe("Google Workspace adapter", () => {
     assert.ok(!result.success);
   });
 
+  it("rejects oauth-user config missing customerId", () => {
+    const config = {
+      kind: "oauth-user" as const,
+      clientId: "x",
+      clientSecret: "y",
+      refreshToken: "z",
+    };
+    const result = googleWorkspaceConfigSchema.safeParse(config);
+    assert.ok(!result.success);
+  });
+
+  it("rejects service-account config missing customerId", () => {
+    const config = {
+      kind: "service-account" as const,
+      serviceAccountKey: JSON.stringify({ type: "service_account" }),
+      subjectEmail: "admin@example.com",
+    };
+    const result = googleWorkspaceConfigSchema.safeParse(config);
+    assert.ok(!result.success);
+  });
+
+  it("rejects oauth-user config with empty customerId", () => {
+    const config = {
+      kind: "oauth-user" as const,
+      clientId: "x",
+      clientSecret: "y",
+      refreshToken: "z",
+      customerId: "",
+    };
+    const result = googleWorkspaceConfigSchema.safeParse(config);
+    assert.ok(!result.success);
+  });
+
   it("provider lists supported kinds", () => {
     const provider = new GoogleWorkspaceProvider();
     assert.deepEqual(provider.supportedKinds(), ["SamlApp"]);
@@ -340,7 +373,7 @@ describe("Google Workspace adapter", () => {
       done: true,
       error: { code: 13, message: "internal failure" },
     });
-    const client = new CloudIdentityClient(requester);
+    const client = new CloudIdentityClient(requester, "C00abc123");
     const resource = new SamlAppResource(client);
 
     await assert.rejects(
@@ -362,7 +395,7 @@ describe("Google Workspace adapter", () => {
       done: true,
       error: { code: 7, message: "permission denied" },
     });
-    const client = new CloudIdentityClient(requester);
+    const client = new CloudIdentityClient(requester, "C00abc123");
     const resource = new SamlAppResource(client);
 
     await assert.rejects(
@@ -374,6 +407,38 @@ describe("Google Workspace adapter", () => {
         return true;
       },
     );
+  });
+
+  // ─── customerId threading ─────────────────────────────────────────────────
+
+  it("listProfiles sends customer filter scoped to configured customerId", async () => {
+    interface CapturedRequest {
+      readonly url: string | undefined;
+      readonly params: unknown;
+    }
+    const captured: CapturedRequest[] = [];
+    const requester: GoogleRequester = {
+      async request(opts: {
+        url?: string;
+        params?: unknown;
+      }): Promise<{ data: unknown }> {
+        await Promise.resolve();
+        captured.push({ url: opts.url, params: opts.params });
+        return { data: { inboundSamlSsoProfiles: [] } };
+      },
+    } as unknown as GoogleRequester;
+    const client = new CloudIdentityClient(requester, "C00xyz789");
+
+    await client.listProfiles();
+
+    assert.equal(captured.length, 1);
+    const first = captured[0];
+    assert.ok(first !== undefined);
+    assert.ok(first.url !== undefined);
+    assert.match(first.url, /inboundSamlSsoProfiles$/);
+    assert.deepEqual(first.params, {
+      filter: 'customer=="customers/C00xyz789"',
+    });
   });
 
   it("SamlApp.create re-throws existing ProviderApiError unchanged", async () => {
@@ -389,7 +454,7 @@ describe("Google Workspace adapter", () => {
         throw sentinel;
       },
     } as unknown as GoogleRequester;
-    const client = new CloudIdentityClient(requester);
+    const client = new CloudIdentityClient(requester, "C00abc123");
     const resource = new SamlAppResource(client);
 
     await assert.rejects(

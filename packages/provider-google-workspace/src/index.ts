@@ -107,7 +107,7 @@ export class GoogleWorkspaceProvider implements ProviderPort<
             serviceAccountKey: result.data.serviceAccountKey,
             subjectEmail: result.data.subjectEmail,
           });
-    this.client = new CloudIdentityClient(requester);
+    this.client = new CloudIdentityClient(requester, result.data.customerId);
     await Promise.resolve();
   }
 
