@@ -326,7 +326,14 @@ describe("Google Workspace adapter", () => {
             assertionConsumerServiceUri: "https://example.com/acs",
           },
         }),
-      /not connected/,
+      // `read()` now wraps all underlying errors in `ProviderApiError`. The
+      // original "not connected" message survives on the first issue.
+      (err: unknown) => {
+        assert.ok(err instanceof ProviderApiError);
+        assert.equal(err.operation, "read");
+        assert.match(firstIssueMessage(err), /not connected/);
+        return true;
+      },
     );
   });
 
@@ -439,6 +446,57 @@ describe("Google Workspace adapter", () => {
     assert.deepEqual(first.params, {
       filter: 'customer=="customers/C00xyz789"',
     });
+  });
+
+  it("SamlApp.read wraps requester errors in ProviderApiError", async () => {
+    // The list HTTP GET in `read()` does not poll an LRO, but it can still
+    // throw a GaxiosError (or any other plain Error) on network/HTTP failure.
+    // Without the try/catch the error escapes as a plain Error and crashes
+    // the engine, which only catches ProviderApiError.
+    const requester: GoogleRequester = {
+      async request(): Promise<{ data: unknown }> {
+        await Promise.resolve();
+        throw new Error("HTTP 503 Service Unavailable");
+      },
+    } as unknown as GoogleRequester;
+    const client = new CloudIdentityClient(requester, "C00abc123");
+    const resource = new SamlAppResource(client);
+
+    await assert.rejects(
+      () => resource.read(validSamlSpec),
+      (err: unknown) => {
+        assert.ok(err instanceof ProviderApiError);
+        assert.equal(err.provider, "google-workspace");
+        assert.equal(err.operation, "read");
+        assert.match(firstIssueMessage(err), /503 Service Unavailable/);
+        return true;
+      },
+    );
+  });
+
+  it("SamlApp.read re-throws existing ProviderApiError unchanged", async () => {
+    // Parallel to the create()/update() guarantees: a ProviderApiError raised
+    // from within the requester must propagate unchanged so its structured
+    // issues survive.
+    const sentinel = new ProviderApiError("google-workspace", "read", [
+      { path: ["sentinel"], message: "sentinel" },
+    ]);
+    const requester: GoogleRequester = {
+      async request(): Promise<{ data: unknown }> {
+        await Promise.resolve();
+        throw sentinel;
+      },
+    } as unknown as GoogleRequester;
+    const client = new CloudIdentityClient(requester, "C00abc123");
+    const resource = new SamlAppResource(client);
+
+    await assert.rejects(
+      () => resource.read(validSamlSpec),
+      (err: unknown) => {
+        assert.strictEqual(err, sentinel);
+        return true;
+      },
+    );
   });
 
   it("SamlApp.create re-throws existing ProviderApiError unchanged", async () => {

@@ -228,20 +228,28 @@ export class SamlAppResource implements ResourcePort<
       );
     }
 
-    const raw = await requireClient(this.client).listProfiles();
-    const list = listResponseSchema.safeParse(raw);
-    if (!list.success) {
-      throw new ProviderApiError("google-workspace", "read", list.error.issues);
+    try {
+      const raw = await requireClient(this.client).listProfiles();
+      const list = listResponseSchema.safeParse(raw);
+      if (!list.success) {
+        throw new ProviderApiError(
+          "google-workspace",
+          "read",
+          list.error.issues,
+        );
+      }
+
+      const profiles = list.data.inboundSamlSsoProfiles;
+      if (profiles === undefined) return undefined;
+      const match = profiles.find(
+        (profile) => profile.displayName === parsed.data.displayName,
+      );
+      if (match === undefined) return undefined;
+
+      return validateProfileResponse(match, "read");
+    } catch (error) {
+      throw toProviderApiError(error, "read");
     }
-
-    const profiles = list.data.inboundSamlSsoProfiles;
-    if (profiles === undefined) return undefined;
-    const match = profiles.find(
-      (profile) => profile.displayName === parsed.data.displayName,
-    );
-    if (match === undefined) return undefined;
-
-    return validateProfileResponse(match, "read");
   }
 
   async create(spec: unknown): Promise<unknown> {
