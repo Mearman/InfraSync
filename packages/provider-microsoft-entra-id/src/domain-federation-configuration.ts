@@ -179,7 +179,13 @@ function attachDomain(
   raw: z.infer<typeof singleResponseSchema>,
   domain: string,
 ): Record<string, unknown> {
-  return { ...raw, domain };
+  const merged = { ...raw, domain };
+  // Strip undefined values: deepEqual compares key counts, so
+  // { metadataExchangeUri: undefined } ≠ {} and causes false drift when
+  // the optional field is absent from the desired spec.
+  return Object.fromEntries(
+    Object.entries(merged).filter(([, v]) => v !== undefined),
+  );
 }
 
 // ─── Request body builder ────────────────────────────────────────────────────
