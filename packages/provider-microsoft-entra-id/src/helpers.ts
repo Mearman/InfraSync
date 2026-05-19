@@ -24,11 +24,19 @@ export function getStateId(state: unknown): string {
  * Convert an arbitrary thrown value from the Graph SDK into a structured
  * `ProviderApiError`. 404s are not errors at this layer — callers translate
  * them into `undefined` for `read()`.
+ *
+ * If the error is already a `ProviderApiError` (for example, thrown by
+ * `validateApiResponse()` / `validateSingle()` when API-response Zod
+ * validation fails), it is returned unchanged so the structured `issues`
+ * array is preserved. Wrapping a `ProviderApiError` in another
+ * `ProviderApiError` would discard those issues by collapsing them into
+ * the outer error's generic `message`.
  */
 export function toProviderApiError(
   error: unknown,
   operation: string,
 ): ProviderApiError {
+  if (error instanceof ProviderApiError) return error;
   if (error instanceof GraphError) {
     return new ProviderApiError(PROVIDER_NAME, operation, [
       {

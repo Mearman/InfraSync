@@ -48,18 +48,30 @@ export type DomainFederationConfigurationSpec = z.infer<
 
 // ─── State schema ────────────────────────────────────────────────────────────
 
+/**
+ * Provider-returned state for an Entra ID internal domain federation
+ * configuration.
+ *
+ * `read()` and `create()` always follow up the collection/POST call with a
+ * `GET /domains/{domain}/federationConfiguration/{id}` against the individual
+ * resource — that endpoint returns every SAML attribute, so the state and
+ * desired-state schemas can require the same fields symmetrically.
+ *
+ * `metadataExchangeUri` remains optional because the underlying spec marks it
+ * optional: an IdP without WS-Trust does not advertise a MEX URI.
+ */
 const domainFederationConfigurationStateSchema = z
   .looseObject({
     id: z.string().trim().min(1),
     domain: z.string().trim().min(1),
-    issuerUri: z.string().trim().optional(),
-    displayName: z.string().trim().optional(),
-    activeSignInUri: z.string().trim().optional(),
-    passiveSignInUri: z.string().trim().optional(),
-    metadataExchangeUri: z.string().trim().optional(),
-    signOutUri: z.string().trim().optional(),
-    signingCertificate: z.string().trim().optional(),
-    preferredAuthenticationProtocol: z.string().trim().optional(),
+    issuerUri: z.string().trim().min(1),
+    displayName: z.string().trim().min(1),
+    activeSignInUri: z.string().trim().min(1),
+    passiveSignInUri: z.string().trim().min(1),
+    metadataExchangeUri: z.string().trim().min(1).optional(),
+    signOutUri: z.string().trim().min(1),
+    signingCertificate: z.string().trim().min(1),
+    preferredAuthenticationProtocol: z.string().trim().min(1),
   })
   .brand<"EntraIdDomainFederationConfigurationState">()
   .readonly();
@@ -71,25 +83,66 @@ const identitySchema = domainFederationConfigurationSpecSchema.pick({
   domain: true,
 });
 
-const desiredStateSchema = domainFederationConfigurationSpecSchema.pick({
-  kind: true,
-  domain: true,
-  issuerUri: true,
-  displayName: true,
-  activeSignInUri: true,
-  passiveSignInUri: true,
-  metadataExchangeUri: true,
-  signOutUri: true,
-  signingCertificate: true,
-  preferredAuthenticationProtocol: true,
+/**
+ * Convergence schema — picks only the mutable, diffable SAML fields.
+ *
+ * `kind` and `domain` are identity fields handled by `identitySchema`; they
+ * cannot change between desired and actual without meaning a different
+ * resource entirely, so they have no place in the convergence comparison.
+ *
+ * Rebuilt as a `z.object` (loose) — `domainFederationConfigurationSpecSchema`
+ * is a `z.strictObject` so `.pick()` would propagate strict-mode and reject
+ * extra fields the engine passes through (e.g. `id`, `domain`) when parsing
+ * normalised state. The spread-from-shape idiom changes strictness while
+ * preserving each field's exact validator.
+ */
+const desiredStateSchema = z.object({
+  issuerUri: domainFederationConfigurationSpecSchema.shape.issuerUri,
+  displayName: domainFederationConfigurationSpecSchema.shape.displayName,
+  activeSignInUri:
+    domainFederationConfigurationSpecSchema.shape.activeSignInUri,
+  passiveSignInUri:
+    domainFederationConfigurationSpecSchema.shape.passiveSignInUri,
+  metadataExchangeUri:
+    domainFederationConfigurationSpecSchema.shape.metadataExchangeUri,
+  signOutUri: domainFederationConfigurationSpecSchema.shape.signOutUri,
+  signingCertificate:
+    domainFederationConfigurationSpecSchema.shape.signingCertificate,
+  preferredAuthenticationProtocol:
+    domainFederationConfigurationSpecSchema.shape
+      .preferredAuthenticationProtocol,
 });
 
 // ─── API response validation ─────────────────────────────────────────────────
 
+/**
+ * Validates the full `internalDomainFederation` document returned by
+ * `GET /domains/{domain}/federationConfiguration/{id}`.
+ *
+ * Mirrors `domainFederationConfigurationStateSchema` (minus `domain`, which is
+ * not echoed by Graph and is attached separately via `attachDomain`). Graph
+ * may return additional fields (`@odata.type`, etc.) — `looseObject` admits
+ * them without complaint.
+ */
 const singleResponseSchema = z.looseObject({
   id: z.string().trim().min(1),
+  displayName: z.string().trim().min(1),
+  issuerUri: z.string().trim().min(1),
+  activeSignInUri: z.string().trim().min(1),
+  passiveSignInUri: z.string().trim().min(1),
+  metadataExchangeUri: z.string().trim().min(1).optional(),
+  signOutUri: z.string().trim().min(1),
+  signingCertificate: z.string().trim().min(1),
+  preferredAuthenticationProtocol: z.string().trim().min(1),
 });
 
+/**
+ * Validates the collection envelope returned by
+ * `GET /domains/{domain}/federationConfiguration`. The collection endpoint
+ * returns a `value` array of entries that may not include every SAML field —
+ * only `id` is consumed from this layer; the adapter follows up with a GET on
+ * the individual configuration to fetch the full document.
+ */
 const collectionResponseSchema = z.looseObject({
   value: z.array(z.looseObject({ id: z.string().trim().min(1) })),
 });
@@ -158,18 +211,42 @@ export class DomainFederationConfigurationResource implements ResourcePort<
 
   getStateId = getStateId;
 
+  /**
+   * Fetch the full `internalDomainFederation` document for a known id and
+   * attach the `domain` (which Graph does not echo) to the returned state.
+   *
+   * The individual endpoint returns every SAML attribute — convergence and
+   * desired-state validation rely on this completeness.
+   */
+  private async fetchConfiguration(
+    domain: string,
+    id: string,
+    operation: string,
+  ): Promise<Record<string, unknown>> {
+    const raw: unknown = await this.client
+      .api(
+        `/domains/${encodeURIComponent(domain)}/federationConfiguration/${encodeURIComponent(id)}`,
+      )
+      .get();
+    const validated = validateSingle(raw, operation);
+    return attachDomain(validated, domain);
+  }
+
   async read(spec: unknown): Promise<unknown> {
     const parsed = domainFederationConfigurationSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError(PROVIDER_NAME, "read", parsed.error.issues);
     }
     try {
-      const raw: unknown = await this.client
+      // The collection endpoint may omit SAML attributes from its entries —
+      // it is used purely to discover the configuration id. Once we have the
+      // id, the individual GET returns the full document.
+      const rawCollection: unknown = await this.client
         .api(
           `/domains/${encodeURIComponent(parsed.data.domain)}/federationConfiguration`,
         )
         .get();
-      const collection = collectionResponseSchema.safeParse(raw);
+      const collection = collectionResponseSchema.safeParse(rawCollection);
       if (!collection.success) {
         throw new ProviderApiError(
           PROVIDER_NAME,
@@ -179,9 +256,14 @@ export class DomainFederationConfigurationResource implements ResourcePort<
       }
       const first = collection.data.value[0];
       if (first === undefined) return undefined;
-      return attachDomain(first, parsed.data.domain);
+      return await this.fetchConfiguration(
+        parsed.data.domain,
+        first.id,
+        "read",
+      );
     } catch (error) {
       if (isNotFound(error)) return undefined;
+      if (error instanceof ProviderApiError) throw error;
       throw toProviderApiError(error, "read");
     }
   }
@@ -197,9 +279,14 @@ export class DomainFederationConfigurationResource implements ResourcePort<
           `/domains/${encodeURIComponent(parsed.data.domain)}/federationConfiguration`,
         )
         .post(buildBody(parsed.data, true));
-      const validated = validateSingle(raw, "create");
-      return attachDomain(validated, parsed.data.domain);
+      // The POST response may not echo every SAML field. Follow up with a
+      // GET on the individual configuration so the returned state is
+      // symmetric with `read()` and `update()` — convergence relies on that
+      // consistency.
+      const id = extractCreatedId(raw);
+      return await this.fetchConfiguration(parsed.data.domain, id, "create");
     } catch (error) {
+      if (error instanceof ProviderApiError) throw error;
       throw toProviderApiError(error, "create");
     }
   }
@@ -215,15 +302,24 @@ export class DomainFederationConfigurationResource implements ResourcePort<
           `/domains/${encodeURIComponent(parsed.data.domain)}/federationConfiguration/${encodeURIComponent(id)}`,
         )
         .patch(buildBody(parsed.data, false));
-      const raw: unknown = await this.client
-        .api(
-          `/domains/${encodeURIComponent(parsed.data.domain)}/federationConfiguration/${encodeURIComponent(id)}`,
-        )
-        .get();
-      const validated = validateSingle(raw, "update");
-      return attachDomain(validated, parsed.data.domain);
+      return await this.fetchConfiguration(parsed.data.domain, id, "update");
     } catch (error) {
+      if (error instanceof ProviderApiError) throw error;
       throw toProviderApiError(error, "update");
     }
   }
+}
+
+/**
+ * Extract the `id` of a newly-created federation configuration from a Graph
+ * POST response. The POST may not return every SAML field, so only `id` is
+ * read at this layer — the canonical document is fetched via a follow-up
+ * `GET` on the individual configuration.
+ */
+function extractCreatedId(raw: unknown): string {
+  const result = z.looseObject({ id: z.string().trim().min(1) }).safeParse(raw);
+  if (!result.success) {
+    throw new ProviderApiError(PROVIDER_NAME, "create", result.error.issues);
+  }
+  return result.data.id;
 }
