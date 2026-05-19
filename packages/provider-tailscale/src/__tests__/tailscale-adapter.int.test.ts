@@ -1,14 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-  tailscaleConfigSchema,
-  TailscaleProvider,
-} from "@infrasync/tailscale/index";
-import { aclPolicySpecSchema } from "@infrasync/tailscale/acl-policy";
-import { tailnetKeySpecSchema } from "@infrasync/tailscale/tailnet-key";
-import { dnsNameserversSpecSchema } from "@infrasync/tailscale/dns-nameservers";
-import { dnsSearchPathsSpecSchema } from "@infrasync/tailscale/dns-search-paths";
-import { dnsPreferencesSpecSchema } from "@infrasync/tailscale/dns-preferences";
+import { tailscaleConfigSchema, TailscaleProvider } from "../index.js";
+import { aclPolicySpecSchema } from "../acl-policy.js";
+import { tailnetKeySpecSchema } from "../tailnet-key.js";
+import { dnsNameserversSpecSchema } from "../dns-nameservers.js";
+import { dnsSearchPathsSpecSchema } from "../dns-search-paths.js";
+import { dnsPreferencesSpecSchema } from "../dns-preferences.js";
 import { ResolvedScopes } from "@infrasync/core/provider";
 
 describe("Tailscale adapter", () => {

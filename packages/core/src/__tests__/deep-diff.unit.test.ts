@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { deepDiff } from "@infrasync/core/resource";
+import { deepDiff } from "../resource.js";
 
 describe("deepDiff", () => {
   it("returns empty for equal primitives", () => {

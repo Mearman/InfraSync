@@ -7,11 +7,8 @@ import {
   buildSamlAppRefs,
   createGoogleWorkspaceHandle,
   SamlAppResource,
-} from "@infrasync/google-workspace/index";
-import {
-  CloudIdentityClient,
-  type GoogleRequester,
-} from "@infrasync/google-workspace/client";
+} from "../index.js";
+import { CloudIdentityClient, type GoogleRequester } from "../client.js";
 import { ResolvedScopes } from "@infrasync/core/provider";
 import type { ResourceHandle } from "@infrasync/core/handles";
 import { RefToken } from "@infrasync/core/refs";

@@ -11,7 +11,7 @@ import {
   createMicrosoftEntraIdHandle,
   UserResource,
   DomainFederationConfigurationResource,
-} from "@infrasync/microsoft-entra-id/index";
+} from "../index.js";
 
 // ─── Mock helpers ────────────────────────────────────────────────────────────
 
