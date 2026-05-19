@@ -134,3 +134,8 @@ export {
   type SamlAppRefs,
   SamlAppResource,
 } from "./saml-app.js";
+
+export {
+  createGoogleWorkspaceHandle,
+  type GoogleWorkspaceProviderHandle,
+} from "./handle.js";
