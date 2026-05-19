@@ -19,7 +19,7 @@ import {
   ResourceRegistry as Registry,
 } from "@infrasync/core/provider";
 import { CloudIdentityClient, buildRequester } from "./client.js";
-import { SamlAppResource } from "./saml-app.js";
+import { InboundSamlSsoProfileResource } from "./inbound-saml-sso-profile.js";
 
 // ─── Config schema ───────────────────────────────────────────────────────────
 
@@ -74,7 +74,10 @@ export class GoogleWorkspaceProvider implements ProviderPort<
   private client: CloudIdentityClient | undefined;
 
   constructor() {
-    this.registry.register("SamlApp", () => new SamlAppResource(this.client));
+    this.registry.register(
+      "InboundSamlSsoProfile",
+      () => new InboundSamlSsoProfileResource(this.client),
+    );
   }
 
   /** Returns the connected Cloud Identity client or throws if not connected. */
@@ -128,12 +131,12 @@ export class GoogleWorkspaceProvider implements ProviderPort<
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 export {
-  samlAppSpecSchema,
-  type SamlAppSpec,
-  buildSamlAppRefs,
-  type SamlAppRefs,
-  SamlAppResource,
-} from "./saml-app.js";
+  inboundSamlSsoProfileSpecSchema,
+  type InboundSamlSsoProfileSpec,
+  buildInboundSamlSsoProfileRefs,
+  type InboundSamlSsoProfileRefs,
+  InboundSamlSsoProfileResource,
+} from "./inbound-saml-sso-profile.js";
 
 export {
   createGoogleWorkspaceHandle,

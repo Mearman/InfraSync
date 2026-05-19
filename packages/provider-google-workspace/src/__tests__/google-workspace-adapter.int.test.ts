@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import {
   googleWorkspaceConfigSchema,
   GoogleWorkspaceProvider,
-  samlAppSpecSchema,
-  buildSamlAppRefs,
+  inboundSamlSsoProfileSpecSchema,
+  buildInboundSamlSsoProfileRefs,
   createGoogleWorkspaceHandle,
-  SamlAppResource,
+  InboundSamlSsoProfileResource,
 } from "../index.js";
 import { CloudIdentityClient, type GoogleRequester } from "../client.js";
 import { ResolvedScopes } from "@infrasync/core/provider";
@@ -109,7 +109,7 @@ describe("Google Workspace adapter", () => {
 
   it("provider lists supported kinds", () => {
     const provider = new GoogleWorkspaceProvider();
-    assert.deepEqual(provider.supportedKinds(), ["SamlApp"]);
+    assert.deepEqual(provider.supportedKinds(), ["InboundSamlSsoProfile"]);
   });
 
   it("provider creates handler for each supported kind", () => {
@@ -133,11 +133,11 @@ describe("Google Workspace adapter", () => {
     assert.throws(() => provider.connectedClient(), /not connected/);
   });
 
-  // ─── SamlApp spec schema ───────────────────────────────────────────────────
+  // ─── InboundSamlSsoProfile spec schema ───────────────────────────────────────────────────
 
-  it("parses a valid SamlApp spec", () => {
+  it("parses a valid InboundSamlSsoProfile spec", () => {
     const spec = {
-      kind: "SamlApp" as const,
+      kind: "InboundSamlSsoProfile" as const,
       displayName: "Microsoft 365",
       idpConfig: {
         entityId: "https://accounts.google.com/o/saml2?idpid=C00abc123",
@@ -150,14 +150,14 @@ describe("Google Workspace adapter", () => {
           "https://login.microsoftonline.com/login.srf",
       },
     };
-    const result = samlAppSpecSchema.safeParse(spec);
+    const result = inboundSamlSsoProfileSpecSchema.safeParse(spec);
     assert.ok(result.success);
     assert.equal(result.data.displayName, "Microsoft 365");
   });
 
-  it("parses a SamlApp spec with optional IdP fields", () => {
+  it("parses a InboundSamlSsoProfile spec with optional IdP fields", () => {
     const spec = {
-      kind: "SamlApp" as const,
+      kind: "InboundSamlSsoProfile" as const,
       displayName: "App",
       idpConfig: {
         entityId: "https://accounts.google.com/o/saml2?idpid=X",
@@ -171,7 +171,7 @@ describe("Google Workspace adapter", () => {
         assertionConsumerServiceUri: "https://example.com/acs",
       },
     };
-    const result = samlAppSpecSchema.safeParse(spec);
+    const result = inboundSamlSsoProfileSpecSchema.safeParse(spec);
     assert.ok(result.success);
     assert.equal(
       result.data.idpConfig.logoutRedirectUri,
@@ -179,9 +179,9 @@ describe("Google Workspace adapter", () => {
     );
   });
 
-  it("rejects SamlApp spec with empty displayName", () => {
+  it("rejects InboundSamlSsoProfile spec with empty displayName", () => {
     const spec = {
-      kind: "SamlApp" as const,
+      kind: "InboundSamlSsoProfile" as const,
       displayName: "",
       idpConfig: {
         entityId: "https://accounts.google.com/o/saml2?idpid=X",
@@ -193,13 +193,13 @@ describe("Google Workspace adapter", () => {
         assertionConsumerServiceUri: "https://example.com/acs",
       },
     };
-    const result = samlAppSpecSchema.safeParse(spec);
+    const result = inboundSamlSsoProfileSpecSchema.safeParse(spec);
     assert.ok(!result.success);
   });
 
-  it("rejects SamlApp spec with invalid idpConfig URL", () => {
+  it("rejects InboundSamlSsoProfile spec with invalid idpConfig URL", () => {
     const spec = {
-      kind: "SamlApp" as const,
+      kind: "InboundSamlSsoProfile" as const,
       displayName: "App",
       idpConfig: {
         entityId: "not a url",
@@ -211,13 +211,13 @@ describe("Google Workspace adapter", () => {
         assertionConsumerServiceUri: "https://example.com/acs",
       },
     };
-    const result = samlAppSpecSchema.safeParse(spec);
+    const result = inboundSamlSsoProfileSpecSchema.safeParse(spec);
     assert.ok(!result.success);
   });
 
-  it("rejects SamlApp spec with unknown extra fields", () => {
+  it("rejects InboundSamlSsoProfile spec with unknown extra fields", () => {
     const spec = {
-      kind: "SamlApp" as const,
+      kind: "InboundSamlSsoProfile" as const,
       displayName: "App",
       idpConfig: {
         entityId: "https://accounts.google.com/o/saml2?idpid=X",
@@ -230,24 +230,24 @@ describe("Google Workspace adapter", () => {
       },
       unexpected: true,
     };
-    const result = samlAppSpecSchema.safeParse(spec);
+    const result = inboundSamlSsoProfileSpecSchema.safeParse(spec);
     assert.ok(!result.success);
   });
 
   // ─── Refs and handle ──────────────────────────────────────────────────────
 
-  it("buildSamlAppRefs produces typed RefTokens", () => {
-    const refs = buildSamlAppRefs("my-saml-app");
+  it("buildInboundSamlSsoProfileRefs produces typed RefTokens", () => {
+    const refs = buildInboundSamlSsoProfileRefs("my-inbound-saml-sso-profile");
     assert.ok(refs.id instanceof RefToken);
     assert.ok(refs.name instanceof RefToken);
     assert.ok(refs.displayName instanceof RefToken);
-    assert.equal(refs.id.resource, "my-saml-app");
+    assert.equal(refs.id.resource, "my-inbound-saml-sso-profile");
     assert.equal(refs.id.path, "id");
     assert.equal(refs.name.path, "name");
     assert.equal(refs.displayName.path, "displayName");
   });
 
-  it("typed handle registers a SamlApp resource", () => {
+  it("typed handle registers an InboundSamlSsoProfile resource", () => {
     const registered: { kind: string; name: string }[] = [];
     const handle = createGoogleWorkspaceHandle(
       "gw",
@@ -256,8 +256,8 @@ describe("Google Workspace adapter", () => {
         registered.push({ kind: h.kind, name: h.name });
       },
     );
-    const result = handle.samlApp("m365", {
-      kind: "SamlApp",
+    const result = handle.inboundSamlSsoProfile("m365", {
+      kind: "InboundSamlSsoProfile",
       displayName: "Microsoft 365",
       idpConfig: {
         entityId: "https://accounts.google.com/o/saml2?idpid=X",
@@ -270,28 +270,36 @@ describe("Google Workspace adapter", () => {
           "https://login.microsoftonline.com/login.srf",
       },
     });
-    assert.deepEqual(registered, [{ kind: "SamlApp", name: "m365" }]);
-    assert.equal(result.kind, "SamlApp");
+    assert.deepEqual(registered, [
+      { kind: "InboundSamlSsoProfile", name: "m365" },
+    ]);
+    assert.equal(result.kind, "InboundSamlSsoProfile");
     assert.equal(result.name, "m365");
     assert.ok(result.ref.id instanceof RefToken);
   });
 
-  // ─── SamlAppResource handler behaviour ────────────────────────────────────
+  // ─── InboundSamlSsoProfileResource handler behaviour ────────────────────────────────────
 
-  it("SamlApp handler reports correct kind and identity surface", () => {
+  it("InboundSamlSsoProfile handler reports correct kind and identity surface", () => {
     const provider = new GoogleWorkspaceProvider();
-    const handler = provider.resourceHandler("SamlApp", ResolvedScopes.empty);
-    assert.equal(handler.kind, "SamlApp");
+    const handler = provider.resourceHandler(
+      "InboundSamlSsoProfile",
+      ResolvedScopes.empty,
+    );
+    assert.equal(handler.kind, "InboundSamlSsoProfile");
     const identityResult = handler.identitySchema.safeParse({
-      kind: "SamlApp",
+      kind: "InboundSamlSsoProfile",
       displayName: "App",
     });
     assert.ok(identityResult.success);
   });
 
-  it("SamlApp handler getStateId extracts resource name", () => {
+  it("InboundSamlSsoProfile handler getStateId extracts resource name", () => {
     const provider = new GoogleWorkspaceProvider();
-    const handler = provider.resourceHandler("SamlApp", ResolvedScopes.empty);
+    const handler = provider.resourceHandler(
+      "InboundSamlSsoProfile",
+      ResolvedScopes.empty,
+    );
     const id = handler.getStateId({
       name: "inboundSamlSsoProfiles/01abc23",
       displayName: "App",
@@ -299,19 +307,25 @@ describe("Google Workspace adapter", () => {
     assert.equal(id, "inboundSamlSsoProfiles/01abc23");
   });
 
-  it("SamlApp handler getStateId throws on missing name", () => {
+  it("InboundSamlSsoProfile handler getStateId throws on missing name", () => {
     const provider = new GoogleWorkspaceProvider();
-    const handler = provider.resourceHandler("SamlApp", ResolvedScopes.empty);
+    const handler = provider.resourceHandler(
+      "InboundSamlSsoProfile",
+      ResolvedScopes.empty,
+    );
     assert.throws(() => handler.getStateId({ displayName: "App" }));
   });
 
-  it("SamlApp handler operations throw before connect", async () => {
+  it("InboundSamlSsoProfile handler operations throw before connect", async () => {
     const provider = new GoogleWorkspaceProvider();
-    const handler = provider.resourceHandler("SamlApp", ResolvedScopes.empty);
+    const handler = provider.resourceHandler(
+      "InboundSamlSsoProfile",
+      ResolvedScopes.empty,
+    );
     await assert.rejects(
       () =>
         handler.read({
-          kind: "SamlApp",
+          kind: "InboundSamlSsoProfile",
           displayName: "App",
           idpConfig: {
             entityId: "https://accounts.google.com/o/saml2?idpid=X",
@@ -351,7 +365,7 @@ describe("Google Workspace adapter", () => {
   }
 
   const validSamlSpec = {
-    kind: "SamlApp" as const,
+    kind: "InboundSamlSsoProfile" as const,
     displayName: "App",
     idpConfig: {
       entityId: "https://accounts.google.com/o/saml2?idpid=X",
@@ -371,14 +385,14 @@ describe("Google Workspace adapter", () => {
     return first.message;
   }
 
-  it("SamlApp.create wraps OperationFailedError in ProviderApiError", async () => {
+  it("InboundSamlSsoProfile.create wraps OperationFailedError in ProviderApiError", async () => {
     const requester = stubRequester({
       name: "operations/failed-op",
       done: true,
       error: { code: 13, message: "internal failure" },
     });
     const client = new CloudIdentityClient(requester, "C00abc123");
-    const resource = new SamlAppResource(client);
+    const resource = new InboundSamlSsoProfileResource(client);
 
     await assert.rejects(
       () => resource.create(validSamlSpec),
@@ -393,14 +407,14 @@ describe("Google Workspace adapter", () => {
     );
   });
 
-  it("SamlApp.update wraps OperationFailedError in ProviderApiError", async () => {
+  it("InboundSamlSsoProfile.update wraps OperationFailedError in ProviderApiError", async () => {
     const requester = stubRequester({
       name: "operations/failed-op",
       done: true,
       error: { code: 7, message: "permission denied" },
     });
     const client = new CloudIdentityClient(requester, "C00abc123");
-    const resource = new SamlAppResource(client);
+    const resource = new InboundSamlSsoProfileResource(client);
 
     await assert.rejects(
       () => resource.update("inboundSamlSsoProfiles/01abc23", validSamlSpec),
@@ -424,7 +438,7 @@ describe("Google Workspace adapter", () => {
       error: { code: 13 },
     });
     const client = new CloudIdentityClient(requester, "C00abc123");
-    const resource = new SamlAppResource(client);
+    const resource = new InboundSamlSsoProfileResource(client);
 
     await assert.rejects(
       () => resource.create(validSamlSpec),
@@ -523,7 +537,7 @@ describe("Google Workspace adapter", () => {
     } as unknown as GoogleRequester;
 
     const client = new CloudIdentityClient(requester, "C00xyz789");
-    const resource = new SamlAppResource(client);
+    const resource = new InboundSamlSsoProfileResource(client);
 
     const result = await resource.read({
       ...validSamlSpec,
@@ -545,7 +559,7 @@ describe("Google Workspace adapter", () => {
     assert.equal((result as { displayName: string }).displayName, "Target App");
   });
 
-  it("SamlApp.read wraps requester errors in ProviderApiError", async () => {
+  it("InboundSamlSsoProfile.read wraps requester errors in ProviderApiError", async () => {
     // The list HTTP GET in `read()` does not poll an LRO, but it can still
     // throw a GaxiosError (or any other plain Error) on network/HTTP failure.
     // Without the try/catch the error escapes as a plain Error and crashes
@@ -557,7 +571,7 @@ describe("Google Workspace adapter", () => {
       },
     } as unknown as GoogleRequester;
     const client = new CloudIdentityClient(requester, "C00abc123");
-    const resource = new SamlAppResource(client);
+    const resource = new InboundSamlSsoProfileResource(client);
 
     await assert.rejects(
       () => resource.read(validSamlSpec),
@@ -571,7 +585,7 @@ describe("Google Workspace adapter", () => {
     );
   });
 
-  it("SamlApp.read re-throws existing ProviderApiError unchanged", async () => {
+  it("InboundSamlSsoProfile.read re-throws existing ProviderApiError unchanged", async () => {
     // Parallel to the create()/update() guarantees: a ProviderApiError raised
     // from within the requester must propagate unchanged so its structured
     // issues survive.
@@ -585,7 +599,7 @@ describe("Google Workspace adapter", () => {
       },
     } as unknown as GoogleRequester;
     const client = new CloudIdentityClient(requester, "C00abc123");
-    const resource = new SamlAppResource(client);
+    const resource = new InboundSamlSsoProfileResource(client);
 
     await assert.rejects(
       () => resource.read(validSamlSpec),
@@ -596,7 +610,7 @@ describe("Google Workspace adapter", () => {
     );
   });
 
-  it("SamlApp.create re-throws existing ProviderApiError unchanged", async () => {
+  it("InboundSamlSsoProfile.create re-throws existing ProviderApiError unchanged", async () => {
     // A `ProviderApiError` raised inside the requester must propagate
     // unchanged from `toProviderApiError` — re-wrapping would discard the
     // original `provider`, `operation`, and `issues` fields.
@@ -610,7 +624,7 @@ describe("Google Workspace adapter", () => {
       },
     } as unknown as GoogleRequester;
     const client = new CloudIdentityClient(requester, "C00abc123");
-    const resource = new SamlAppResource(client);
+    const resource = new InboundSamlSsoProfileResource(client);
 
     await assert.rejects(
       () => resource.create(validSamlSpec),

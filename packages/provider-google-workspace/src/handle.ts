@@ -2,7 +2,7 @@
  * Typed authoring-time handle for the Google Workspace provider.
  *
  * Mirrors the Cloudflare pattern (`createCloudflareHandle`) so callers get
- * typed methods like `gw.samlApp(...)` with strongly typed ref surfaces.
+ * typed methods like `gw.inboundSamlSsoProfile(...)` with strongly typed ref surfaces.
  */
 
 import type {
@@ -11,8 +11,11 @@ import type {
   RefBuilder,
 } from "@infrasync/core/handles";
 import { createResourceHandle } from "@infrasync/core/handles";
-import type { SamlAppRefs, SamlAppSpec } from "./saml-app.js";
-import { buildSamlAppRefs } from "./saml-app.js";
+import type {
+  InboundSamlSsoProfileRefs,
+  InboundSamlSsoProfileSpec,
+} from "./inbound-saml-sso-profile.js";
+import { buildInboundSamlSsoProfileRefs } from "./inbound-saml-sso-profile.js";
 
 // ─── Registration function ───────────────────────────────────────────────────
 
@@ -38,11 +41,11 @@ export interface GoogleWorkspaceProviderHandle {
    * Create a SAML application (Cloud Identity inboundSamlSsoProfile).
    * Returns a handle with typed ref surface (id, name, displayName).
    */
-  samlApp(
+  inboundSamlSsoProfile(
     id: string,
-    spec: SamlAppSpec,
+    spec: InboundSamlSsoProfileSpec,
     options?: ResourceOptions,
-  ): ResourceHandle<SamlAppSpec, SamlAppRefs>;
+  ): ResourceHandle<InboundSamlSsoProfileSpec, InboundSamlSsoProfileRefs>;
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────────
@@ -54,12 +57,18 @@ class GoogleWorkspaceProviderHandleImpl implements GoogleWorkspaceProviderHandle
     private readonly registerResource: ResourceRegistrar,
   ) {}
 
-  samlApp(
+  inboundSamlSsoProfile(
     id: string,
-    spec: SamlAppSpec,
+    spec: InboundSamlSsoProfileSpec,
     options?: ResourceOptions,
-  ): ResourceHandle<SamlAppSpec, SamlAppRefs> {
-    return this.typedResource("SamlApp", id, spec, options, buildSamlAppRefs);
+  ): ResourceHandle<InboundSamlSsoProfileSpec, InboundSamlSsoProfileRefs> {
+    return this.typedResource(
+      "InboundSamlSsoProfile",
+      id,
+      spec,
+      options,
+      buildInboundSamlSsoProfileRefs,
+    );
   }
 
   private typedResource<TSpec, TRefs>(
@@ -104,8 +113,8 @@ class GoogleWorkspaceProviderHandleImpl implements GoogleWorkspaceProviderHandle
  *     baseGw.register,
  *   );
  *
- *   gw.samlApp("m365", {
- *     kind: "SamlApp",
+ *   gw.inboundSamlSsoProfile("m365", {
+ *     kind: "InboundSamlSsoProfile",
  *     displayName: "Microsoft 365",
  *     idpConfig: { ... },
  *     spConfig: { ... },

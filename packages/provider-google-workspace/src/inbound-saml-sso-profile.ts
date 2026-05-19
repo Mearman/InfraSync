@@ -1,5 +1,14 @@
 /**
- * SamlApp — Cloud Identity Inbound SAML SSO Profile.
+ * InboundSamlSsoProfile — Cloud Identity Inbound SAML SSO Profile.
+ *
+ * Configures Google Workspace as a SAML *service provider* receiving SSO
+ * assertions from an external identity provider (e.g. Okta, AD FS, or any
+ * third-party IdP that authenticates users into Google).
+ *
+ * This is NOT the resource for "Google as IdP for a third-party SP" (the
+ * direction used when federating Google Workspace into Microsoft 365 for
+ * sign-in). Google does not currently expose a stable programmable API for
+ * that direction; see the package README for details.
  *
  * Wraps the `inboundSamlSsoProfiles` REST surface
  * (https://cloud.google.com/identity/docs/reference/rest/v1/inboundSamlSsoProfiles).
@@ -17,13 +26,15 @@ import { toProviderApiError } from "./helpers.js";
 
 // ─── Ref type ────────────────────────────────────────────────────────────────
 
-export interface SamlAppRefs {
+export interface InboundSamlSsoProfileRefs {
   readonly id: RefToken;
   readonly name: RefToken;
   readonly displayName: RefToken;
 }
 
-export const buildSamlAppRefs: RefBuilder<SamlAppRefs> = (resourceName) => ({
+export const buildInboundSamlSsoProfileRefs: RefBuilder<
+  InboundSamlSsoProfileRefs
+> = (resourceName) => ({
   /** The numeric/UUID portion of `inboundSamlSsoProfiles/{id}`. */
   id: new RefToken(resourceName, "id"),
   /** The full resource name (`inboundSamlSsoProfiles/{id}`). */
@@ -46,17 +57,19 @@ const spConfigSchema = z.strictObject({
   assertionConsumerServiceUri: z.url(),
 });
 
-export const samlAppSpecSchema = z.strictObject({
-  kind: z.literal("SamlApp"),
+export const inboundSamlSsoProfileSpecSchema = z.strictObject({
+  kind: z.literal("InboundSamlSsoProfile"),
   /** Identity field — Google does not expose a stable user-controllable name. */
   displayName: z.string().trim().min(1),
   idpConfig: idpConfigSchema,
   spConfig: spConfigSchema,
 });
 
-export type SamlAppSpec = z.infer<typeof samlAppSpecSchema>;
+export type InboundSamlSsoProfileSpec = z.infer<
+  typeof inboundSamlSsoProfileSpecSchema
+>;
 
-const samlAppStateSchema = z
+const inboundSamlSsoProfileStateSchema = z
   .looseObject({
     /** Full resource name (`inboundSamlSsoProfiles/{id}`). */
     name: z.string().trim(),
@@ -76,19 +89,21 @@ const samlAppStateSchema = z
       })
       .optional(),
   })
-  .brand<"GoogleSamlAppState">()
+  .brand<"GoogleInboundSamlSsoProfileState">()
   .readonly();
 
-const samlAppIdentitySchema = samlAppSpecSchema.pick({
-  kind: true,
-  displayName: true,
-});
+const inboundSamlSsoProfileIdentitySchema =
+  inboundSamlSsoProfileSpecSchema.pick({
+    kind: true,
+    displayName: true,
+  });
 
-const samlAppDesiredStateSchema = samlAppSpecSchema.pick({
-  displayName: true,
-  idpConfig: true,
-  spConfig: true,
-});
+const inboundSamlSsoProfileDesiredStateSchema =
+  inboundSamlSsoProfileSpecSchema.pick({
+    displayName: true,
+    idpConfig: true,
+    spConfig: true,
+  });
 
 // ─── API response schemas ────────────────────────────────────────────────────
 
@@ -152,7 +167,7 @@ interface ProfileBody {
   [key: string]: unknown;
 }
 
-function buildProfileBody(spec: SamlAppSpec): ProfileBody {
+function buildProfileBody(spec: InboundSamlSsoProfileSpec): ProfileBody {
   const idpConfig: ProfileBodyIdpConfig = {
     entityId: spec.idpConfig.entityId,
     singleSignOnServiceUri: spec.idpConfig.singleSignOnServiceUri,
@@ -186,15 +201,15 @@ const SAML_APP_UPDATE_MASK: readonly string[] = [
 
 // ─── Resource implementation ────────────────────────────────────────────────
 
-export class SamlAppResource implements ResourcePort<
-  typeof samlAppSpecSchema,
-  typeof samlAppStateSchema
+export class InboundSamlSsoProfileResource implements ResourcePort<
+  typeof inboundSamlSsoProfileSpecSchema,
+  typeof inboundSamlSsoProfileStateSchema
 > {
-  readonly kind = "SamlApp";
-  readonly specSchema = samlAppSpecSchema;
-  readonly stateSchema = samlAppStateSchema;
-  readonly identitySchema = samlAppIdentitySchema;
-  readonly desiredStateSchema = samlAppDesiredStateSchema;
+  readonly kind = "InboundSamlSsoProfile";
+  readonly specSchema = inboundSamlSsoProfileSpecSchema;
+  readonly stateSchema = inboundSamlSsoProfileStateSchema;
+  readonly identitySchema = inboundSamlSsoProfileIdentitySchema;
+  readonly desiredStateSchema = inboundSamlSsoProfileDesiredStateSchema;
 
   constructor(private readonly client: CloudIdentityClient | undefined) {}
 
@@ -214,7 +229,7 @@ export class SamlAppResource implements ResourcePort<
   }
 
   async read(spec: unknown): Promise<unknown> {
-    const parsed = samlAppSpecSchema.safeParse(spec);
+    const parsed = inboundSamlSsoProfileSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError(
         "google-workspace",
@@ -245,7 +260,7 @@ export class SamlAppResource implements ResourcePort<
   }
 
   async create(spec: unknown): Promise<unknown> {
-    const parsed = samlAppSpecSchema.safeParse(spec);
+    const parsed = inboundSamlSsoProfileSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError(
         "google-workspace",
@@ -264,7 +279,7 @@ export class SamlAppResource implements ResourcePort<
   }
 
   async update(id: string, spec: unknown): Promise<unknown> {
-    const parsed = samlAppSpecSchema.safeParse(spec);
+    const parsed = inboundSamlSsoProfileSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError(
         "google-workspace",
