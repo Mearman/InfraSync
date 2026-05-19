@@ -46,6 +46,7 @@ export const userSpecSchema = z.strictObject({
   usageLocation: z.string().trim().length(ISO_COUNTRY_CODE_LENGTH),
   userType: z.enum(["Member", "Guest"]).default("Member"),
   passwordProfile: passwordProfileSchema,
+  onPremisesImmutableId: z.string().trim().min(1).optional(),
 });
 
 export type UserSpec = z.infer<typeof userSpecSchema>;
@@ -71,6 +72,12 @@ const userStateSchema = z
     accountEnabled: z.boolean(),
     usageLocation: z.string().trim().length(ISO_COUNTRY_CODE_LENGTH),
     userType: z.string().trim().min(1),
+    onPremisesImmutableId: z
+      .string()
+      .trim()
+      .min(1)
+      .nullish()
+      .transform((v) => v ?? undefined),
   })
   .brand<"EntraIdUserState">()
   .readonly();
@@ -104,6 +111,7 @@ const userDesiredStateSchema = z.object({
   accountEnabled: userSpecSchema.shape.accountEnabled,
   usageLocation: userSpecSchema.shape.usageLocation,
   userType: userSpecSchema.shape.userType,
+  onPremisesImmutableId: userSpecSchema.shape.onPremisesImmutableId,
 });
 
 // ─── API response validation ─────────────────────────────────────────────────
@@ -126,6 +134,7 @@ const USER_SELECT_FIELDS = [
   "accountEnabled",
   "usageLocation",
   "userType",
+  "onPremisesImmutableId",
 ] as const;
 
 const apiResponseSchema = z.looseObject({
@@ -136,6 +145,12 @@ const apiResponseSchema = z.looseObject({
   accountEnabled: z.boolean(),
   usageLocation: z.string().trim().length(ISO_COUNTRY_CODE_LENGTH),
   userType: z.string().trim().min(1),
+  onPremisesImmutableId: z
+    .string()
+    .trim()
+    .min(1)
+    .nullish()
+    .transform((v) => v ?? undefined),
 });
 
 function validateApiResponse(
@@ -146,7 +161,24 @@ function validateApiResponse(
   if (!result.success) {
     throw new ProviderApiError(PROVIDER_NAME, operation, result.error.issues);
   }
-  return result.data;
+  // Strip keys whose value is undefined so optional fields absent from the API
+  // response don't appear as `{ key: undefined }` in the state object.
+  // `deepEqual` compares key counts, so a spurious undefined key causes false
+  // drift when the spec omits the field.
+  // Re-parse the stripped object so the return type is properly inferred
+  // without a type assertion — looseObject tolerates the absent optional keys.
+  const stripped: unknown = Object.fromEntries(
+    Object.entries(result.data).filter(([, v]) => v !== undefined),
+  );
+  const strippedResult = apiResponseSchema.safeParse(stripped);
+  if (!strippedResult.success) {
+    throw new ProviderApiError(
+      PROVIDER_NAME,
+      operation,
+      strippedResult.error.issues,
+    );
+  }
+  return strippedResult.data;
 }
 
 // ─── Request body builders ───────────────────────────────────────────────────
@@ -172,6 +204,9 @@ function buildCreateBody(spec: UserSpec): Record<string, unknown> {
               spec.passwordProfile.forceChangePasswordNextSignIn,
           }),
     },
+    ...(spec.onPremisesImmutableId !== undefined
+      ? { onPremisesImmutableId: spec.onPremisesImmutableId }
+      : {}),
   };
 }
 
@@ -187,6 +222,9 @@ function buildUpdateBody(spec: UserSpec): Record<string, unknown> {
     accountEnabled: spec.accountEnabled,
     usageLocation: spec.usageLocation,
     userType: spec.userType,
+    ...(spec.onPremisesImmutableId !== undefined
+      ? { onPremisesImmutableId: spec.onPremisesImmutableId }
+      : {}),
   };
 }
 
