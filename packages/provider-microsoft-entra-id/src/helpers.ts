@@ -1,0 +1,58 @@
+import { GraphError } from "@microsoft/microsoft-graph-client";
+import { ProviderApiError } from "@infrasync/core/errors";
+
+const PROVIDER_NAME = "microsoft-entra-id";
+const HTTP_NOT_FOUND = 404;
+
+/**
+ * Extract the provider-assigned id from a state object.
+ * Every Entra ID resource state exposes a top-level `id` string.
+ */
+export function getStateId(state: unknown): string {
+  if (typeof state === "object" && state !== null && "id" in state) {
+    if (typeof state.id === "string") return state.id;
+  }
+  throw new ProviderApiError(PROVIDER_NAME, "getStateId", [
+    {
+      path: ["id"],
+      message: "State object does not contain a valid 'id' field",
+    },
+  ]);
+}
+
+/**
+ * Convert an arbitrary thrown value from the Graph SDK into a structured
+ * `ProviderApiError`. 404s are not errors at this layer — callers translate
+ * them into `undefined` for `read()`.
+ */
+export function toProviderApiError(
+  error: unknown,
+  operation: string,
+): ProviderApiError {
+  if (error instanceof GraphError) {
+    return new ProviderApiError(PROVIDER_NAME, operation, [
+      {
+        path: [],
+        message: `Graph API error ${String(error.statusCode)}: ${error.message}`,
+      },
+    ]);
+  }
+  if (error instanceof Error) {
+    return new ProviderApiError(PROVIDER_NAME, operation, [
+      { path: [], message: error.message },
+    ]);
+  }
+  return new ProviderApiError(PROVIDER_NAME, operation, [
+    { path: [], message: "unknown error from Graph SDK" },
+  ]);
+}
+
+/**
+ * True if the error is a Graph 404 — the canonical signal that a resource
+ * lookup found nothing.
+ */
+export function isNotFound(error: unknown): boolean {
+  return error instanceof GraphError && error.statusCode === HTTP_NOT_FOUND;
+}
+
+export { PROVIDER_NAME };
