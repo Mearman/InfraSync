@@ -142,3 +142,10 @@ export {
   createGoogleWorkspaceHandle,
   type GoogleWorkspaceProviderHandle,
 } from "./handle.js";
+
+export {
+  DirectoryClient,
+  buildDirectoryRequester,
+  type DirectoryUser,
+  directoryUserSchema,
+} from "./client.js";
