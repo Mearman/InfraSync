@@ -416,6 +416,37 @@ describe("Google Workspace adapter", () => {
     );
   });
 
+  it("awaitOperation fails loudly when error response omits message", async () => {
+    // The previous implementation silently substituted "operation failed
+    // without a message" when `error.message` was absent, masking malformed
+    // responses. The schema now requires `error.message`, so a malformed
+    // operation fails at parse time with a structured validation error.
+    const requester = stubRequester({
+      name: "operations/malformed-op",
+      done: true,
+      error: { code: 13 },
+    });
+    const client = new CloudIdentityClient(requester, "C00abc123");
+    const resource = new SamlAppResource(client);
+
+    await assert.rejects(
+      () => resource.create(validSamlSpec),
+      (err: unknown) => {
+        // `toProviderApiError` wraps the underlying parse error.
+        assert.ok(err instanceof ProviderApiError);
+        assert.equal(err.operation, "create");
+        // The placeholder string must not appear anywhere in the error.
+        assert.doesNotMatch(
+          firstIssueMessage(err),
+          /operation failed without a message/,
+        );
+        // The parse-failure message names the offending field.
+        assert.match(firstIssueMessage(err), /error\.message|message/);
+        return true;
+      },
+    );
+  });
+
   // ─── customerId threading ─────────────────────────────────────────────────
 
   it("listProfiles sends customer filter scoped to configured customerId", async () => {

@@ -124,6 +124,12 @@ export function buildRequester(options: AuthOptions): GoogleRequester {
 /**
  * Cloud Identity LRO response shape. `done: true` means terminal; either
  * `response` or `error` will be present.
+ *
+ * The `error` field follows Google's `Status` shape
+ * (https://cloud.google.com/identity/docs/reference/rest/Shared.Types/Status);
+ * `message` is documented as required when `error` is present, so the schema
+ * requires it. A malformed response missing `message` fails parsing loudly
+ * rather than being papered over with a placeholder string.
  */
 const operationSchema = z.looseObject({
   name: z.string().trim(),
@@ -132,7 +138,7 @@ const operationSchema = z.looseObject({
   error: z
     .looseObject({
       code: z.number().optional(),
-      message: z.string().trim().optional(),
+      message: z.string().trim().min(1),
     })
     .optional(),
 });
@@ -239,7 +245,7 @@ export class CloudIdentityClient {
     if (current.error !== undefined) {
       throw new OperationFailedError(current.name, {
         code: current.error.code,
-        message: current.error.message ?? "operation failed without a message",
+        message: current.error.message,
       });
     }
 
