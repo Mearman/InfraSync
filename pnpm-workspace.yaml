@@ -1,2 +1,8 @@
 packages:
   - "packages/*"
+
+allowBuilds:
+  esbuild: true
+  keytar: true
+  "@azure/msal-node-extensions": true
+  "@azure/msal-node-runtime": true

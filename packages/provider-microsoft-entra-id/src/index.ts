@@ -84,9 +84,8 @@ export class MicrosoftEntraIdProvider implements ProviderPort<
           .join(", ")}`,
       );
     }
-    const credential = buildCredential(result.data);
+    const credential = await buildCredential(result.data);
     this.client = buildGraphClient(credential);
-    await Promise.resolve();
   }
 
   async disconnect(): Promise<void> {

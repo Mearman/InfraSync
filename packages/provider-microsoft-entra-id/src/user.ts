@@ -38,6 +38,7 @@ const passwordProfileSchema = z.strictObject({
 
 export const userSpecSchema = z.strictObject({
   kind: z.literal("User"),
+  name: z.string().trim().min(1),
   userPrincipalName: z.string().trim().min(1),
   displayName: z.string().trim().min(1),
   mailNickname: z.string().trim().min(1),

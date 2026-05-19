@@ -31,6 +31,7 @@ export const buildDomainFederationConfigurationRefs: RefBuilder<
 
 export const domainFederationConfigurationSpecSchema = z.strictObject({
   kind: z.literal("DomainFederationConfiguration"),
+  name: z.string().trim().min(1),
   domain: z.string().trim().min(1),
   issuerUri: z.url(),
   displayName: z.string().trim().min(1),
@@ -40,6 +41,13 @@ export const domainFederationConfigurationSpecSchema = z.strictObject({
   signOutUri: z.url(),
   signingCertificate: z.string().trim().min(1),
   preferredAuthenticationProtocol: z.enum(["saml", "wsFed"]).default("saml"),
+  federatedIdpMfaBehavior: z
+    .enum([
+      "acceptIfMfaDoneByFederatedIdp",
+      "enforceMfaByFederatedIdp",
+      "rejectMfaByFederatedIdp",
+    ])
+    .default("acceptIfMfaDoneByFederatedIdp"),
 });
 
 export type DomainFederationConfigurationSpec = z.infer<
@@ -72,6 +80,7 @@ const domainFederationConfigurationStateSchema = z
     signOutUri: z.string().trim().min(1),
     signingCertificate: z.string().trim().min(1),
     preferredAuthenticationProtocol: z.string().trim().min(1),
+    federatedIdpMfaBehavior: z.string().trim().min(1),
   })
   .brand<"EntraIdDomainFederationConfigurationState">()
   .readonly();
@@ -111,6 +120,8 @@ const desiredStateSchema = z.object({
   preferredAuthenticationProtocol:
     domainFederationConfigurationSpecSchema.shape
       .preferredAuthenticationProtocol,
+  federatedIdpMfaBehavior:
+    domainFederationConfigurationSpecSchema.shape.federatedIdpMfaBehavior,
 });
 
 // ─── API response validation ─────────────────────────────────────────────────
@@ -130,10 +141,16 @@ const singleResponseSchema = z.looseObject({
   issuerUri: z.string().trim().min(1),
   activeSignInUri: z.string().trim().min(1),
   passiveSignInUri: z.string().trim().min(1),
-  metadataExchangeUri: z.string().trim().min(1).optional(),
+  metadataExchangeUri: z
+    .string()
+    .trim()
+    .min(1)
+    .nullish()
+    .transform((v) => v ?? undefined),
   signOutUri: z.string().trim().min(1),
   signingCertificate: z.string().trim().min(1),
   preferredAuthenticationProtocol: z.string().trim().min(1),
+  federatedIdpMfaBehavior: z.string().trim().min(1),
 });
 
 /**
@@ -185,6 +202,7 @@ function buildBody(
     signOutUri: spec.signOutUri,
     signingCertificate: spec.signingCertificate,
     preferredAuthenticationProtocol: spec.preferredAuthenticationProtocol,
+    federatedIdpMfaBehavior: spec.federatedIdpMfaBehavior,
   };
   if (spec.metadataExchangeUri !== undefined) {
     body.metadataExchangeUri = spec.metadataExchangeUri;
