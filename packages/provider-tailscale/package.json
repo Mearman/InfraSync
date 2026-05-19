@@ -21,7 +21,9 @@
     "_lint": "eslint . --cache",
     "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
   },
-  "dependencies": {},
+  "dependencies": {
+    "zod": "4.3.6"
+  },
   "peerDependencies": {
     "@infrasync/core": "workspace:*"
   },
