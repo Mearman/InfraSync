@@ -7,6 +7,7 @@
     "commitlint.config.ts",
     "eslint.config.ts",
     "lint-staged.config.ts",
+    "release.config.ts",
     "turbo.json",
     "pnpm-workspace.yaml"
   ]
