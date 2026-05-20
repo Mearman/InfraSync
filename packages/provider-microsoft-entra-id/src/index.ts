@@ -17,6 +17,7 @@ import {
 } from "./client.js";
 import { UserResource } from "./user.js";
 import { DomainFederationConfigurationResource } from "./domain-federation-configuration.js";
+import { FeatureRolloutPolicyResource } from "./feature-rollout-policy.js";
 
 // ─── Adapter descriptor ──────────────────────────────────────────────────────
 
@@ -58,6 +59,11 @@ export class MicrosoftEntraIdProvider implements ProviderPort<
     this.registry.register("DomainFederationConfiguration", () => {
       const client = this.connectedClient();
       return new DomainFederationConfigurationResource(client);
+    });
+
+    this.registry.register("FeatureRolloutPolicy", () => {
+      const client = this.connectedClient();
+      return new FeatureRolloutPolicyResource(client);
     });
   }
 
@@ -126,3 +132,10 @@ export {
   createMicrosoftEntraIdHandle,
   type MicrosoftEntraIdProviderHandle,
 } from "./handle.js";
+export {
+  FeatureRolloutPolicyResource,
+  featureRolloutPolicySpecSchema,
+  buildFeatureRolloutPolicyRefs,
+  type FeatureRolloutPolicySpec,
+  type FeatureRolloutPolicyRefs,
+} from "./feature-rollout-policy.js";

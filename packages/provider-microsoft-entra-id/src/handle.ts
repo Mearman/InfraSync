@@ -11,6 +11,11 @@ import type {
   DomainFederationConfigurationSpec,
 } from "./domain-federation-configuration.js";
 import { buildDomainFederationConfigurationRefs } from "./domain-federation-configuration.js";
+import type {
+  FeatureRolloutPolicyRefs,
+  FeatureRolloutPolicySpec,
+} from "./feature-rollout-policy.js";
+import { buildFeatureRolloutPolicyRefs } from "./feature-rollout-policy.js";
 
 // ─── Registration function ───────────────────────────────────────────────────
 
@@ -55,6 +60,16 @@ export interface MicrosoftEntraIdProviderHandle {
     DomainFederationConfigurationSpec,
     DomainFederationConfigurationRefs
   >;
+
+  /**
+   * Create a FeatureRolloutPolicy resource.
+   * Ref surface: id, displayName, feature.
+   */
+  featureRolloutPolicy(
+    id: string,
+    spec: FeatureRolloutPolicySpec,
+    options?: ResourceOptions,
+  ): ResourceHandle<FeatureRolloutPolicySpec, FeatureRolloutPolicyRefs>;
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────────
@@ -88,6 +103,20 @@ class MicrosoftEntraIdProviderHandleImpl implements MicrosoftEntraIdProviderHand
       spec,
       options,
       buildDomainFederationConfigurationRefs,
+    );
+  }
+
+  featureRolloutPolicy(
+    id: string,
+    spec: FeatureRolloutPolicySpec,
+    options?: ResourceOptions,
+  ): ResourceHandle<FeatureRolloutPolicySpec, FeatureRolloutPolicyRefs> {
+    return this.typedResource(
+      "FeatureRolloutPolicy",
+      id,
+      spec,
+      options,
+      buildFeatureRolloutPolicyRefs,
     );
   }
 
