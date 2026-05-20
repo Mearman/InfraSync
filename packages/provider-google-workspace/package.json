@@ -32,6 +32,7 @@
     "@infrasync-org/core": "workspace:*",
     "gaxios": "7.1.4",
     "tsdown": "0.21.7",
+    "tsx": "4.21.0",
     "typescript": "6.0.3"
   }
 }
