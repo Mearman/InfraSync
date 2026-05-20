@@ -459,18 +459,11 @@ export const monorepoRelease = {
         context.logger.warn(`Tag ${tag} already exists — skipping`);
       }
 
-      // npm publish
-      const npmToken = context.env.NPM_TOKEN;
-      if (npmToken === undefined) {
-        context.logger.error("NPM_TOKEN not set — skipping npm publish");
-        throw new Error("NPM_TOKEN environment variable is required");
-      }
-
+      // npm publish via OIDC provenance (no token required)
       try {
-        execSync("pnpm publish --access public --no-git-checks", {
+        execSync("npm publish --provenance --access public", {
           cwd: pkg.dir,
           stdio: "pipe",
-          env: { ...process.env, NODE_AUTH_TOKEN: npmToken },
         });
         context.logger.success(`Published ${pkg.name}@${version} to npm`);
       } catch (error) {
