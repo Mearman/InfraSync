@@ -13,8 +13,8 @@ import {
   genericPlugin,
 } from "../index.js";
 import type { MigrationPlan, MigrationDirection } from "../schemas.js";
-import type { TerraformIR } from "@infrasync/core-ir/schemas";
-import type { InfraIR } from "@infrasync/core/types";
+import type { TerraformIR } from "@infrasync-org/core-ir/schemas";
+import type { InfraIR } from "@infrasync-org/core/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

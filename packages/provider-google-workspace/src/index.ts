@@ -1,5 +1,5 @@
 /**
- * `@infrasync/google-workspace` adapter.
+ * `@infrasync-org/google-workspace` adapter.
  *
  * Exposes the Cloud Identity Inbound SAML SSO Profiles API so a Google
  * Workspace customer can be configured as the SAML IdP for downstream service
@@ -13,11 +13,11 @@ import type {
   ResolvedScopes,
   ResourcePort,
   ResourceRegistry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import {
   defineProvider,
   ResourceRegistry as Registry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import { CloudIdentityClient, buildRequester } from "./client.js";
 import { InboundSamlSsoProfileResource } from "./inbound-saml-sso-profile.js";
 
@@ -47,7 +47,7 @@ export type GoogleWorkspaceConfig = z.infer<typeof googleWorkspaceConfigSchema>;
  * The Google Workspace adapter descriptor. Pass to `infra.provider()`:
  *
  * ```typescript
- * import { googleWorkspace } from "@infrasync/google-workspace";
+ * import { googleWorkspace } from "@infrasync-org/google-workspace";
  *
  * const gw = infra.provider("gw", googleWorkspace, {
  *   kind: "oauth-user",

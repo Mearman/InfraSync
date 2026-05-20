@@ -212,10 +212,10 @@ pnpm tsx main.ts    # Produces cdktf.out/ with Terraform JSON
 
 | Package | Purpose |
 |---|---|
-| `@infrasync/adapter-terraform-config-json` | Bidirectional `*.tf.json` ⇄ InfraIR |
-| `@infrasync/adapter-terraform-show-json` | Import `terraform show -json` state/plan → TerraformIR |
-| `@infrasync/core-fidelity` | Fidelity report builder and schemas |
-| `@infrasync/core-ir` | TerraformIR schemas and address parser |
+| `@infrasync-org/adapter-terraform-config-json` | Bidirectional `*.tf.json` ⇄ InfraIR |
+| `@infrasync-org/adapter-terraform-show-json` | Import `terraform show -json` state/plan → TerraformIR |
+| `@infrasync-org/core-fidelity` | Fidelity report builder and schemas |
+| `@infrasync-org/core-ir` | TerraformIR schemas and address parser |
 
 ---
 
@@ -224,7 +224,7 @@ pnpm tsx main.ts    # Produces cdktf.out/ with Terraform JSON
 ### Export TF Config JSON
 
 ```typescript
-import { exportTfConfigJson } from "@infrasync/adapter-terraform-config-json/export-config-json";
+import { exportTfConfigJson } from "@infrasync-org/adapter-terraform-config-json/export-config-json";
 
 const result = exportTfConfigJson(ir, {
   providerSources: { cloudflare: "cloudflare/cloudflare" },
@@ -238,7 +238,7 @@ console.log(result.warnings); // string[]
 ### Import TF Config JSON
 
 ```typescript
-import { importTfConfigJson } from "@infrasync/adapter-terraform-config-json/import-config-json";
+import { importTfConfigJson } from "@infrasync-org/adapter-terraform-config-json/import-config-json";
 
 const result = importTfConfigJson(tfJsonString);
 console.log(result.ir); // InfraIR
@@ -248,7 +248,7 @@ console.log(result.fidelity.issues); // FidelityIssue[]
 ### Import TF State/Plan
 
 ```typescript
-import { importStateJson, importPlanJson } from "@infrasync/adapter-terraform-show-json/import-show-json";
+import { importStateJson, importPlanJson } from "@infrasync-org/adapter-terraform-show-json/import-show-json";
 
 const stateResult = importStateJson(stateJsonString);
 console.log(stateResult.document); // TerraformIR

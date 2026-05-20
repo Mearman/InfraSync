@@ -38,7 +38,7 @@ describe("Plugin discovery from config file", () => {
   it("discovers plugins export from config file", async () => {
     await writeFile(
       fixture("with-plugins.config.ts"),
-      `import { defineInfra } from "@infrasync/core/compiler";
+      `import { defineInfra } from "@infrasync-org/core/compiler";
 
 export const plugins = [
   {
@@ -63,7 +63,7 @@ export default defineInfra("test", (infra) => ({ outputs: {} }));
   it("discovers adapters alongside plugins", async () => {
     await writeFile(
       fixture("with-adapters-and-plugins.config.ts"),
-      `import { defineInfra } from "@infrasync/core/compiler";
+      `import { defineInfra } from "@infrasync-org/core/compiler";
 
 export const adapters = {
   "my-adapter": {
@@ -96,7 +96,7 @@ export default defineInfra("test", (infra) => ({ outputs: {} }));
   it("handles config with no plugins export", async () => {
     await writeFile(
       fixture("no-plugins.config.ts"),
-      `import { defineInfra } from "@infrasync/core/compiler";
+      `import { defineInfra } from "@infrasync-org/core/compiler";
 
 export default defineInfra("test", (infra) => ({ outputs: {} }));
 `,
@@ -110,7 +110,7 @@ export default defineInfra("test", (infra) => ({ outputs: {} }));
   it("handles empty plugins array", async () => {
     await writeFile(
       fixture("empty-plugins.config.ts"),
-      `import { defineInfra } from "@infrasync/core/compiler";
+      `import { defineInfra } from "@infrasync-org/core/compiler";
 
 export const plugins = [];
 
@@ -127,7 +127,7 @@ export default defineInfra("test", (infra) => ({ outputs: {} }));
   it("filters non-adapter entries from plugins array", async () => {
     await writeFile(
       fixture("mixed-plugins.config.ts"),
-      `import { defineInfra } from "@infrasync/core/compiler";
+      `import { defineInfra } from "@infrasync-org/core/compiler";
 
 export const plugins = [
   "not an adapter",

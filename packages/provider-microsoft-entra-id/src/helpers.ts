@@ -1,5 +1,5 @@
 import { GraphError } from "@microsoft/microsoft-graph-client";
-import { ProviderApiError } from "@infrasync/core/errors";
+import { ProviderApiError } from "@infrasync-org/core/errors";
 
 const PROVIDER_NAME = "microsoft-entra-id";
 const HTTP_NOT_FOUND = 404;

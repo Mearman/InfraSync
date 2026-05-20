@@ -1,5 +1,5 @@
 {
-  "name": "@infrasync/core-ir",
+  "name": "@infrasync-org/core-ir",
   "version": "0.1.0",
   "type": "module",
   "exports": {

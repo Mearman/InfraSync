@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import type { InfraIR } from "@infrasync/core/types";
+import type { InfraIR } from "@infrasync-org/core/types";
 import { cdktfTypeScriptExporter } from "../exporters/cdktf-ts.js";
 
 export interface ExportCdktfTypeScriptOptions {

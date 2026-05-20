@@ -5,11 +5,11 @@ import type {
   ProviderAdapter,
   ResolvedScopes,
   ResourceRegistry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import {
   defineProvider,
   ResourceRegistry as Registry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import * as z from "zod";
 import { DnsRecordResource } from "./dns-record.js";
 import { DomainResource } from "./domain.js";
@@ -33,7 +33,7 @@ export type NamecheapConfig = z.infer<typeof namecheapConfigSchema>;
  * The Namecheap adapter descriptor. Pass this to `infra.provider()`:
  *
  * ```typescript
- * import { namecheap } from "@infrasync/namecheap";
+ * import { namecheap } from "@infrasync-org/namecheap";
  *
  * const nc = infra.provider("nc", namecheap, {
  *   apiUser: infra.secret.env("NAMECHEAP_API_USER"),

@@ -27,7 +27,7 @@ import { tmpdir } from "node:os";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { infraIRSchema } from "@infrasync/core/schemas";
+import { infraIRSchema } from "@infrasync-org/core/schemas";
 import { cdktfTypeScriptExporter } from "../exporters/cdktf-ts.js";
 
 const SKIP = process.env.CDKTF_INTEGRATION !== "1";

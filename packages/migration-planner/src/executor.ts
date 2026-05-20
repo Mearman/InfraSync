@@ -22,11 +22,11 @@ import {
   ResolvedScopes,
   type ProviderPort,
   type ResourcePort,
-} from "@infrasync/core/provider";
-import { exportTfConfigJson } from "@infrasync/adapter-terraform-config-json/export-config-json";
-import { cloudflareResourceMappers } from "@infrasync/adapter-terraform-config-json/cloudflare-mappers";
-import type { InfraIR, ResourceIR } from "@infrasync/core/types";
-import type { TerraformIR } from "@infrasync/core-ir/schemas";
+} from "@infrasync-org/core/provider";
+import { exportTfConfigJson } from "@infrasync-org/adapter-terraform-config-json/export-config-json";
+import { cloudflareResourceMappers } from "@infrasync-org/adapter-terraform-config-json/cloudflare-mappers";
+import type { InfraIR, ResourceIR } from "@infrasync-org/core/types";
+import type { TerraformIR } from "@infrasync-org/core-ir/schemas";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 

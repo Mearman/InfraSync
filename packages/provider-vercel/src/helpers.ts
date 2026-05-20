@@ -2,7 +2,7 @@
  * Shared helpers for Vercel resource adapters.
  */
 
-import { ProviderApiError } from "@infrasync/core/errors";
+import { ProviderApiError } from "@infrasync-org/core/errors";
 
 /**
  * Extract the provider-assigned ID from a Vercel resource state object.

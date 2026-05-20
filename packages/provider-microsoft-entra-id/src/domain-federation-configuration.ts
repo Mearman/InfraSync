@@ -1,8 +1,8 @@
 import type { Client } from "@microsoft/microsoft-graph-client";
-import type { ResourcePort } from "@infrasync/core/provider";
-import { RefToken } from "@infrasync/core/refs";
-import type { RefBuilder } from "@infrasync/core/handles";
-import { ProviderApiError } from "@infrasync/core/errors";
+import type { ResourcePort } from "@infrasync-org/core/provider";
+import { RefToken } from "@infrasync-org/core/refs";
+import type { RefBuilder } from "@infrasync-org/core/handles";
+import { ProviderApiError } from "@infrasync-org/core/errors";
 import * as z from "zod";
 import {
   PROVIDER_NAME,

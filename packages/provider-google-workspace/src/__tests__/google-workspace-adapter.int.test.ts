@@ -9,10 +9,10 @@ import {
   InboundSamlSsoProfileResource,
 } from "../index.js";
 import { CloudIdentityClient, type GoogleRequester } from "../client.js";
-import { ResolvedScopes } from "@infrasync/core/provider";
-import type { ResourceHandle } from "@infrasync/core/handles";
-import { RefToken } from "@infrasync/core/refs";
-import { ProviderApiError } from "@infrasync/core/errors";
+import { ResolvedScopes } from "@infrasync-org/core/provider";
+import type { ResourceHandle } from "@infrasync-org/core/handles";
+import { RefToken } from "@infrasync-org/core/refs";
+import { ProviderApiError } from "@infrasync-org/core/errors";
 
 describe("Google Workspace adapter", () => {
   it("validates oauth-user config", () => {

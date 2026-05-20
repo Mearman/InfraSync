@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createJiti } from "jiti";
-import { infraIRSchema } from "@infrasync/core/schemas";
-import type { InfraIR } from "@infrasync/core/types";
-import type { ProviderAdapter } from "@infrasync/core/provider";
+import { infraIRSchema } from "@infrasync-org/core/schemas";
+import type { InfraIR } from "@infrasync-org/core/types";
+import type { ProviderAdapter } from "@infrasync-org/core/provider";
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
 

@@ -19,9 +19,9 @@ import {
   ResolvedScopes,
   type ProviderPort,
   type ResourcePort,
-} from "@infrasync/core/provider";
-import type { InfraIR } from "@infrasync/core/types";
-import type { TerraformIR } from "@infrasync/core-ir/schemas";
+} from "@infrasync-org/core/provider";
+import type { InfraIR } from "@infrasync-org/core/types";
+import type { TerraformIR } from "@infrasync-org/core-ir/schemas";
 
 // ─── Mock Provider ───────────────────────────────────────────────────────────
 

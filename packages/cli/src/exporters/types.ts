@@ -1,4 +1,4 @@
-import type { InfraIR } from "@infrasync/core/types";
+import type { InfraIR } from "@infrasync-org/core/types";
 
 /** A generated file, with its relative path under the export directory. */
 export interface GeneratedFile {

@@ -1,4 +1,4 @@
-# @infrasync/google-workspace
+# @infrasync-org/google-workspace
 
 InfraSync provider for Google Workspace, backed by the Cloud Identity and Admin SDK REST APIs.
 
@@ -33,7 +33,7 @@ The practical consequence: federating Google Workspace into Microsoft 365 (or an
 2. Configure the SP entity ID and ACS URL.
 3. Download the IdP metadata XML — specifically the **entity ID**, **single sign-on service URL**, and **X.509 signing certificate**.
 
-The downloaded values are then fed into the SP-side federation configuration. For Microsoft 365 specifically, the SP side is `@infrasync/microsoft-entra-id`'s `DomainFederationConfiguration` resource, which **is** programmable via Microsoft Graph.
+The downloaded values are then fed into the SP-side federation configuration. For Microsoft 365 specifically, the SP side is `@infrasync-org/microsoft-entra-id`'s `DomainFederationConfiguration` resource, which **is** programmable via Microsoft Graph.
 
 This hybrid (manual Google + automated Entra) is currently the accepted shape of the workflow. Annual SAML certificate rotation is the main operational consequence — set a calendar reminder ~11 months out so the cert is rotated before Google's expires.
 

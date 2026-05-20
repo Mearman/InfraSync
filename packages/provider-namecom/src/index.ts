@@ -5,11 +5,11 @@ import type {
   ProviderAdapter,
   ResolvedScopes,
   ResourceRegistry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import {
   defineProvider,
   ResourceRegistry as Registry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import * as z from "zod";
 import { DnsRecordResource } from "./dns-record.js";
 import { DomainResource } from "./domain.js";
@@ -31,7 +31,7 @@ export type NamecomConfig = z.infer<typeof namecomConfigSchema>;
  * The name.com adapter descriptor. Pass this to `infra.provider()`:
  *
  * ```typescript
- * import { namecom } from "@infrasync/namecom";
+ * import { namecom } from "@infrasync-org/namecom";
  *
  * const nc = infra.provider("nc", namecom, {
  *   username: infra.secret.env("NAMECOM_USERNAME"),

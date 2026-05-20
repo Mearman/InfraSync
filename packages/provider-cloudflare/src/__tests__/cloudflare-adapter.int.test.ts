@@ -12,8 +12,8 @@ import {
   ResolvedScopes,
   type ResourceScopes,
   type ScopeSource,
-} from "@infrasync/core/provider";
-import { isRecord } from "@infrasync/core/resource";
+} from "@infrasync-org/core/provider";
+import { isRecord } from "@infrasync-org/core/resource";
 import { AccessPolicyResource } from "../access-policy.js";
 import { AccessApplicationResource } from "../access-app.js";
 import { IdentityProviderResource } from "../identity-provider.js";

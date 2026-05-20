@@ -2,8 +2,8 @@ import type {
   ResourceHandle,
   ResourceOptions,
   RefBuilder,
-} from "@infrasync/core/handles";
-import { createResourceHandle } from "@infrasync/core/handles";
+} from "@infrasync-org/core/handles";
+import { createResourceHandle } from "@infrasync-org/core/handles";
 import type { TailnetKeyRefs } from "./tailnet-key.js";
 import { buildTailnetKeyRefs } from "./tailnet-key.js";
 import type { ACLPolicySpec } from "./acl-policy.js";

@@ -22,16 +22,16 @@ An alternative to Terraform for teams who want infrastructure-as-code without th
 | Typed provider handle | ✅ Done | `createCloudflareHandle()` with typed convenience methods |
 | CLI | ✅ Done | `plan`, `apply`, `drift`, `fidelity`, `export cdktf-ts`, `export terraform-config`, `import terraform-config`, `import terraform-plan`, `import terraform-state`, `migrate` |
 | Build pipeline | ✅ Done | tsdown with ESM + DTS, library and CLI entry points |
-| Terraform IR types | ✅ Done | `@infrasync/core-ir` — TerraformIR Zod schemas, address parser, JSON Schema export |
-| Fidelity reporting | ✅ Done | `@infrasync/core-fidelity` — `FidelityReportBuilder`, lossless/lossy/unsupported classification |
-| TF state/plan import | ✅ Done | `@infrasync/adapter-terraform-show-json` — `importStateJson()`, `importPlanJson()` with fidelity reporting |
+| Terraform IR types | ✅ Done | `@infrasync-org/core-ir` — TerraformIR Zod schemas, address parser, JSON Schema export |
+| Fidelity reporting | ✅ Done | `@infrasync-org/core-fidelity` — `FidelityReportBuilder`, lossless/lossy/unsupported classification |
+| TF state/plan import | ✅ Done | `@infrasync-org/adapter-terraform-show-json` — `importStateJson()`, `importPlanJson()` with fidelity reporting |
 | CDKTF TypeScript export | ✅ Done | `export cdktf-ts` command generates reviewable CDKTF project from InfraIR |
-| TF config JSON export | ✅ Done | `@infrasync/adapter-terraform-config-json` — `exportTfConfigJson()` with provider source registry |
-| TF config JSON import | ✅ Done | `@infrasync/adapter-terraform-config-json` — `importTfConfigJson()` with fidelity reporting |
+| TF config JSON export | ✅ Done | `@infrasync-org/adapter-terraform-config-json` — `exportTfConfigJson()` with provider source registry |
+| TF config JSON import | ✅ Done | `@infrasync-org/adapter-terraform-config-json` — `importTfConfigJson()` with fidelity reporting |
 | TF config round-trip | ✅ Done | IR→TF→IR and TF→IR→TF guarantee tests with declared fidelity outcomes |
-| TerraformIR → InfraIR bridge | ✅ Done | `@infrasync/adapter-terraform-show-json` — `convertToInfraIR()` maps TF providers → adapter names, snake_case → PascalCase, data sources → read mode, ref detection |
+| TerraformIR → InfraIR bridge | ✅ Done | `@infrasync-org/adapter-terraform-show-json` — `convertToInfraIR()` maps TF providers → adapter names, snake_case → PascalCase, data sources → read mode, ref detection |
 | TF-Config Cloudflare wiring | ✅ Done | `cloudflareResourceMappers` — DnsRecord ↔ `cloudflare_record` bidirectional spec mapping |
-| Migration planner | ✅ Done | `@infrasync/migration-planner` — bidirectional diff engine, plugin system, safety classification, step generation |
+| Migration planner | ✅ Done | `@infrasync-org/migration-planner` — bidirectional diff engine, plugin system, safety classification, step generation |
 | Destruction safety | ✅ Done | Lifecycle-aware mitigation: `create_before_destroy` → CBD, `prevent_destroy` → blocked, `replace_triggered_by` → forced CBD (overrides prevent_destroy), `ignore_changes` → filters diffs, DBC step pairs |
 | Execution engine | ✅ Done | `executePlan()` — Kahn's dependency levelling, parallel step execution, InfraSync + Terraform targets, provider connection lifecycle |
 | Fidelity command | ✅ Done | `infrasync fidelity --file adapter-result.json [--json]` |
@@ -78,11 +78,11 @@ Define infrastructure with nested `Infra` scopes, declarative fragments, or any 
 ```typescript
 import {
 	defineInfra,
-} from "@infrasync/core/compiler";
+} from "@infrasync-org/core/compiler";
 import {
 	cloudflare as cloudflareAdapter,
 	createCloudflareHandle,
-} from "@infrasync/cloudflare";
+} from "@infrasync-org/cloudflare";
 
 const infra = defineInfra("prod", (infra) => {
 	const cfBase = infra.provider("cf", cloudflareAdapter, {
@@ -434,8 +434,8 @@ A symbolic ref creates both a dependency edge and an attribute binding. `depends
 The problem with string-based references is that TypeScript cannot verify either the path or the resolved type. InfraSync's public API avoids string paths entirely. Provider methods return typed resource handles, and each handle exposes a `.ref` namespace derived from the resource's state schema.
 
 ```typescript
-import { defineInfra } from "@infrasync/core/compiler";
-import { cloudflare } from "@infrasync/cloudflare";
+import { defineInfra } from "@infrasync-org/core/compiler";
+import { cloudflare } from "@infrasync-org/cloudflare";
 
 const infra = defineInfra("media", (infra) => {
 	const cf = infra.provider("cloudflare", cloudflare, {
@@ -1246,7 +1246,7 @@ Each provider defines a codec that maps between the normalised spec and its own 
 ```typescript
 // packages/provider-cloudflare/src/dns-record.ts
 import * as z from "zod";
-import type { ResourceCodec } from "@infrasync/core/provider";
+import type { ResourceCodec } from "@infrasync-org/core/provider";
 
 // Codec input: the resolved spec after ref resolution
 const resolvedSpecSchema = z.object({
@@ -1327,7 +1327,7 @@ The `ResourcePort` exposes the `ResourceCodec` via its `codec` field. The engine
 
 ```typescript
 // packages/provider-cloudflare/src/dns-record.ts
-import type { ResourcePort, ResourceCodec } from "@infrasync/core/provider";
+import type { ResourcePort, ResourceCodec } from "@infrasync-org/core/provider";
 
 export class DnsRecordResource implements ResourcePort<
 	typeof dnsRecordSpecSchema,
@@ -1511,7 +1511,7 @@ Why `.pick()` for identity and desired state? The engine needs to know which fie
 
 ```typescript
 // service-resource.ts
-import type { ResourcePort } from "@infrasync/core/provider";
+import type { ResourcePort } from "@infrasync-org/core/provider";
 import {
 	serviceSpecSchema,
 	serviceStateSchema,
@@ -1562,8 +1562,8 @@ export class ServiceResource implements ResourcePort<
 
 ```typescript
 // index.ts
-import { defineProvider } from "@infrasync/core/provider";
-import type { ProviderPort } from "@infrasync/core/provider";
+import { defineProvider } from "@infrasync-org/core/provider";
+import type { ProviderPort } from "@infrasync-org/core/provider";
 import { configSchema } from "./schemas";
 import type { InternalPlatformConfig } from "./schemas";
 import { ServiceResource } from "./service-resource";
@@ -1603,7 +1603,7 @@ export const internalPlatformProvider = defineProvider(
 #### 4. Register and use
 
 ```typescript
-import { defineInfra } from "@infrasync/core/compiler";
+import { defineInfra } from "@infrasync-org/core/compiler";
 import { internalPlatformProvider } from "./providers/internal-platform";
 
 const infra = defineInfra("internal", (infra) => {
@@ -1686,7 +1686,7 @@ Trade-offs from the stateless design:
 
 ```
 packages/
-  core/                        # @infrasync/core
+  core/                        # @infrasync-org/core
     src/
       schemas.ts               # Canonical Zod schemas (single source of truth for all IR types)
       types.ts                 # Re-exports inferred types from schemas.ts
@@ -1702,25 +1702,25 @@ packages/
       provider.ts              # Provider adapter interface and defineProvider
       errors.ts                # ProviderApiError for adapter error reporting
       dns-record.ts            # Normalised DnsRecord schema (works across Cloudflare, AWS, GCP)
-  core-ir/                     # @infrasync/core-ir
+  core-ir/                     # @infrasync-org/core-ir
     src/
       schemas.ts               # TerraformIR Zod schemas, address parser, JSON Schema export
       terraform-ir.ts          # Re-exports inferred types from schemas.ts
-  core-fidelity/               # @infrasync/core-fidelity
+  core-fidelity/               # @infrasync-org/core-fidelity
     src/
       schemas.ts               # Fidelity report Zod schemas
       fidelity.ts              # FidelityReportBuilder, lossless/lossy/unsupported classification
-  adapter-terraform-show-json/ # @infrasync/adapter-terraform-show-json
+  adapter-terraform-show-json/ # @infrasync-org/adapter-terraform-show-json
     src/
       schemas.ts               # TF state/plan JSON wire format Zod schemas
       import-show-json.ts      # importStateJson(), importPlanJson() with fidelity reporting
       convert-to-infra-ir.ts   # convertToInfraIR() — TerraformIR → InfraIR bridge
-  adapter-terraform-config-json/ # @infrasync/adapter-terraform-config-json
+  adapter-terraform-config-json/ # @infrasync-org/adapter-terraform-config-json
     src/
       export-config-json.ts    # exportTfConfigJson() — IR → *.tf.json
       import-config-json.ts    # importTfConfigJson() — *.tf.json → IR
       cloudflare-mappers.ts    # Cloudflare DnsRecord ↔ cloudflare_record bidirectional mapping
-  migration-planner/           # @infrasync/migration-planner
+  migration-planner/           # @infrasync-org/migration-planner
     src/
       schemas.ts               # MigrationPlan, ResourceChange, MigrationStep, MitigationStrategy Zod schemas
       plugin-registry.ts       # Extensible plugin registration (per-provider rules)
@@ -1732,7 +1732,7 @@ packages/
       plugins/
         generic.ts             # Default plugin: identifier-suffix heuristics, safe/risky/destructive rules
         cloudflare.ts          # Cloudflare-specific: DnsRecord mappings, CBD mitigation for destructive fields
-  provider-cloudflare/         # @infrasync/cloudflare
+  provider-cloudflare/         # @infrasync-org/cloudflare
     src/
       index.ts                 # Cloudflare adapter + ResourceRegistry
       handle.ts                # createCloudflareHandle() typed convenience methods
@@ -1749,7 +1749,7 @@ packages/
       pages-project.ts         # PagesProject resource handler
       email-routing-rule.ts    # EmailRoutingRule resource handler
       helpers.ts               # Shared Cloudflare API helpers (findByName, findByPattern)
-  cli/                         # @infrasync/cli
+  cli/                         # @infrasync-org/cli
     src/
       index.ts                 # CLI entry point
       commands/

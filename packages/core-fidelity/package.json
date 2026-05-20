@@ -1,5 +1,5 @@
 {
-  "name": "@infrasync/core-fidelity",
+  "name": "@infrasync-org/core-fidelity",
   "version": "0.1.0",
   "type": "module",
   "exports": {

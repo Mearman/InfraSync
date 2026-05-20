@@ -1,6 +1,6 @@
 import { createJiti } from "jiti";
-import type { InfraResult } from "@infrasync/core/compiler";
-import type { ProviderAdapter } from "@infrasync/core/provider";
+import type { InfraResult } from "@infrasync-org/core/compiler";
+import type { ProviderAdapter } from "@infrasync-org/core/provider";
 
 // ─── Config file interface ───────────────────────────────────────────────────
 

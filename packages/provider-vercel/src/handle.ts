@@ -2,8 +2,8 @@ import type {
   ResourceHandle,
   ResourceOptions,
   RefBuilder,
-} from "@infrasync/core/handles";
-import { createResourceHandle } from "@infrasync/core/handles";
+} from "@infrasync-org/core/handles";
+import { createResourceHandle } from "@infrasync-org/core/handles";
 import type { ProjectRefs } from "./project.js";
 import { buildProjectRefs } from "./project.js";
 import type { ProjectDomainRefs } from "./project-domain.js";
@@ -157,7 +157,7 @@ class VercelProviderHandleImpl implements VercelProviderHandle {
  * Usage:
  *
  * ```typescript
- * import { vercel, createVercelHandle } from "@infrasync/vercel";
+ * import { vercel, createVercelHandle } from "@infrasync-org/vercel";
  *
  * const infra = defineInfra("prod", (infra) => {
  *   const baseVc = infra.provider("vc", vercel, { ... });

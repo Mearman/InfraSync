@@ -4,11 +4,11 @@ import type {
   ResourceCodec,
   ResourceScopes,
   ResolvedScopes,
-} from "@infrasync/core/provider";
-import { RefToken } from "@infrasync/core/refs";
-import type { RefBuilder } from "@infrasync/core/handles";
+} from "@infrasync-org/core/provider";
+import { RefToken } from "@infrasync-org/core/refs";
+import type { RefBuilder } from "@infrasync-org/core/handles";
 import * as z from "zod";
-import { ProviderApiError } from "@infrasync/core/errors";
+import { ProviderApiError } from "@infrasync-org/core/errors";
 import { getStateId, findByPattern } from "./helpers.js";
 
 // ─── Ref type ────────────────────────────────────────────────────────────────

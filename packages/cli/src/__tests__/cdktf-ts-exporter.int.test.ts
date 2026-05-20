@@ -13,8 +13,8 @@ import assert from "node:assert/strict";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import * as z from "zod";
-import { infraIRSchema } from "@infrasync/core/schemas";
-import type { InfraIR } from "@infrasync/core/types";
+import { infraIRSchema } from "@infrasync-org/core/schemas";
+import type { InfraIR } from "@infrasync-org/core/types";
 import { cdktfTypeScriptExporter } from "../exporters/cdktf-ts.js";
 import type { CdktfTypeScriptExportOptions } from "../exporters/cdktf-ts.js";
 

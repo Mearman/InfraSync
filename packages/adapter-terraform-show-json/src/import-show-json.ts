@@ -6,8 +6,8 @@
  *
  * Schemas live in `schemas.ts`. Parse at the adapter boundary only.
  */
-import { FidelityReportBuilder } from "@infrasync/core-fidelity/fidelity";
-import type { AdapterResult } from "@infrasync/core-fidelity/fidelity";
+import { FidelityReportBuilder } from "@infrasync-org/core-fidelity/fidelity";
+import type { AdapterResult } from "@infrasync-org/core-fidelity/fidelity";
 import {
   tfShowStateEnvelopeSchema,
   tfShowPlanEnvelopeSchema,
@@ -25,7 +25,7 @@ import {
   type TerraformCheckIR,
   type TerraformCheckStatus,
   type TerraformSourceMeta,
-} from "@infrasync/core-ir/schemas";
+} from "@infrasync-org/core-ir/schemas";
 
 // ─── Version policy ──────────────────────────────────────────────────────────
 

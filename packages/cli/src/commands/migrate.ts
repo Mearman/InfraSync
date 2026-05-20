@@ -22,22 +22,25 @@ import {
   PluginRegistry,
   cloudflarePlugin,
   genericPlugin,
-} from "@infrasync/migration-planner";
-import { terraformIRSchema } from "@infrasync/core-ir/schemas";
-import { infraIRSchema } from "@infrasync/core/schemas";
+} from "@infrasync-org/migration-planner";
+import { terraformIRSchema } from "@infrasync-org/core-ir/schemas";
+import { infraIRSchema } from "@infrasync-org/core/schemas";
 import {
   importStateJson,
   importPlanJson,
-} from "@infrasync/adapter-terraform-show-json/import-show-json";
+} from "@infrasync-org/adapter-terraform-show-json/import-show-json";
 import { runTerraformShowJson } from "./terraform-show-json.js";
 import type {
   MigrationPlan,
   MigrationDirection,
   ExecutionResult,
-} from "@infrasync/migration-planner";
-import type { InfraIR } from "@infrasync/core/types";
-import type { TerraformIR } from "@infrasync/core-ir/schemas";
-import type { ProviderPort, ProviderAdapter } from "@infrasync/core/provider";
+} from "@infrasync-org/migration-planner";
+import type { InfraIR } from "@infrasync-org/core/types";
+import type { TerraformIR } from "@infrasync-org/core-ir/schemas";
+import type {
+  ProviderPort,
+  ProviderAdapter,
+} from "@infrasync-org/core/provider";
 
 export interface MigrateOptions {
   /** Pre-built TerraformIR JSON file */

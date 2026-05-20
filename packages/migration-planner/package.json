@@ -1,5 +1,5 @@
 {
-  "name": "@infrasync/migration-planner",
+  "name": "@infrasync-org/migration-planner",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -22,10 +22,10 @@
     "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
   },
   "dependencies": {
-    "@infrasync/adapter-terraform-config-json": "workspace:*",
-    "@infrasync/core": "workspace:*",
-    "@infrasync/core-fidelity": "workspace:*",
-    "@infrasync/core-ir": "workspace:*",
+    "@infrasync-org/adapter-terraform-config-json": "workspace:*",
+    "@infrasync-org/core": "workspace:*",
+    "@infrasync-org/core-fidelity": "workspace:*",
+    "@infrasync-org/core-ir": "workspace:*",
     "zod": "4.3.6"
   },
   "devDependencies": {

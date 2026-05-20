@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { isRecord } from "@infrasync/core/resource";
+import { isRecord } from "@infrasync-org/core/resource";
 import { runInitCommand } from "../commands/init.js";
 
 async function makeTempDir(): Promise<string> {
@@ -49,10 +49,10 @@ describe("infrasync init", () => {
     const deps = rawPackageJson.dependencies;
     assert.ok(isRecord(deps));
     assert.ok(
-      "@infrasync/cloudflare" in deps,
+      "@infrasync-org/cloudflare" in deps,
       "must include cloudflare provider",
     );
-    assert.ok("@infrasync/core" in deps, "must include core");
+    assert.ok("@infrasync-org/core" in deps, "must include core");
     const scripts = rawPackageJson.scripts;
     assert.ok(isRecord(scripts));
     assert.ok("plan" in scripts, "must have plan script");
@@ -90,7 +90,7 @@ describe("infrasync init", () => {
 
     const config = await readFile(join(tempDir, "infra.config.ts"), "utf-8");
     assert.ok(config.includes("defineInfra"));
-    assert.ok(config.includes("@infrasync/cloudflare"));
+    assert.ok(config.includes("@infrasync-org/cloudflare"));
     assert.ok(config.includes("DnsRecord"));
     assert.ok(config.includes("CF_API_TOKEN"));
   });

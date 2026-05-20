@@ -12,22 +12,22 @@
  *
  * Fidelity reporting classifies every translation as lossless/lossy/unsupported.
  */
-import { FidelityReportBuilder } from "@infrasync/core-fidelity/fidelity";
-import type { AdapterResult } from "@infrasync/core-fidelity/fidelity";
+import { FidelityReportBuilder } from "@infrasync-org/core-fidelity/fidelity";
+import type { AdapterResult } from "@infrasync-org/core-fidelity/fidelity";
 import type {
   InfraIR,
   ProviderInstanceIR,
   RefBindingIR,
   RefTokenIR,
   ResourceIR,
-} from "@infrasync/core/types";
-import { infraIRSchema } from "@infrasync/core/schemas";
+} from "@infrasync-org/core/types";
+import { infraIRSchema } from "@infrasync-org/core/schemas";
 import type {
   TerraformIR,
   TerraformResourceIR,
   TerraformResourceConfig,
   TerraformNestedBlock,
-} from "@infrasync/core-ir/schemas";
+} from "@infrasync-org/core-ir/schemas";
 
 // ─── Provider mapping ────────────────────────────────────────────────────────
 

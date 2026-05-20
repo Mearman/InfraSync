@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { exportTfConfigJson } from "../export-config-json.js";
 import { cloudflareResourceMappers } from "../cloudflare-mappers.js";
-import type { InfraIR } from "@infrasync/core/schemas";
+import type { InfraIR } from "@infrasync-org/core/schemas";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

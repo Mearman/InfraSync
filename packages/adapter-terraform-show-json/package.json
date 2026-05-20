@@ -1,5 +1,5 @@
 {
-  "name": "@infrasync/adapter-terraform-show-json",
+  "name": "@infrasync-org/adapter-terraform-show-json",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -18,14 +18,14 @@
     "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
   },
   "dependencies": {
-    "@infrasync/core": "workspace:*",
-    "@infrasync/core-fidelity": "workspace:*",
-    "@infrasync/core-ir": "workspace:*",
+    "@infrasync-org/core": "workspace:*",
+    "@infrasync-org/core-fidelity": "workspace:*",
+    "@infrasync-org/core-ir": "workspace:*",
     "zod": "4.3.6"
   },
   "devDependencies": {
-    "@infrasync/core-fidelity": "workspace:*",
-    "@infrasync/core-ir": "workspace:*",
+    "@infrasync-org/core-fidelity": "workspace:*",
+    "@infrasync-org/core-ir": "workspace:*",
     "tsdown": "0.21.7",
     "tsx": "4.21.0",
     "typescript": "6.0.3"

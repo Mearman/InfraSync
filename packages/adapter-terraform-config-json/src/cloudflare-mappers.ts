@@ -48,7 +48,7 @@ function extractZone(domain: string): string {
  *
  * Usage with exportTfConfigJson:
  * ```typescript
- * import { cloudflareResourceMappers } from "@infrasync/adapter-terraform-config-json/cloudflare-mappers";
+ * import { cloudflareResourceMappers } from "@infrasync-org/adapter-terraform-config-json/cloudflare-mappers";
  *
  * exportTfConfigJson(ir, { resourceMappers: { cloudflare: cloudflareResourceMappers } });
  * ```

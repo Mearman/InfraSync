@@ -1,6 +1,6 @@
-import type { InfraIR } from "@infrasync/core/types";
+import type { InfraIR } from "@infrasync-org/core/types";
 import type { AdapterRegistry } from "../registry.js";
-import { SyncEngine } from "@infrasync/core/sync";
+import { SyncEngine } from "@infrasync-org/core/sync";
 
 /**
  * Execute a drift detection run — read current state and report

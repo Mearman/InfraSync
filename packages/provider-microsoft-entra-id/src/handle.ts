@@ -2,8 +2,8 @@ import type {
   ResourceHandle,
   ResourceOptions,
   RefBuilder,
-} from "@infrasync/core/handles";
-import { createResourceHandle } from "@infrasync/core/handles";
+} from "@infrasync-org/core/handles";
+import { createResourceHandle } from "@infrasync-org/core/handles";
 import type { UserRefs, UserSpec } from "./user.js";
 import { buildUserRefs } from "./user.js";
 import type {

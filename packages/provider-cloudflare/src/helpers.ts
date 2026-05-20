@@ -3,7 +3,7 @@
  */
 
 import * as z from "zod";
-import { ProviderApiError } from "@infrasync/core/errors";
+import { ProviderApiError } from "@infrasync-org/core/errors";
 
 /**
  * Extract the provider-assigned ID from a Cloudflare resource state object.

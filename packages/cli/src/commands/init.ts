@@ -2,7 +2,7 @@
  * `infrasync init` — scaffold a new InfraSync project.
  *
  * Generates:
- * - package.json with @infrasync/core + selected provider
+ * - package.json with @infrasync-org/core + selected provider
  * - tsconfig.json extending the project base
  * - infra.config.ts with a working skeleton
  * - .tool-versions for mise/asdf Node version management
@@ -30,8 +30,8 @@ interface ProviderTemplate {
 
 const PROVIDERS: Readonly<Record<string, ProviderTemplate>> = {
   cloudflare: {
-    packageName: "@infrasync/cloudflare",
-    importPath: "@infrasync/cloudflare",
+    packageName: "@infrasync-org/cloudflare",
+    importPath: "@infrasync-org/cloudflare",
     configFields: `{
       apiToken: { $secret: { env: "CF_API_TOKEN" } },
       accountId: { $secret: { env: "CF_ACCOUNT_ID" } },
@@ -66,7 +66,7 @@ function generatePackageJson(
           drift: "infrasync drift --config infra.config.ts",
         },
         dependencies: {
-          "@infrasync/core": "workspace:*",
+          "@infrasync-org/core": "workspace:*",
           [provider.packageName]: "workspace:*",
         },
       },
@@ -102,14 +102,14 @@ function generateConfig(
   providerKey: string,
   template: ProviderTemplate,
 ): string {
-  return `import { defineInfra } from "@infrasync/core/compiler";
+  return `import { defineInfra } from "@infrasync-org/core/compiler";
 import { ${providerKey} } from "${template.importPath}";
 
 // Register adapters so the CLI can connect to providers.
 export const adapters = { ${providerKey} };
 
 // Uncomment to add custom resource plugins:
-// import { customResource } from "@infrasync/core/plugin";
+// import { customResource } from "@infrasync-org/core/plugin";
 // export const plugins = [
 //   customResource({ ... }),
 // ];

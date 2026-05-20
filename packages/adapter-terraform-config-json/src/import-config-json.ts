@@ -21,14 +21,14 @@
  * - `lifecycle` meta-arguments are dropped
  * - `connection` and `provisioner` blocks are dropped
  */
-import { FidelityReportBuilder } from "@infrasync/core-fidelity/fidelity";
-import type { AdapterResult } from "@infrasync/core-fidelity/fidelity";
+import { FidelityReportBuilder } from "@infrasync-org/core-fidelity/fidelity";
+import type { AdapterResult } from "@infrasync-org/core-fidelity/fidelity";
 import type {
   InfraIR,
   ResourceIR,
   RefTokenIR,
   SecretSourceIR,
-} from "@infrasync/core/schemas";
+} from "@infrasync-org/core/schemas";
 
 // ─── Type guard helpers ───────────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 {
-  "name": "@infrasync/vercel",
+  "name": "@infrasync-org/vercel",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -26,10 +26,10 @@
     "zod": "4.3.6"
   },
   "peerDependencies": {
-    "@infrasync/core": "workspace:*"
+    "@infrasync-org/core": "workspace:*"
   },
   "devDependencies": {
-    "@infrasync/core": "workspace:*",
+    "@infrasync-org/core": "workspace:*",
     "tsdown": "0.21.7",
     "typescript": "6.0.3"
   }

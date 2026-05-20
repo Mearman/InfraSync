@@ -6,7 +6,7 @@ import { tailnetKeySpecSchema } from "../tailnet-key.js";
 import { dnsNameserversSpecSchema } from "../dns-nameservers.js";
 import { dnsSearchPathsSpecSchema } from "../dns-search-paths.js";
 import { dnsPreferencesSpecSchema } from "../dns-preferences.js";
-import { ResolvedScopes } from "@infrasync/core/provider";
+import { ResolvedScopes } from "@infrasync-org/core/provider";
 
 describe("Tailscale adapter", () => {
   it("validates config schema", () => {

@@ -8,7 +8,7 @@
  * Usage:
  *
  * ```typescript
- * import { customResource } from "@infrasync/core/plugin";
+ * import { customResource } from "@infrasync-org/core/plugin";
  * import * as z from "zod";
  *
  * export const plugins = [

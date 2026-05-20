@@ -2,7 +2,7 @@
  * Shared helpers for the Google Workspace resource adapters.
  */
 
-import { ProviderApiError } from "@infrasync/core/errors";
+import { ProviderApiError } from "@infrasync-org/core/errors";
 import { OperationFailedError, OperationTimeoutError } from "./client.js";
 
 /**

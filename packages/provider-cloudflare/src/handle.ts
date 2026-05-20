@@ -2,8 +2,8 @@ import type {
   ResourceHandle,
   ResourceOptions,
   RefBuilder,
-} from "@infrasync/core/handles";
-import { createResourceHandle } from "@infrasync/core/handles";
+} from "@infrasync-org/core/handles";
+import { createResourceHandle } from "@infrasync-org/core/handles";
 import type { DnsRecordRefs } from "./dns-record.js";
 import { buildDnsRecordRefs } from "./dns-record.js";
 import type { AccessApplicationRefs } from "./access-app.js";
@@ -14,7 +14,7 @@ import type { IdentityProviderRefs } from "./identity-provider.js";
 import { buildIdentityProviderRefs } from "./identity-provider.js";
 import type { PagesCustomDomainRefs } from "./pages-domain.js";
 import { buildPagesCustomDomainRefs } from "./pages-domain.js";
-import type { DnsRecordSpec } from "@infrasync/core/dns-record";
+import type { DnsRecordSpec } from "@infrasync-org/core/dns-record";
 import type { AccessApplicationSpec } from "./access-app.js";
 import type { AccessPolicySpec } from "./access-policy.js";
 import type { IdentityProviderSpec } from "./identity-provider.js";

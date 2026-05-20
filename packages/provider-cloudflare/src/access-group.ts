@@ -8,9 +8,9 @@ import type {
   ResourceCodec,
   ResourceScopes,
   ResolvedScopes,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import * as z from "zod";
-import { ProviderApiError } from "@infrasync/core/errors";
+import { ProviderApiError } from "@infrasync-org/core/errors";
 import { getStateId, findByName } from "./helpers.js";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────

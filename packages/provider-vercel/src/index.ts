@@ -5,11 +5,11 @@ import type {
   ProviderAdapter,
   ResolvedScopes,
   ResourceRegistry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import {
   defineProvider,
   ResourceRegistry as Registry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import * as z from "zod";
 import { ProjectResource } from "./project.js";
 import { ProjectDomainResource } from "./project-domain.js";
@@ -32,7 +32,7 @@ export type VercelConfig = z.infer<typeof vercelConfigSchema>;
  * The Vercel adapter descriptor. Pass this to `infra.provider()`:
  *
  * ```typescript
- * import { vercel } from "@infrasync/vercel";
+ * import { vercel } from "@infrasync-org/vercel";
  *
  * const vc = infra.provider("vc", vercel, {
  *   apiToken: infra.secret.env("VERCEL_API_TOKEN"),

@@ -1,8 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Client } from "@microsoft/microsoft-graph-client";
-import { ProviderApiError } from "@infrasync/core/errors";
-import { ResolvedScopes } from "@infrasync/core/provider";
+import { ProviderApiError } from "@infrasync-org/core/errors";
+import { ResolvedScopes } from "@infrasync-org/core/provider";
 import {
   microsoftEntraIdConfigSchema,
   MicrosoftEntraIdProvider,

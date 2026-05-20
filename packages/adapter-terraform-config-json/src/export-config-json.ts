@@ -14,9 +14,9 @@
  * Provider source mapping requires a registry mapping adapter names to
  * Terraform provider source strings (e.g. "cloudflare" → "cloudflare/cloudflare").
  */
-import { FidelityReportBuilder } from "@infrasync/core-fidelity/fidelity";
-import type { AdapterResult } from "@infrasync/core-fidelity/fidelity";
-import type { InfraIR, RefTokenIR } from "@infrasync/core/schemas";
+import { FidelityReportBuilder } from "@infrasync-org/core-fidelity/fidelity";
+import type { AdapterResult } from "@infrasync-org/core-fidelity/fidelity";
+import type { InfraIR, RefTokenIR } from "@infrasync-org/core/schemas";
 
 // ─── Provider source registry ────────────────────────────────────────────────
 

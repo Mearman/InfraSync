@@ -4,7 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { loadConfig } from "./loader.js";
 import { loadAdapters, loadIR } from "./ir-loader.js";
 import { buildRegistry } from "./registry.js";
-import type { ProviderAdapter } from "@infrasync/core/provider";
+import type { ProviderAdapter } from "@infrasync-org/core/provider";
 import { plan } from "./commands/plan.js";
 import { apply } from "./commands/apply.js";
 import { drift } from "./commands/drift.js";
@@ -14,18 +14,18 @@ import { runFidelityCommand } from "./commands/fidelity.js";
 import { runMigrateCommand } from "./commands/migrate.js";
 import { runTerraformShowJson } from "./commands/terraform-show-json.js";
 import { runInitCommand } from "./commands/init.js";
-import type { InfraIR } from "@infrasync/core/types";
-import { importTfConfigJson } from "@infrasync/adapter-terraform-config-json/import-config-json";
-import { exportTfConfigJson } from "@infrasync/adapter-terraform-config-json/export-config-json";
-import type { ResourceMapper } from "@infrasync/adapter-terraform-config-json/export-config-json";
-import { cloudflareResourceMappers } from "@infrasync/adapter-terraform-config-json/cloudflare-mappers";
+import type { InfraIR } from "@infrasync-org/core/types";
+import { importTfConfigJson } from "@infrasync-org/adapter-terraform-config-json/import-config-json";
+import { exportTfConfigJson } from "@infrasync-org/adapter-terraform-config-json/export-config-json";
+import type { ResourceMapper } from "@infrasync-org/adapter-terraform-config-json/export-config-json";
+import { cloudflareResourceMappers } from "@infrasync-org/adapter-terraform-config-json/cloudflare-mappers";
 import {
   importStateJson,
   importPlanJson,
-} from "@infrasync/adapter-terraform-show-json/import-show-json";
-import { convertToInfraIR } from "@infrasync/adapter-terraform-show-json/convert-to-infra-ir";
-import { terraformIRSchema } from "@infrasync/core-ir/schemas";
-import type { MigrationDirection } from "@infrasync/migration-planner";
+} from "@infrasync-org/adapter-terraform-show-json/import-show-json";
+import { convertToInfraIR } from "@infrasync-org/adapter-terraform-show-json/convert-to-infra-ir";
+import { terraformIRSchema } from "@infrasync-org/core-ir/schemas";
+import type { MigrationDirection } from "@infrasync-org/migration-planner";
 
 // ─── Built-in adapters ───────────────────────────────────────────────────────
 

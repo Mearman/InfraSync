@@ -1,14 +1,14 @@
 import Cloudflare from "cloudflare";
-import type { ResourcePort, ResourceCodec } from "@infrasync/core/provider";
-import { RefToken } from "@infrasync/core/refs";
-import type { RefBuilder } from "@infrasync/core/handles";
+import type { ResourcePort, ResourceCodec } from "@infrasync-org/core/provider";
+import { RefToken } from "@infrasync-org/core/refs";
+import type { RefBuilder } from "@infrasync-org/core/handles";
 import * as z from "zod";
 import {
   dnsRecordSpecSchema,
   dnsRecordIdentitySchema,
   dnsRecordDesiredStateSchema,
-} from "@infrasync/core/dns-record";
-import { ProviderApiError } from "@infrasync/core/errors";
+} from "@infrasync-org/core/dns-record";
+import { ProviderApiError } from "@infrasync-org/core/errors";
 import { getStateId } from "./helpers.js";
 
 // ─── Ref type ────────────────────────────────────────────────────────────────

@@ -9,8 +9,8 @@ import type {
   ResourceHandle,
   ResourceOptions,
   RefBuilder,
-} from "@infrasync/core/handles";
-import { createResourceHandle } from "@infrasync/core/handles";
+} from "@infrasync-org/core/handles";
+import { createResourceHandle } from "@infrasync-org/core/handles";
 import type {
   InboundSamlSsoProfileRefs,
   InboundSamlSsoProfileSpec,
@@ -100,7 +100,7 @@ class GoogleWorkspaceProviderHandleImpl implements GoogleWorkspaceProviderHandle
  * import {
  *   googleWorkspace,
  *   createGoogleWorkspaceHandle,
- * } from "@infrasync/google-workspace";
+ * } from "@infrasync-org/google-workspace";
  *
  * const infra = defineInfra("prod", (infra) => {
  *   const baseGw = infra.provider("gw", googleWorkspace, {

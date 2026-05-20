@@ -4,7 +4,7 @@
  * `infrasync cache status` — show cache statistics
  * `infrasync cache clear`  — remove all cached entries
  */
-import { ResourceCache, FileCacheStore } from "@infrasync/core/cache";
+import { ResourceCache, FileCacheStore } from "@infrasync-org/core/cache";
 
 function createDefaultCache(): ResourceCache {
   return new ResourceCache({

@@ -5,11 +5,11 @@ import type {
   ResolvedScopes,
   ResourcePort,
   ResourceRegistry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import {
   defineProvider,
   ResourceRegistry as Registry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import {
   buildCredential,
   buildGraphClient,
@@ -25,7 +25,7 @@ import { FeatureRolloutPolicyResource } from "./feature-rollout-policy.js";
  * The Microsoft Entra ID adapter descriptor. Pass this to `infra.provider()`:
  *
  * ```typescript
- * import { microsoftEntraId } from "@infrasync/microsoft-entra-id";
+ * import { microsoftEntraId } from "@infrasync-org/microsoft-entra-id";
  *
  * const entra = infra.provider("entra", microsoftEntraId, {
  *   kind: "client-credentials",

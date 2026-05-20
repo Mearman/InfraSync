@@ -2,10 +2,10 @@ import type {
   ResourcePort,
   ResourceScopes,
   ResolvedScopes,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import { TailscaleClient, requireClient } from "./client.js";
 import * as z from "zod";
-import { ProviderApiError } from "@infrasync/core/errors";
+import { ProviderApiError } from "@infrasync-org/core/errors";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 

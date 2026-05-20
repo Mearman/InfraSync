@@ -2,8 +2,8 @@ import type {
   ResourceHandle,
   ResourceOptions,
   RefBuilder,
-} from "@infrasync/core/handles";
-import { createResourceHandle } from "@infrasync/core/handles";
+} from "@infrasync-org/core/handles";
+import { createResourceHandle } from "@infrasync-org/core/handles";
 import type { DnsRecordRefs } from "./dns-record.js";
 import { buildDnsRecordRefs } from "./dns-record.js";
 import type { DomainRefs } from "./domain.js";

@@ -4,11 +4,11 @@ import type {
   ProviderAdapter,
   ResolvedScopes,
   ResourceRegistry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import {
   defineProvider,
   ResourceRegistry as Registry,
-} from "@infrasync/core/provider";
+} from "@infrasync-org/core/provider";
 import * as z from "zod";
 import { TailscaleClient } from "./client.js";
 import { ACLPolicyResource } from "./acl-policy.js";
@@ -34,7 +34,7 @@ export type TailscaleConfig = z.infer<typeof tailscaleConfigSchema>;
  * The Tailscale adapter descriptor. Pass this to `infra.provider()`:
  *
  * ```typescript
- * import { tailscale } from "@infrasync/tailscale";
+ * import { tailscale } from "@infrasync-org/tailscale";
  *
  * const ts = infra.provider("ts", tailscale, {
  *   apiKey: infra.secret.env("TAILSCALE_API_KEY"),
