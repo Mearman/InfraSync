@@ -266,6 +266,9 @@ importers:
       '@infrasync-org/core':
         specifier: workspace:*
         version: link:../core
+      gaxios:
+        specifier: 7.1.4
+        version: 7.1.4
       tsdown:
         specifier: 0.21.7
         version: 0.21.7(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(synckit@0.11.12)(typescript@6.0.3)

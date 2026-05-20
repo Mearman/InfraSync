@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@infrasync-org/core": "workspace:*",
+    "gaxios": "7.1.4",
     "tsdown": "0.21.7",
     "typescript": "6.0.3"
   }
