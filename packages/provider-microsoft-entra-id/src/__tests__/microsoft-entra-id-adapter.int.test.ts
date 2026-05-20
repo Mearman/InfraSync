@@ -129,6 +129,7 @@ const FULL_FEDERATION_RESPONSE = {
   signOutUri: "https://idp.example.com/signout",
   signingCertificate: "MIIB-base64-cert",
   preferredAuthenticationProtocol: "saml",
+  federatedIdpMfaBehavior: "acceptIfMfaDoneByFederatedIdp",
 };
 
 describe("Microsoft Entra ID adapter", () => {
@@ -178,6 +179,7 @@ describe("Microsoft Entra ID adapter", () => {
     assert.deepEqual(provider.supportedKinds(), [
       "User",
       "DomainFederationConfiguration",
+      "FeatureRolloutPolicy",
     ]);
   });
 
@@ -435,9 +437,10 @@ describe("UserResource (finding #2, #3, #7)", () => {
         "displayName",
         "id",
         "mailNickname",
+        "onPremisesImmutableId",
+        "usageLocation",
         "userPrincipalName",
         "userType",
-        "usageLocation",
       ].sort(),
     );
     assert.deepEqual(state, FULL_USER_RESPONSE);
