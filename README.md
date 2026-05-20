@@ -40,7 +40,7 @@ An alternative to Terraform for teams who want infrastructure-as-code without th
 | AWS provider | 🔲 Planned | — |
 | GCP provider | 🔲 Planned | — |
 | GitHub provider | 🔲 Planned | — |
-| Vercel provider | 🔲 Planned | — |
+| Vercel provider | ✅ Done | Projects, Project Domains, Environment Variables, Domains — using `@vercel/sdk` |
 
 ## Why
 
