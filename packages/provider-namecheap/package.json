@@ -1,0 +1,35 @@
+{
+  "name": "@infrasync/namecheap",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./*": {
+      "types": "./dist/*.d.mts",
+      "import": "./dist/*.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "_build": "tsdown",
+    "_typecheck": "tsc -p tsconfig.json --noEmit",
+    "_lint": "eslint . --cache",
+    "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
+  },
+  "dependencies": {
+    "zod": "4.3.6"
+  },
+  "peerDependencies": {
+    "@infrasync/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@infrasync/core": "workspace:*",
+    "tsdown": "0.21.7",
+    "typescript": "6.0.3"
+  }
+}
