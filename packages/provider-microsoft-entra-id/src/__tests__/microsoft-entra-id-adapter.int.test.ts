@@ -399,6 +399,7 @@ describe("Microsoft Entra ID adapter", () => {
       signOutUri: "https://idp.example.com/signout",
       signingCertificate: "MIIB-base64-cert",
       preferredAuthenticationProtocol: "saml",
+      federatedIdpMfaBehavior: "acceptIfMfaDoneByFederatedIdp",
     });
     assert.equal(federationHandle.kind, "DomainFederationConfiguration");
     assert.equal(federationHandle.ref.domain.path, "domain");

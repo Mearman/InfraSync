@@ -84,7 +84,7 @@ export async function buildCredential(
     const credential = new DeviceCodeCredential({
       tenantId: config.tenantId,
       clientId: config.clientId,
-      authenticationRecord,
+      ...(authenticationRecord !== undefined ? { authenticationRecord } : {}),
       tokenCachePersistenceOptions: {
         enabled: true,
         name: "infrasync-entra",
