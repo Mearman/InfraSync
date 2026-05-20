@@ -113,6 +113,8 @@ export class MicrosoftEntraIdProvider implements ProviderPort<
 export {
   microsoftEntraIdConfigSchema,
   type MicrosoftEntraIdConfig,
+  buildCredential,
+  buildGraphClient,
 } from "./client.js";
 export {
   UserResource,
