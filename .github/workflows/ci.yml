@@ -19,12 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install mise tools
-        uses: jdx/mise-action@v4
-        with:
-          install: true
-
       - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -60,12 +60,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install mise tools
-        uses: jdx/mise-action@v4
-        with:
-          install: true
-
       - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
