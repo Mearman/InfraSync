@@ -41,6 +41,8 @@ An alternative to Terraform for teams who want infrastructure-as-code without th
 | GCP provider | 🔲 Planned | — |
 | GitHub provider | 🔲 Planned | — |
 | Vercel provider | ✅ Done | Projects, Project Domains, Environment Variables, Domains — using `@vercel/sdk` |
+| name.com provider | ✅ Done | DNS records (A, AAAA, ANAME, CNAME, MX, NS, SRV, TXT), Domains — hand-rolled REST client |
+| Namecheap provider | ✅ Done | DNS records (A, AAAA, CNAME, MX, TXT, NS), Domains — hand-rolled XML API client |
 
 ## Why
 
