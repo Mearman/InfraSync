@@ -2,7 +2,7 @@ import type { Client } from "@microsoft/microsoft-graph-client";
 import type { ResourcePort } from "@infrasync-org/core/provider";
 import { RefToken } from "@infrasync-org/core/refs";
 import type { RefBuilder } from "@infrasync-org/core/handles";
-import type { ConvergenceGuard } from "@infrasync-org/core/convergence-guards";
+import type { PreconditionDeclaration } from "@infrasync-org/core/transitions";
 import { ProviderApiError } from "@infrasync-org/core/errors";
 import * as z from "zod";
 import {
@@ -247,7 +247,7 @@ export class UserResource implements ResourcePort<
   getStateId = getStateId;
 
   /**
-   * Convergence guard: `onPremisesImmutableId` cannot be updated for
+   * Precondition: `onPremisesImmutableId` cannot be updated for
    * federated users — Graph API rejects it with
    * `Request_BadRequest: "You cannot update SourceAnchor value for federated user"`.
    *
@@ -256,24 +256,24 @@ export class UserResource implements ResourcePort<
    *   2. Apply the user update (ImmutableId change)
    *   3. Recreate the federation configuration
    *
-   * The guard uses typed predicates — no string field names. The match
-   * predicate narrows both specs through Zod `safeParse`, extracting the
-   * domain from the user's UPN and comparing against the federation's domain.
+   * Uses a schema object reference (`domainFederationConfigurationSpecSchema`)
+   * instead of a kind string — the planner resolves by identity (===).
+   * The matchOn function extracts the domain from the user's UPN and
+   * compares against the federation config's domain.
    */
-  readonly convergenceGuards: readonly ConvergenceGuard[] = [
+  readonly preconditions: readonly PreconditionDeclaration[] = [
     {
-      matchKind: "DomainFederationConfiguration",
-      shouldGuard: (diff) =>
-        diff.some((d) => d.path === "onPremisesImmutableId"),
-      matchResource: (thisSpec, targetSpec) => {
-        const userResult = userSpecSchema.safeParse(thisSpec);
+      target: domainFederationConfigurationSpecSchema,
+      matchOn: (sourceSpec: unknown, targetSpec: unknown) => {
+        const userResult = userSpecSchema.safeParse(sourceSpec);
         const fedResult =
           domainFederationConfigurationSpecSchema.safeParse(targetSpec);
         if (!userResult.success || !fedResult.success) return false;
         const userDomain = userResult.data.userPrincipalName.split("@")[1];
         return fedResult.data.domain === userDomain;
       },
-      requiredState: "absent",
+      guardFields: ["onPremisesImmutableId"],
+      required: "absent",
     },
   ];
 
