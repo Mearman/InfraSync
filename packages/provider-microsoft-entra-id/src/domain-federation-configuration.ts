@@ -369,27 +369,29 @@ export class DomainFederationConfigurationResource implements ResourcePort<
    * SourceAnchor changes on federated users). The engine calls `delete()`,
    * applies the user update, then recreates the federation via `create()`.
    *
-   * Graph uses `DELETE /domains/{domain}/federationConfiguration/{id}`.
-   * The `id` parameter here is the federation configuration's Graph object ID.
+   * The state ID is the federation config's Graph object ID. The domain is
+   * extracted from the full state object (which includes `domain` attached
+   * by `attachDomain` during read/create/update).
    */
-  async delete(id: string): Promise<void> {
+  async delete(state: unknown): Promise<void> {
+    // Extract both the federation config ID and domain from state.
+    // The state object has `id` (Graph object ID) and `domain` (attached
+    // by attachDomain during read/create/update).
+    const parsed = z
+      .looseObject({
+        id: z.string().trim().min(1),
+        domain: z.string().trim().min(1),
+      })
+      .safeParse(state);
+    if (!parsed.success) {
+      throw new ProviderApiError(PROVIDER_NAME, "delete", parsed.error.issues);
+    }
+    const { id, domain } = parsed.data;
     try {
-      // The id passed by the engine is the federation config's Graph object ID.
-      // We need to extract the domain from somewhere — but at delete time,
-      // we only have the state ID. We must look up the domain.
-      // Alternative: use the stateMap's stored state.
-      //
-      // The simplest approach: list all domains' federation configs to find
-      // which domain owns this id, then DELETE it.
-      //
-      // However, a more direct approach: the state stored by the engine
-      // contains the domain. The engine passes the state ID here, but the
-      // domain is in the full state record.
-      //
-      // For now, we use the Graph API: DELETE /directory/federationConfigurations/{id}
-      // which is the tenant-wide endpoint that doesn't need the domain.
       await this.client
-        .api(`/directory/federationConfigurations/${encodeURIComponent(id)}`)
+        .api(
+          `/domains/${encodeURIComponent(domain)}/federationConfiguration/${encodeURIComponent(id)}`,
+        )
         .delete();
     } catch (error) {
       if (isNotFound(error)) return;
