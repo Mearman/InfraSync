@@ -11,6 +11,12 @@ import {
   createMicrosoftEntraIdHandle,
   UserResource,
   DomainFederationConfigurationResource,
+  identitySecurityDefaultsEnforcementPolicySpecSchema,
+  IdentitySecurityDefaultsEnforcementPolicyResource,
+  userAuthenticationMethodsSpecSchema,
+  UserAuthenticationMethodsResource,
+  userSoftwareOathMethodSpecSchema,
+  UserSoftwareOathMethodResource,
 } from "../index.js";
 
 // ─── Mock helpers ────────────────────────────────────────────────────────────
@@ -19,6 +25,7 @@ interface GraphRequestMockOptions {
   readonly getResponses?: readonly unknown[];
   readonly postResponses?: readonly unknown[];
   readonly patchResponses?: readonly unknown[];
+  readonly deleteResponses?: readonly unknown[];
 }
 
 interface GraphRequestRecorder {
@@ -27,6 +34,7 @@ interface GraphRequestRecorder {
   readonly getCallCount: { value: number };
   readonly postBodies: unknown[];
   readonly patchBodies: unknown[];
+  readonly deleteCalls: string[];
 }
 
 /**
@@ -43,10 +51,12 @@ function buildMockClient(opts: GraphRequestMockOptions): {
   const getCallCount = { value: 0 };
   const postBodies: unknown[] = [];
   const patchBodies: unknown[] = [];
+  const deleteCalls: string[] = [];
 
   const getResponses = [...(opts.getResponses ?? [])];
   const postResponses = [...(opts.postResponses ?? [])];
   const patchResponses = [...(opts.patchResponses ?? [])];
+  const deleteResponses = [...(opts.deleteResponses ?? [])];
 
   function nextResponse(queue: unknown[], op: string): unknown {
     if (queue.length === 0) {
@@ -72,6 +82,10 @@ function buildMockClient(opts: GraphRequestMockOptions): {
       patchBodies.push(body);
       return nextResponse(patchResponses, "PATCH");
     },
+    async delete(): Promise<unknown> {
+      deleteCalls.push(apiCalls[apiCalls.length - 1] ?? "unknown");
+      return nextResponse(deleteResponses, "DELETE");
+    },
   };
 
   const client = {
@@ -83,7 +97,14 @@ function buildMockClient(opts: GraphRequestMockOptions): {
 
   return {
     client,
-    recorder: { apiCalls, selectCalls, getCallCount, postBodies, patchBodies },
+    recorder: {
+      apiCalls,
+      selectCalls,
+      getCallCount,
+      postBodies,
+      patchBodies,
+      deleteCalls,
+    },
   };
 }
 
@@ -123,6 +144,18 @@ const VALID_FEDERATION_SPEC = {
   isSignedAuthenticationRequestRequired: false,
 };
 
+const VALID_SECURITY_DEFAULTS_SPEC = {
+  kind: "IdentitySecurityDefaultsEnforcementPolicy" as const,
+  isEnabled: false,
+};
+
+const FULL_SECURITY_DEFAULTS_RESPONSE = {
+  id: "securityDefaultsPolicy",
+  displayName: "Security Defaults",
+  description: "Security defaults policy",
+  isEnabled: true,
+};
+
 const FULL_FEDERATION_RESPONSE = {
   id: "fed-1",
   displayName: "Example IdP",
@@ -133,6 +166,8 @@ const FULL_FEDERATION_RESPONSE = {
   signingCertificate: "MIIB-base64-cert",
   preferredAuthenticationProtocol: "saml",
   federatedIdpMfaBehavior: "acceptIfMfaDoneByFederatedIdp",
+  promptLoginBehavior: "disabled",
+  isSignedAuthenticationRequestRequired: false,
 };
 
 describe("Microsoft Entra ID adapter", () => {
@@ -183,6 +218,9 @@ describe("Microsoft Entra ID adapter", () => {
       "User",
       "DomainFederationConfiguration",
       "FeatureRolloutPolicy",
+      "IdentitySecurityDefaultsEnforcementPolicy",
+      "UserAuthenticationMethods",
+      "UserSoftwareOathMethod",
     ]);
   });
 
@@ -322,6 +360,8 @@ describe("Microsoft Entra ID adapter", () => {
     });
     assert.ok(result.success);
     assert.equal(result.data.preferredAuthenticationProtocol, "saml");
+    assert.equal(result.data.promptLoginBehavior, "disabled");
+    assert.equal(result.data.isSignedAuthenticationRequestRequired, false);
   });
 
   it("defaults DomainFederationConfiguration protocol to saml", () => {
@@ -368,9 +408,29 @@ describe("Microsoft Entra ID adapter", () => {
     assert.ok(!result.success);
   });
 
+  // ─── IdentitySecurityDefaultsEnforcementPolicy spec ──────────────────────
+
+  it("parses a valid IdentitySecurityDefaultsEnforcementPolicy spec", () => {
+    const result =
+      identitySecurityDefaultsEnforcementPolicySpecSchema.safeParse(
+        VALID_SECURITY_DEFAULTS_SPEC,
+      );
+    assert.ok(result.success);
+    assert.equal(result.data.isEnabled, false);
+  });
+
+  it("rejects extra fields on IdentitySecurityDefaultsEnforcementPolicy spec", () => {
+    const result =
+      identitySecurityDefaultsEnforcementPolicySpecSchema.safeParse({
+        ...VALID_SECURITY_DEFAULTS_SPEC,
+        unexpected: "field",
+      });
+    assert.ok(!result.success);
+  });
+
   // ─── Typed handle ─────────────────────────────────────────────────────────
 
-  it("typed handle registers User and DomainFederationConfiguration", () => {
+  it("typed handle registers all resource kinds", () => {
     const registered: { kind: string; name: string }[] = [];
     const entra = createMicrosoftEntraIdHandle(
       "entra",
@@ -411,9 +471,42 @@ describe("Microsoft Entra ID adapter", () => {
     assert.equal(federationHandle.kind, "DomainFederationConfiguration");
     assert.equal(federationHandle.ref.domain.path, "domain");
 
+    const securityDefaultsHandle =
+      entra.identitySecurityDefaultsEnforcementPolicy("securityDefaults", {
+        kind: "IdentitySecurityDefaultsEnforcementPolicy",
+        isEnabled: false,
+      });
+    assert.equal(
+      securityDefaultsHandle.kind,
+      "IdentitySecurityDefaultsEnforcementPolicy",
+    );
+    assert.equal(securityDefaultsHandle.ref.isEnabled.path, "isEnabled");
+
+    const authMethodsHandle = entra.userAuthenticationMethods("alice-auth", {
+      kind: "UserAuthenticationMethods",
+      userPrincipalName: "alice@example.com",
+      methodTypes: ["password"],
+    });
+    assert.equal(authMethodsHandle.kind, "UserAuthenticationMethods");
+    assert.equal(authMethodsHandle.ref.methodTypes.path, "methodTypes");
+
+    const oathHandle = entra.userSoftwareOathMethod("admin-totp", {
+      kind: "UserSoftwareOathMethod",
+      userPrincipalName: "admin@example.com",
+      secret: "JBSWY3DPEHPK3PXP",
+    });
+    assert.equal(oathHandle.kind, "UserSoftwareOathMethod");
+    assert.equal(oathHandle.ref.methodId.path, "methodId");
+
     assert.deepEqual(registered, [
       { kind: "User", name: "alice" },
       { kind: "DomainFederationConfiguration", name: "idp" },
+      {
+        kind: "IdentitySecurityDefaultsEnforcementPolicy",
+        name: "securityDefaults",
+      },
+      { kind: "UserAuthenticationMethods", name: "alice-auth" },
+      { kind: "UserSoftwareOathMethod", name: "admin-totp" },
     ]);
   });
 });
@@ -652,5 +745,468 @@ describe("DomainFederationConfigurationResource (finding #1, #3, #7, #10)", () =
       );
     }
     assert.ok(result.success);
+  });
+});
+
+// ─── IdentitySecurityDefaultsEnforcementPolicyResource adapter behaviour ────
+
+describe("IdentitySecurityDefaultsEnforcementPolicyResource", () => {
+  it("read() fetches the singleton security defaults policy", async () => {
+    const { client, recorder } = buildMockClient({
+      getResponses: [FULL_SECURITY_DEFAULTS_RESPONSE],
+    });
+    const resource = new IdentitySecurityDefaultsEnforcementPolicyResource(
+      client,
+    );
+
+    const state = await resource.read(VALID_SECURITY_DEFAULTS_SPEC);
+
+    assert.equal(recorder.apiCalls.length, 1);
+    assert.equal(
+      recorder.apiCalls[0],
+      "/policies/identitySecurityDefaultsEnforcementPolicy",
+    );
+    assert.deepEqual(state, FULL_SECURITY_DEFAULTS_RESPONSE);
+  });
+
+  it("create() patches the singleton policy and re-reads canonical state", async () => {
+    const { client, recorder } = buildMockClient({
+      patchResponses: [null],
+      getResponses: [{ ...FULL_SECURITY_DEFAULTS_RESPONSE, isEnabled: false }],
+    });
+    const resource = new IdentitySecurityDefaultsEnforcementPolicyResource(
+      client,
+    );
+
+    const state = await resource.create(VALID_SECURITY_DEFAULTS_SPEC);
+
+    assert.equal(recorder.apiCalls.length, 2);
+    assert.equal(
+      recorder.apiCalls[0],
+      "/policies/identitySecurityDefaultsEnforcementPolicy",
+    );
+    assert.equal(
+      recorder.apiCalls[1],
+      "/policies/identitySecurityDefaultsEnforcementPolicy",
+    );
+    assert.deepEqual(recorder.patchBodies, [{ isEnabled: false }]);
+    assert.deepEqual(state, {
+      ...FULL_SECURITY_DEFAULTS_RESPONSE,
+      isEnabled: false,
+    });
+  });
+
+  it("update() patches the singleton policy and re-reads canonical state", async () => {
+    const { client, recorder } = buildMockClient({
+      patchResponses: [null],
+      getResponses: [{ ...FULL_SECURITY_DEFAULTS_RESPONSE, isEnabled: false }],
+    });
+    const resource = new IdentitySecurityDefaultsEnforcementPolicyResource(
+      client,
+    );
+
+    const state = await resource.update(
+      "securityDefaultsPolicy",
+      VALID_SECURITY_DEFAULTS_SPEC,
+    );
+
+    assert.equal(recorder.apiCalls.length, 2);
+    assert.deepEqual(recorder.patchBodies, [{ isEnabled: false }]);
+    assert.deepEqual(state, {
+      ...FULL_SECURITY_DEFAULTS_RESPONSE,
+      isEnabled: false,
+    });
+  });
+});
+
+// ─── Test fixtures for new resources ─────────────────────────────────────────
+
+const VALID_AUTH_METHODS_SPEC = {
+  kind: "UserAuthenticationMethods" as const,
+  userPrincipalName: "alice@example.com",
+  methodTypes: ["password" as const],
+};
+
+const FULL_AUTH_METHODS_RESPONSE_USER = { id: "user-1" };
+const FULL_AUTH_METHODS_RESPONSE_METHODS = {
+  value: [
+    {
+      "@odata.type": "#microsoft.graph.passwordAuthenticationMethod",
+      id: "pw-1",
+    },
+  ],
+};
+
+const VALID_SOFTWARE_OATH_SPEC = {
+  kind: "UserSoftwareOathMethod" as const,
+  userPrincipalName: "admin@example.com",
+  secret: "JBSWY3DPEHPK3PXP",
+};
+
+const SOFTWARE_OATH_USER_RESPONSE = { id: "user-2" };
+const SOFTWARE_OATH_METHOD_LIST_EMPTY = { value: [] };
+const SOFTWARE_OATH_METHOD_LIST_PRESENT = {
+  value: [{ id: "oath-1" }],
+};
+
+// ─── UserAuthenticationMethods spec ──────────────────────────────────────────
+
+describe("UserAuthenticationMethods spec", () => {
+  it("parses a valid spec with password-only", () => {
+    const result = userAuthenticationMethodsSpecSchema.safeParse({
+      kind: "UserAuthenticationMethods",
+      userPrincipalName: "alice@example.com",
+      methodTypes: ["password"],
+    });
+    assert.ok(result.success);
+    assert.deepEqual(result.data.methodTypes, ["password"]);
+  });
+
+  it("parses a valid spec with multiple method types", () => {
+    const result = userAuthenticationMethodsSpecSchema.safeParse({
+      kind: "UserAuthenticationMethods",
+      userPrincipalName: "admin@example.com",
+      methodTypes: ["password", "softwareOath"],
+    });
+    assert.ok(result.success);
+  });
+
+  it("rejects spec without password in methodTypes", async () => {
+    const { client } = buildMockClient({
+      getResponses: [
+        FULL_AUTH_METHODS_RESPONSE_USER,
+        FULL_AUTH_METHODS_RESPONSE_METHODS,
+      ],
+    });
+    const resource = new UserAuthenticationMethodsResource(client);
+
+    await assert.rejects(
+      () =>
+        resource.read({
+          kind: "UserAuthenticationMethods",
+          userPrincipalName: "alice@example.com",
+          methodTypes: ["softwareOath"],
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof ProviderApiError);
+        assert.ok(error.issues[0].message.includes("password"));
+        return true;
+      },
+    );
+  });
+
+  it("rejects empty methodTypes", () => {
+    const result = userAuthenticationMethodsSpecSchema.safeParse({
+      kind: "UserAuthenticationMethods",
+      userPrincipalName: "alice@example.com",
+      methodTypes: [],
+    });
+    assert.ok(!result.success);
+  });
+
+  it("rejects unknown method type", () => {
+    const result = userAuthenticationMethodsSpecSchema.safeParse({
+      kind: "UserAuthenticationMethods",
+      userPrincipalName: "alice@example.com",
+      methodTypes: ["password", "unknown"],
+    });
+    assert.ok(!result.success);
+  });
+
+  it("rejects extra fields on spec", () => {
+    const result = userAuthenticationMethodsSpecSchema.safeParse({
+      ...VALID_AUTH_METHODS_SPEC,
+      unexpected: "field",
+    });
+    assert.ok(!result.success);
+  });
+});
+
+// ─── UserSoftwareOathMethod spec ─────────────────────────────────────────────
+
+describe("UserSoftwareOathMethod spec", () => {
+  it("parses a valid spec", () => {
+    const result = userSoftwareOathMethodSpecSchema.safeParse({
+      kind: "UserSoftwareOathMethod",
+      userPrincipalName: "admin@example.com",
+      secret: "JBSWY3DPEHPK3PXP",
+    });
+    assert.ok(result.success);
+    assert.equal(result.data.secret, "JBSWY3DPEHPK3PXP");
+  });
+
+  it("rejects spec without secret", () => {
+    const result = userSoftwareOathMethodSpecSchema.safeParse({
+      kind: "UserSoftwareOathMethod",
+      userPrincipalName: "admin@example.com",
+    });
+    assert.ok(!result.success);
+  });
+
+  it("rejects extra fields on spec", () => {
+    const result = userSoftwareOathMethodSpecSchema.safeParse({
+      ...VALID_SOFTWARE_OATH_SPEC,
+      unexpected: "field",
+    });
+    assert.ok(!result.success);
+  });
+});
+
+// ─── UserAuthenticationMethodsResource adapter behaviour ──────────────────────
+
+describe("UserAuthenticationMethodsResource", () => {
+  it("read() fetches user ID and auth methods", async () => {
+    const { client, recorder } = buildMockClient({
+      getResponses: [
+        FULL_AUTH_METHODS_RESPONSE_USER,
+        FULL_AUTH_METHODS_RESPONSE_METHODS,
+      ],
+    });
+    const resource = new UserAuthenticationMethodsResource(client);
+
+    const state = await resource.read(VALID_AUTH_METHODS_SPEC);
+
+    assert.equal(recorder.apiCalls.length, 2);
+    assert.equal(recorder.apiCalls[0], "/users/alice%40example.com");
+    assert.equal(
+      recorder.apiCalls[1],
+      "/users/alice%40example.com/authentication/methods",
+    );
+    assert.deepEqual(state, {
+      id: "user-1",
+      userPrincipalName: "alice@example.com",
+      methodTypes: ["password"],
+    });
+  });
+
+  it("read() returns undefined when user is not found", async () => {
+    // Build a mock that throws a GraphError-like 404 on the first GET
+    const errorClient = {
+      api: () => ({
+        select: () => ({
+          get: async () => {
+            const err = new Error("Not Found");
+            (err as Record<string, unknown>).statusCode = 404;
+            throw err;
+          },
+        }),
+      }),
+    } as unknown as Client;
+    const resource = new UserAuthenticationMethodsResource(errorClient);
+
+    const state = await resource.read(VALID_AUTH_METHODS_SPEC);
+    assert.equal(state, undefined);
+  });
+
+  it("create() deletes disallowed methods and re-reads", async () => {
+    // State: user has password + softwareOath, but spec allows only password
+    const methodsBeforeEnforce = {
+      value: [
+        {
+          "@odata.type": "#microsoft.graph.passwordAuthenticationMethod",
+          id: "pw-1",
+        },
+        {
+          "@odata.type": "#microsoft.graph.softwareOathAuthenticationMethod",
+          id: "oath-1",
+        },
+      ],
+    };
+    const methodsAfterEnforce = {
+      value: [
+        {
+          "@odata.type": "#microsoft.graph.passwordAuthenticationMethod",
+          id: "pw-1",
+        },
+      ],
+    };
+
+    const { client, recorder } = buildMockClient({
+      // enforce: fetch user + fetch methods; then re-read: fetch user + fetch methods
+      getResponses: [
+        FULL_AUTH_METHODS_RESPONSE_USER,
+        methodsBeforeEnforce,
+        FULL_AUTH_METHODS_RESPONSE_USER,
+        methodsAfterEnforce,
+      ],
+      deleteResponses: [null],
+    });
+    const resource = new UserAuthenticationMethodsResource(client);
+
+    const state = await resource.create(VALID_AUTH_METHODS_SPEC);
+
+    // 4 GETs: 2 during enforce + 2 during re-read
+    assert.equal(recorder.getCallCount.value, 4);
+    // 1 DELETE for the softwareOath method
+    assert.equal(recorder.deleteCalls.length, 1);
+    assert.ok(
+      recorder.deleteCalls[0].includes("softwareOathMethods"),
+      "deletes via type-specific endpoint",
+    );
+    assert.deepEqual(state, {
+      id: "user-1",
+      userPrincipalName: "alice@example.com",
+      methodTypes: ["password"],
+    });
+  });
+
+  it("update() deletes disallowed methods and re-reads", async () => {
+    const methodsBeforeEnforce = {
+      value: [
+        {
+          "@odata.type": "#microsoft.graph.passwordAuthenticationMethod",
+          id: "pw-1",
+        },
+        {
+          "@odata.type":
+            "#microsoft.graph.microsoftAuthenticatorAuthenticationMethod",
+          id: "msauth-1",
+        },
+      ],
+    };
+    const methodsAfterEnforce = {
+      value: [
+        {
+          "@odata.type": "#microsoft.graph.passwordAuthenticationMethod",
+          id: "pw-1",
+        },
+      ],
+    };
+
+    const { client, recorder } = buildMockClient({
+      getResponses: [
+        FULL_AUTH_METHODS_RESPONSE_USER,
+        methodsBeforeEnforce,
+        FULL_AUTH_METHODS_RESPONSE_USER,
+        methodsAfterEnforce,
+      ],
+      deleteResponses: [null],
+    });
+    const resource = new UserAuthenticationMethodsResource(client);
+
+    const state = await resource.update("user-1", VALID_AUTH_METHODS_SPEC);
+
+    assert.equal(recorder.deleteCalls.length, 1);
+    assert.ok(
+      recorder.deleteCalls[0].includes("microsoftAuthenticatorMethods"),
+    );
+    assert.deepEqual(state?.methodTypes, ["password"]);
+  });
+
+  it("desiredStateSchema parses provider state", () => {
+    const resource = new UserAuthenticationMethodsResource(
+      {} as unknown as Client,
+    );
+    const result = resource.desiredStateSchema.safeParse({
+      methodTypes: ["password", "softwareOath"],
+    });
+    assert.ok(result.success);
+  });
+});
+
+// ─── UserSoftwareOathMethodResource adapter behaviour ────────────────────────
+
+describe("UserSoftwareOathMethodResource", () => {
+  it("read() returns state when method exists", async () => {
+    const { client, recorder } = buildMockClient({
+      getResponses: [
+        SOFTWARE_OATH_USER_RESPONSE,
+        SOFTWARE_OATH_METHOD_LIST_PRESENT,
+      ],
+    });
+    const resource = new UserSoftwareOathMethodResource(client);
+
+    const state = await resource.read(VALID_SOFTWARE_OATH_SPEC);
+
+    assert.equal(recorder.apiCalls.length, 2);
+    assert.equal(recorder.apiCalls[0], "/users/admin%40example.com");
+    assert.equal(
+      recorder.apiCalls[1],
+      "/users/admin%40example.com/authentication/softwareOathMethods",
+    );
+    assert.deepEqual(state, {
+      id: "user-2",
+      userPrincipalName: "admin@example.com",
+      methodType: "softwareOath",
+      methodId: "oath-1",
+    });
+  });
+
+  it("read() returns undefined when no method exists", async () => {
+    const { client } = buildMockClient({
+      getResponses: [
+        SOFTWARE_OATH_USER_RESPONSE,
+        SOFTWARE_OATH_METHOD_LIST_EMPTY,
+      ],
+    });
+    const resource = new UserSoftwareOathMethodResource(client);
+
+    const state = await resource.read(VALID_SOFTWARE_OATH_SPEC);
+    assert.equal(state, undefined);
+  });
+
+  it("create() posts new method and re-reads", async () => {
+    // create() POSTs then re-reads (GET user + GET methods)
+    const { client, recorder } = buildMockClient({
+      getResponses: [
+        SOFTWARE_OATH_USER_RESPONSE,
+        SOFTWARE_OATH_METHOD_LIST_PRESENT,
+      ],
+      postResponses: [{ id: "oath-1" }],
+    });
+    const resource = new UserSoftwareOathMethodResource(client);
+
+    const state = await resource.create(VALID_SOFTWARE_OATH_SPEC);
+
+    assert.equal(recorder.postBodies.length, 1);
+    assert.deepEqual(recorder.postBodies[0], { secret: "JBSWY3DPEHPK3PXP" });
+    assert.deepEqual(state, {
+      id: "user-2",
+      userPrincipalName: "admin@example.com",
+      methodType: "softwareOath",
+      methodId: "oath-1",
+    });
+  });
+
+  it("update() deletes existing method and recreates with new secret", async () => {
+    const methodAfterRecreate = {
+      value: [{ id: "oath-new" }],
+    };
+    const { client, recorder } = buildMockClient({
+      // fetch existing + delete + post + re-read
+      getResponses: [
+        SOFTWARE_OATH_USER_RESPONSE,
+        SOFTWARE_OATH_METHOD_LIST_PRESENT,
+        SOFTWARE_OATH_USER_RESPONSE,
+        methodAfterRecreate,
+      ],
+      postResponses: [{ id: "oath-new" }],
+      deleteResponses: [null],
+    });
+    const resource = new UserSoftwareOathMethodResource(client);
+
+    const state = await resource.update("user-2", VALID_SOFTWARE_OATH_SPEC);
+
+    assert.equal(recorder.deleteCalls.length, 1);
+    assert.equal(recorder.postBodies.length, 1);
+    assert.deepEqual(state, {
+      id: "user-2",
+      userPrincipalName: "admin@example.com",
+      methodType: "softwareOath",
+      methodId: "oath-new",
+    });
+  });
+
+  it("desiredStateSchema includes methodType but not secret", () => {
+    const resource = new UserSoftwareOathMethodResource(
+      {} as unknown as Client,
+    );
+    const result = resource.desiredStateSchema.safeParse({
+      methodType: "softwareOath",
+    });
+    assert.ok(result.success);
+    // Secret must not appear in desired state — it is write-only
+    const data = result.data as Record<string, unknown>;
+    assert.equal("secret" in data, false);
   });
 });

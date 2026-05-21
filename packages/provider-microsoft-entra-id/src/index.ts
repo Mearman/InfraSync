@@ -18,6 +18,9 @@ import {
 import { UserResource } from "./user.js";
 import { DomainFederationConfigurationResource } from "./domain-federation-configuration.js";
 import { FeatureRolloutPolicyResource } from "./feature-rollout-policy.js";
+import { IdentitySecurityDefaultsEnforcementPolicyResource } from "./identity-security-defaults-enforcement-policy.js";
+import { UserAuthenticationMethodsResource } from "./user-authentication-methods.js";
+import { UserSoftwareOathMethodResource } from "./user-software-oath-method.js";
 
 // ─── Adapter descriptor ──────────────────────────────────────────────────────
 
@@ -65,6 +68,21 @@ export class MicrosoftEntraIdProvider implements ProviderPort<
       const client = this.connectedClient();
       return new FeatureRolloutPolicyResource(client);
     });
+
+    this.registry.register("IdentitySecurityDefaultsEnforcementPolicy", () => {
+      const client = this.connectedClient();
+      return new IdentitySecurityDefaultsEnforcementPolicyResource(client);
+    });
+
+    this.registry.register("UserAuthenticationMethods", () => {
+      const client = this.connectedClient();
+      return new UserAuthenticationMethodsResource(client);
+    });
+
+    this.registry.register("UserSoftwareOathMethod", () => {
+      const client = this.connectedClient();
+      return new UserSoftwareOathMethodResource(client);
+    });
   }
 
   /**
@@ -91,7 +109,7 @@ export class MicrosoftEntraIdProvider implements ProviderPort<
       );
     }
     const credential = await buildCredential(result.data);
-    this.client = buildGraphClient(credential);
+    this.client = buildGraphClient(credential, result.data.scopes);
   }
 
   async disconnect(): Promise<void> {
@@ -141,3 +159,24 @@ export {
   type FeatureRolloutPolicySpec,
   type FeatureRolloutPolicyRefs,
 } from "./feature-rollout-policy.js";
+export {
+  IdentitySecurityDefaultsEnforcementPolicyResource,
+  identitySecurityDefaultsEnforcementPolicySpecSchema,
+  buildIdentitySecurityDefaultsEnforcementPolicyRefs,
+  type IdentitySecurityDefaultsEnforcementPolicySpec,
+  type IdentitySecurityDefaultsEnforcementPolicyRefs,
+} from "./identity-security-defaults-enforcement-policy.js";
+export {
+  UserAuthenticationMethodsResource,
+  userAuthenticationMethodsSpecSchema,
+  buildUserAuthenticationMethodsRefs,
+  type UserAuthenticationMethodsSpec,
+  type UserAuthenticationMethodsRefs,
+} from "./user-authentication-methods.js";
+export {
+  UserSoftwareOathMethodResource,
+  userSoftwareOathMethodSpecSchema,
+  buildUserSoftwareOathMethodRefs,
+  type UserSoftwareOathMethodSpec,
+  type UserSoftwareOathMethodRefs,
+} from "./user-software-oath-method.js";

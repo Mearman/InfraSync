@@ -57,10 +57,27 @@ export function toProviderApiError(
 
 /**
  * True if the error is a Graph 404 — the canonical signal that a resource
- * lookup found nothing.
+ * lookup found nothing. Also tolerates plain Error objects with a
+ * `statusCode` property of 404, which the Graph SDK can throw in some
+ * configurations.
  */
 export function isNotFound(error: unknown): boolean {
-  return error instanceof GraphError && error.statusCode === HTTP_NOT_FOUND;
+  if (error instanceof GraphError && error.statusCode === HTTP_NOT_FOUND)
+    return true;
+  if (
+    error instanceof Error &&
+    "statusCode" in error &&
+    hasStatusCodeValue(error, HTTP_NOT_FOUND)
+  )
+    return true;
+  return false;
+}
+
+function hasStatusCodeValue(
+  error: Error & { statusCode?: unknown },
+  expected: number,
+): boolean {
+  return error.statusCode === expected;
 }
 
 export { PROVIDER_NAME };

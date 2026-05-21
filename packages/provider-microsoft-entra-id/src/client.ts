@@ -17,27 +17,31 @@ useIdentityPlugin(cachePersistencePlugin);
 
 // ─── Config schema (discriminated union) ─────────────────────────────────────
 
+const graphScopesSchema = z.array(z.string().trim().min(1)).nonempty();
+
 export const microsoftEntraIdConfigSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("device-code"),
     tenantId: z.string().trim().min(1),
     clientId: z.string().trim().min(1),
+    scopes: graphScopesSchema.default([
+      "https://graph.microsoft.com/User.ReadWrite.All",
+      "https://graph.microsoft.com/Domain.ReadWrite.All",
+      "https://graph.microsoft.com/Policy.ReadWrite.SecurityDefaults",
+    ]),
   }),
   z.strictObject({
     kind: z.literal("client-credentials"),
     tenantId: z.string().trim().min(1),
     clientId: z.string().trim().min(1),
     clientSecret: z.string().trim().min(1),
+    scopes: graphScopesSchema.default(["https://graph.microsoft.com/.default"]),
   }),
 ]);
 
 export type MicrosoftEntraIdConfig = z.infer<
   typeof microsoftEntraIdConfigSchema
 >;
-
-// ─── Graph scope ─────────────────────────────────────────────────────────────
-
-const GRAPH_DEFAULT_SCOPE = "https://graph.microsoft.com/.default";
 
 // ─── Authentication record persistence ───────────────────────────────────────
 
@@ -98,7 +102,7 @@ export async function buildCredential(
     // Always pre-warm the token before returning. This serialises auth so that
     // concurrent resource reads (which each call getToken internally) don't
     // each race to trigger their own device-code prompt when the cache is cold.
-    const record = await credential.authenticate([GRAPH_DEFAULT_SCOPE]);
+    const record = await credential.authenticate(config.scopes);
     if (record !== undefined && authenticationRecord === undefined) {
       await saveAuthRecord(record);
     }
@@ -116,9 +120,12 @@ export async function buildCredential(
 /**
  * Build a Microsoft Graph `Client` wrapping the supplied TokenCredential.
  */
-export function buildGraphClient(credential: TokenCredential): Client {
+export function buildGraphClient(
+  credential: TokenCredential,
+  scopes: readonly string[],
+): Client {
   const authProvider = new TokenCredentialAuthenticationProvider(credential, {
-    scopes: [GRAPH_DEFAULT_SCOPE],
+    scopes: [...scopes],
   });
   return Client.initWithMiddleware({ authProvider });
 }
