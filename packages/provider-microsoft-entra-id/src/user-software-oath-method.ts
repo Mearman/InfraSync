@@ -156,6 +156,7 @@ export class UserSoftwareOathMethodResource implements ResourcePort<
 
     // A user typically has at most one softwareOath method. Use the first.
     const method = methodsResult.data.value[0];
+    if (method === undefined) return undefined;
     return { userId: userResult.data.id, methodId: method.id };
   }
 

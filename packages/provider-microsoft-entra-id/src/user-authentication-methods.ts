@@ -349,7 +349,9 @@ export class UserAuthenticationMethodsResource implements ResourcePort<
       "update",
     );
 
-    const allowedSet = new Set(spec.methodTypes);
+    // Widen to Set<string> so shortName (string) can be checked
+    // against the narrower AuthMethodType literal union.
+    const allowedSet: ReadonlySet<string> = new Set(spec.methodTypes);
     const toDelete = methods.filter(
       (m) => m.deletable && !allowedSet.has(m.shortName),
     );
