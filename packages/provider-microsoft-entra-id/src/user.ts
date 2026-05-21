@@ -2,6 +2,7 @@ import type { Client } from "@microsoft/microsoft-graph-client";
 import type { ResourcePort } from "@infrasync-org/core/provider";
 import { RefToken } from "@infrasync-org/core/refs";
 import type { RefBuilder } from "@infrasync-org/core/handles";
+import type { ConvergenceGuard } from "@infrasync-org/core/convergence-guards";
 import { ProviderApiError } from "@infrasync-org/core/errors";
 import * as z from "zod";
 import {
@@ -10,6 +11,7 @@ import {
   isNotFound,
   toProviderApiError,
 } from "./helpers.js";
+import { domainFederationConfigurationSpecSchema } from "./domain-federation-configuration.js";
 
 // ─── Ref type ────────────────────────────────────────────────────────────────
 
@@ -243,6 +245,37 @@ export class UserResource implements ResourcePort<
   constructor(private readonly client: Client) {}
 
   getStateId = getStateId;
+
+  /**
+   * Convergence guard: `onPremisesImmutableId` cannot be updated for
+   * federated users — Graph API rejects it with
+   * `Request_BadRequest: "You cannot update SourceAnchor value for federated user"`.
+   *
+   * When this field diverges, the engine must:
+   *   1. Delete the domain federation configuration for the user's domain
+   *   2. Apply the user update (ImmutableId change)
+   *   3. Recreate the federation configuration
+   *
+   * The guard uses typed predicates — no string field names. The match
+   * predicate narrows both specs through Zod `safeParse`, extracting the
+   * domain from the user's UPN and comparing against the federation's domain.
+   */
+  readonly convergenceGuards: readonly ConvergenceGuard[] = [
+    {
+      matchKind: "DomainFederationConfiguration",
+      shouldGuard: (diff) =>
+        diff.some((d) => d.path === "onPremisesImmutableId"),
+      matchResource: (thisSpec, targetSpec) => {
+        const userResult = userSpecSchema.safeParse(thisSpec);
+        const fedResult =
+          domainFederationConfigurationSpecSchema.safeParse(targetSpec);
+        if (!userResult.success || !fedResult.success) return false;
+        const userDomain = userResult.data.userPrincipalName.split("@")[1];
+        return fedResult.data.domain === userDomain;
+      },
+      requiredState: "absent",
+    },
+  ];
 
   /**
    * Fetch a user by id-or-UPN and return its validated state.

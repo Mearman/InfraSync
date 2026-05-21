@@ -360,6 +360,43 @@ export class DomainFederationConfigurationResource implements ResourcePort<
       throw toProviderApiError(error, "update");
     }
   }
+
+  /**
+   * Delete the federation configuration for a domain.
+   *
+   * Used by convergence guards: when a user's `onPremisesImmutableId` must
+   * be updated, the federation must be temporarily removed (Graph API rejects
+   * SourceAnchor changes on federated users). The engine calls `delete()`,
+   * applies the user update, then recreates the federation via `create()`.
+   *
+   * Graph uses `DELETE /domains/{domain}/federationConfiguration/{id}`.
+   * The `id` parameter here is the federation configuration's Graph object ID.
+   */
+  async delete(id: string): Promise<void> {
+    try {
+      // The id passed by the engine is the federation config's Graph object ID.
+      // We need to extract the domain from somewhere — but at delete time,
+      // we only have the state ID. We must look up the domain.
+      // Alternative: use the stateMap's stored state.
+      //
+      // The simplest approach: list all domains' federation configs to find
+      // which domain owns this id, then DELETE it.
+      //
+      // However, a more direct approach: the state stored by the engine
+      // contains the domain. The engine passes the state ID here, but the
+      // domain is in the full state record.
+      //
+      // For now, we use the Graph API: DELETE /directory/federationConfigurations/{id}
+      // which is the tenant-wide endpoint that doesn't need the domain.
+      await this.client
+        .api(`/directory/federationConfigurations/${encodeURIComponent(id)}`)
+        .delete();
+    } catch (error) {
+      if (isNotFound(error)) return;
+      if (error instanceof ProviderApiError) throw error;
+      throw toProviderApiError(error, "delete");
+    }
+  }
 }
 
 /**
