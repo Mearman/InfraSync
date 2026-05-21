@@ -106,8 +106,10 @@ class LockResource implements ResourcePort {
     return { id, name: parsed.data.name, domain: parsed.data.domain };
   }
 
-  async delete(id: string): Promise<void> {
-    this.store.delete(id);
+  async delete(state: unknown): Promise<void> {
+    if (typeof state === "object" && state !== null && "id" in state) {
+      this.store.delete((state as { id: string }).id);
+    }
   }
 }
 

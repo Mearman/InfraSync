@@ -134,9 +134,101 @@ export class SyncEngine {
         return { resources: [], issues };
       }
 
-      // 2. Build DAG and topological sort
-      const dag = buildDag(ir.resources);
-      const levels = topologicalSortByLevel(dag);
+      // 2. Build DAG with convergence guard implicit dependencies.
+      //
+      // If a resource's handler declares convergenceGuards that match
+      // other resources by kind, the guarded resource must be processed
+      // AFTER all matching resources — otherwise the stateMap won't have
+      // their state when the guard evaluates, and parallel execution at
+      // the same level causes race conditions.
+      //
+      // We discover guard kinds by inspecting handler prototypes, then
+      // inject implicit deps edges into the DAG before topological sort.
+      const dagNodes = buildDag(ir.resources);
+
+      // Collect guard kind → resource name mapping from the IR
+      const guardKindMap = new Map<string, string[]>();
+      for (const resource of ir.resources) {
+        const instance = instances.get(resource.provider);
+        if (instance === undefined) continue;
+        const handlerProto = instance.resourceHandler(
+          resource.kind,
+          ResolvedScopes.empty,
+        );
+        if (handlerProto.convergenceGuards === undefined) continue;
+        for (const guard of handlerProto.convergenceGuards) {
+          const existing = guardKindMap.get(guard.matchKind);
+          if (existing === undefined) {
+            guardKindMap.set(guard.matchKind, [resource.name]);
+          } else {
+            existing.push(resource.name);
+          }
+        }
+      }
+
+      // For each resource of a guarded kind, add it as a dependency
+      // of all resources that declare guards matching that kind.
+      //
+      // ALSO: resources that declare guards matching the same target kind
+      // must be serialized — if multiple guarded resources run in parallel,
+      // they'll all try to delete/recreate the same target simultaneously.
+      // We chain them into a dependency sequence so they execute one at a time.
+      const dagWithGuards = dagNodes.map((node): DagNode => {
+        const instance = instances.get(node.resource.provider);
+        if (instance === undefined) return node;
+        const handlerProto = instance.resourceHandler(
+          node.resource.kind,
+          ResolvedScopes.empty,
+        );
+        if (handlerProto.convergenceGuards === undefined) return node;
+
+        const extraDeps = new Set<string>();
+        for (const guard of handlerProto.convergenceGuards) {
+          // Dependency on all resources of the guarded kind (must be
+          // processed first so stateMap has their state).
+          for (const candidate of dagNodes) {
+            if (candidate.resource.kind === guard.matchKind) {
+              extraDeps.add(candidate.resource.name);
+            }
+          }
+
+          // Serialization: find other resources that declare the same
+          // guard kind and chain them. Sort by name for determinism.
+          const sameKindGuarded = dagNodes
+            .filter((candidate) => {
+              if (candidate.resource.name === node.resource.name) return false;
+              const candidateInstance = instances.get(
+                candidate.resource.provider,
+              );
+              if (candidateInstance === undefined) return false;
+              const candidateProto = candidateInstance.resourceHandler(
+                candidate.resource.kind,
+                ResolvedScopes.empty,
+              );
+              if (candidateProto.convergenceGuards === undefined) return false;
+              return candidateProto.convergenceGuards.some(
+                (g) => g.matchKind === guard.matchKind,
+              );
+            })
+            .map((c) => c.resource.name)
+            .sort();
+
+          // Chain: depend on all same-kind guarded resources that sort
+          // before this one. This creates a linear sequence.
+          for (const siblingName of sameKindGuarded) {
+            if (siblingName < node.resource.name) {
+              extraDeps.add(siblingName);
+            }
+          }
+        }
+
+        if (extraDeps.size === 0) return node;
+
+        const mergedDeps = new Set([...node.deps, ...extraDeps]);
+        return { resource: node.resource, deps: mergedDeps };
+      });
+
+      const levels = topologicalSortByLevel(dagWithGuards);
 
       // 3. Process resources level by level (parallel within each level)
       const stateMap = new Map<string, unknown>();
@@ -440,8 +532,7 @@ export class SyncEngine {
 
           const stepState = stateMap.get(step.resourceName);
           if (stepState !== undefined) {
-            const stepStateId = stepHandler.getStateId(stepState);
-            await stepHandler.delete(stepStateId);
+            await stepHandler.delete(stepState);
             stateMap.set(step.resourceName, undefined);
           }
         }

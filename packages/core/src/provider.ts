@@ -225,7 +225,7 @@ export interface ResourcePort<
   update(id: string, spec: unknown): Promise<unknown>;
 
   /**
-   * Delete a resource by its provider-assigned ID.
+   * Delete a resource.
    *
    * Used by the engine to satisfy convergence guards — deleting a
    * prerequisite resource so a guarded update can proceed, before
@@ -233,9 +233,11 @@ export interface ResourcePort<
    * for guard transitions and will fail with an error if a guard
    * requires it.
    *
-   * Adapters should validate `id` is valid before calling the provider API.
+   * Receives the full state object (not just the ID) because some
+   * providers need additional context from state to construct the
+   * correct API endpoint (e.g. domain name for federation config).
    */
-  delete?(id: string): Promise<void>;
+  delete?(state: unknown): Promise<void>;
 }
 
 // ─── ProviderPort ────────────────────────────────────────────────────────────

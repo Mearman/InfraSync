@@ -495,5 +495,9 @@ function createCachedResourcePort(
     ...result,
     ...(inner.codec !== undefined ? { codec: inner.codec } : {}),
     ...(inner.scopes !== undefined ? { scopes: inner.scopes } : {}),
+    ...(inner.convergenceGuards !== undefined
+      ? { convergenceGuards: inner.convergenceGuards }
+      : {}),
+    ...(inner.delete !== undefined ? { delete: inner.delete.bind(inner) } : {}),
   };
 }
