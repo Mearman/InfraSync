@@ -227,6 +227,12 @@ export interface ResourcePort<
   readonly scopes?: ResourceScopes;
 
   /**
+   * How long (ms) to wait after a write before reading back to verify convergence.
+   * undefined = no verification (provider is strongly consistent).
+   */
+  readonly convergenceDelay?: number;
+
+  /**
    * Query the provider API for resources matching the identity fields in spec.
    * Returns undefined if the resource does not exist.
    *
@@ -289,6 +295,13 @@ export interface ProviderPort<TConfig extends z.ZodType = z.ZodType> {
 
   /** Gracefully close connections, release resources */
   disconnect(): Promise<void>;
+
+  /**
+   * Maximum concurrent API calls this provider supports.
+   * The executor respects this when dispatching parallel actions.
+   * undefined = unlimited.
+   */
+  readonly maxConcurrency?: number;
 
   /** List all resource kinds this provider supports */
   supportedKinds(): string[];
