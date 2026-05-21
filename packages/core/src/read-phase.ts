@@ -8,15 +8,17 @@
  * Non-deterministic: queries external provider APIs.
  * Output (StateMap) is a snapshot of reality at a point in time.
  */
-import type { InfraIR } from "./types.js";
+import type { InfraIR, ResourceIR } from "./types.js";
 import {
   ResolvedScopes,
   type ProviderAdapter,
   type ProviderPort,
+  type OrphanedResource,
 } from "./provider.js";
 import type { ResourceIssue } from "./resource.js";
 import {
   collectZodIssues,
+  deepEqual,
   isRecord,
   resolveConfigSecrets,
   resolveScopes,
@@ -32,12 +34,19 @@ import type { DagNode } from "./dag.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+/** Options for orphan detection during the read phase. */
+export interface OrphanDetectionOptions {
+  /** Enable orphan detection by calling list() on handlers that implement it. */
+  readonly enabled: boolean;
+}
+
 export interface ReadPhaseInput {
   readonly ir: InfraIR;
   readonly adapters: Map<string, ProviderAdapter>;
   readonly secretResolver?: SecretResolver;
   readonly cache?: ResourceCache;
   readonly cacheTtl?: number;
+  readonly orphanDetection?: OrphanDetectionOptions;
 }
 
 export interface ReadPhaseOutput {
@@ -45,6 +54,7 @@ export interface ReadPhaseOutput {
   readonly instances: Map<string, ProviderPort>;
   readonly configs: Map<string, Record<string, unknown>>;
   readonly issues: readonly ResourceIssue[];
+  readonly orphans?: readonly OrphanedResource[];
 }
 
 // ─── Read phase ──────────────────────────────────────────────────────────────
@@ -61,7 +71,9 @@ export interface ReadPhaseOutput {
  * Non-deterministic: queries external provider APIs.
  * Output is a snapshot of reality at this point in time.
  */
-export async function readPhase(input: ReadPhaseInput): Promise<ReadPhaseOutput> {
+export async function readPhase(
+  input: ReadPhaseInput,
+): Promise<ReadPhaseOutput> {
   const { ir, adapters } = input;
   const issues: ResourceIssue[] = [];
   const instances = new Map<string, ProviderPort>();
@@ -92,13 +104,108 @@ export async function readPhase(input: ReadPhaseInput): Promise<ReadPhaseOutput>
 
   for (const level of levels) {
     await Promise.all(
-      level.map((node) =>
-        readNode(node, instances, configs, stateMap, issues),
-      ),
+      level.map((node) => readNode(node, instances, configs, stateMap, issues)),
     );
   }
 
+  // 4. Detect orphans if requested
+  const orphans = await detectOrphans(ir, instances, input.orphanDetection);
+
+  if (orphans !== undefined) {
+    return { stateMap, instances, configs, issues, orphans };
+  }
+
   return { stateMap, instances, configs, issues };
+}
+
+// ─── Orphan detection ─────────────────────────────────────────────────────────
+
+/**
+ * Detect orphaned resources — resources in the provider that are not
+ * present in the IR.
+ *
+ * For each provider instance, iterates all supported kinds. For each kind
+ * whose handler implements `list()`, calls it and compares the results
+ * against the IR's resources. Resources in the provider that don't match
+ * any IR resource are orphans.
+ *
+ * Matching uses the identity schema: a listed resource matches an IR
+ * resource if the identity fields parsed from the listed resource's
+ * identity equal those parsed from the IR resource's spec.
+ */
+async function detectOrphans(
+  ir: InfraIR,
+  instances: Map<string, ProviderPort>,
+  options: OrphanDetectionOptions | undefined,
+): Promise<OrphanedResource[] | undefined> {
+  if (!options?.enabled) return undefined;
+
+  const orphans: OrphanedResource[] = [];
+
+  // Group IR resources by (provider, kind) for fast lookup
+  const irResourcesByProviderKind = new Map<string, ResourceIR[]>();
+  for (const resource of ir.resources) {
+    const key = `${resource.provider}::${resource.kind}`;
+    const existing = irResourcesByProviderKind.get(key);
+    if (existing !== undefined) {
+      existing.push(resource);
+    } else {
+      irResourcesByProviderKind.set(key, [resource]);
+    }
+  }
+
+  for (const [providerKey, providerInstance] of instances) {
+    for (const kind of providerInstance.supportedKinds()) {
+      const handler = providerInstance.resourceHandler(
+        kind,
+        ResolvedScopes.empty,
+      );
+
+      // Skip handlers that don't implement list()
+      if (handler.list === undefined) continue;
+
+      const listed = await handler.list();
+
+      // Get IR resources for this provider+kind combination
+      const mapKey = `${providerKey}::${kind}`;
+      const irResources = irResourcesByProviderKind.get(mapKey) ?? [];
+
+      for (const listedResource of listed) {
+        const isOrphan = !irResources.some((irResource) => {
+          // Parse the IR resource's spec through the identity schema
+          // to get comparable identity fields
+          const specWithMeta = {
+            ...irResource.spec,
+            kind: irResource.kind,
+            name: irResource.name,
+          };
+          const identityResult = handler.identitySchema
+            .loose()
+            .safeParse(specWithMeta);
+          if (!identityResult.success) return false;
+
+          // Compare identity fields between the listed resource and the IR resource
+          const listedIdResult = handler.identitySchema.safeParse(
+            listedResource.identity,
+          );
+          if (!listedIdResult.success) return false;
+
+          return deepEqual(identityResult.data, listedIdResult.data);
+        });
+
+        if (isOrphan) {
+          orphans.push({
+            kind,
+            stateId: listedResource.stateId,
+            identity: listedResource.identity,
+            state: listedResource.state,
+          });
+        }
+      }
+    }
+  }
+
+  return orphans;
 }
 
 // ─── Provider connection ─────────────────────────────────────────────────────
@@ -124,11 +231,16 @@ async function connectProviders(
     }
 
     const instance = adapter.create();
-    const resolvedConfig = resolveConfigSecrets(provider.config, secretResolver);
+    const resolvedConfig = resolveConfigSecrets(
+      provider.config,
+      secretResolver,
+    );
 
     const result = instance.configSchema.safeParse(resolvedConfig);
     if (!result.success) {
-      issues.push(...collectZodIssues(`provider:${provider.key}`, result.error));
+      issues.push(
+        ...collectZodIssues(`provider:${provider.key}`, result.error),
+      );
       continue;
     }
 
@@ -219,7 +331,7 @@ async function readNode(
   // Identity schemas may be strict objects that reject extra fields, so we
   // validate with passthrough to allow the full spec through.
   const identityResult = handlerPrototype.identitySchema
-    .passthrough()
+    .loose()
     .safeParse(resolvedSpec);
   if (!identityResult.success) {
     issues.push(...collectZodIssues(resource.name, identityResult.error));
