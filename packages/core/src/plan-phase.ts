@@ -30,11 +30,163 @@ export interface PlanPhaseInput {
   readonly stateMap: StateMap;
   readonly instances: Map<string, ProviderPort>;
   readonly configs: Map<string, Record<string, unknown>>;
+  /** Include ONLY resources matching any of these tags, plus their transitive dependencies */
+  readonly tags?: readonly string[];
+  /** Exclude resources matching any of these tags, unless depended on by an included resource */
+  readonly skipTags?: readonly string[];
 }
 
 export interface PlanPhaseOutput {
   readonly actionDag: ActionDag;
   readonly issues: readonly ResourceIssue[];
+}
+
+/** Whether a resource is directly included (tagged), an ancestor (dependency), or excluded. */
+interface TagFilterResult {
+  /** Resources that should produce actions */
+  readonly included: ReadonlySet<string>;
+  /** Resources included only because they are dependencies — forced to read-only */
+  readonly dependencyOnly: ReadonlySet<string>;
+}
+
+/**
+ * Compute tag filtering: which resources are included and which are dependency-only.
+ *
+ * - `tags`: include ONLY resources with any matching tag, plus their transitive
+ *   dependencies (walk the DAG backwards to include all ancestors).
+ * - `skipTags`: exclude resources with matching tags, UNLESS they're in the
+ *   dependency chain of an included resource.
+ * - Untagged resources in the dependency chain of a tagged resource become
+ *   read-only actions.
+ * - Untagged resources NOT in any dependency chain are omitted entirely when
+ *   `tags` is specified.
+ * - When neither `tags` nor `skipTags` is specified, all resources are included.
+ */
+function computeTagFilter(
+  resources: readonly ResourceIR[],
+  tags: readonly string[] | undefined,
+  skipTags: readonly string[] | undefined,
+): TagFilterResult | undefined {
+  // No filtering when neither option is provided
+  if (
+    (tags === undefined || tags.length === 0) &&
+    (skipTags === undefined || skipTags.length === 0)
+  ) {
+    return undefined;
+  }
+
+  const tagSet = new Set(tags ?? []);
+  const skipTagSet = new Set(skipTags ?? []);
+
+  // Build name → resource lookup and dependency map
+  const resourceByName = new Map<string, ResourceIR>();
+  for (const resource of resources) {
+    resourceByName.set(resource.name, resource);
+  }
+
+  // Build reverse dependency map: for each resource, who depends on it?
+  // And forward dependency map: for each resource, what does it depend on?
+  const forwardDeps = new Map<string, Set<string>>();
+  for (const resource of resources) {
+    const deps = new Set<string>();
+    if (resource.refBindings !== undefined) {
+      for (const binding of resource.refBindings) {
+        deps.add(binding.targetResource);
+      }
+    }
+    if (resource.dependsOn !== undefined) {
+      for (const dep of resource.dependsOn) {
+        deps.add(dep);
+      }
+    }
+    forwardDeps.set(resource.name, deps);
+  }
+
+  // Walk the dependency graph backwards (from a resource to all its ancestors)
+  // to collect transitive dependencies
+  function collectAncestors(name: string, visited: Set<string>): void {
+    const deps = forwardDeps.get(name);
+    if (deps === undefined) return;
+    for (const dep of deps) {
+      if (!visited.has(dep)) {
+        visited.add(dep);
+        collectAncestors(dep, visited);
+      }
+    }
+  }
+
+  const included = new Set<string>();
+  const dependencyOnly = new Set<string>();
+
+  if (tagSet.size > 0) {
+    // Find resources that match any of the specified tags
+    const directlyIncluded = new Set<string>();
+    for (const resource of resources) {
+      if (resource.tags !== undefined) {
+        for (const tag of resource.tags) {
+          if (tagSet.has(tag)) {
+            directlyIncluded.add(resource.name);
+            break;
+          }
+        }
+      }
+    }
+
+    // Collect transitive dependencies of directly included resources
+    const allAncestors = new Set<string>();
+    for (const name of directlyIncluded) {
+      collectAncestors(name, allAncestors);
+    }
+
+    // All directly included + their ancestors are included
+    for (const name of directlyIncluded) {
+      included.add(name);
+    }
+    for (const name of allAncestors) {
+      included.add(name);
+      // Ancestors not directly tagged are dependency-only (read actions)
+      const resource = resourceByName.get(name);
+      const isDirectlyTagged =
+        resource?.tags?.some((t) => tagSet.has(t)) === true;
+      if (!isDirectlyTagged) {
+        dependencyOnly.add(name);
+      }
+    }
+  } else {
+    // No tags filter — include everything initially
+    for (const resource of resources) {
+      included.add(resource.name);
+    }
+  }
+
+  // Apply skipTags: remove resources that have matching tags,
+  // unless they are in the dependency chain of an included resource
+  if (skipTagSet.size > 0) {
+    // Recompute the set of resources that are dependencies of included resources
+    const dependencyChains = new Set<string>();
+    for (const name of included) {
+      collectAncestors(name, dependencyChains);
+    }
+
+    for (const resource of resources) {
+      if (resource.tags !== undefined) {
+        const hasSkipTag = resource.tags.some((t) => skipTagSet.has(t));
+        if (hasSkipTag) {
+          // Keep if it's a dependency of an included resource
+          const isDependedOn = dependencyChains.has(resource.name);
+          // Also keep if it's directly included via tags
+          const isDirectlyIncluded =
+            tagSet.size > 0 && resource.tags.some((t) => tagSet.has(t));
+          if (!isDependedOn && !isDirectlyIncluded) {
+            included.delete(resource.name);
+            dependencyOnly.delete(resource.name);
+          }
+        }
+      }
+    }
+  }
+
+  return { included, dependencyOnly };
 }
 
 // ─── Plan phase ──────────────────────────────────────────────────────────────
@@ -49,11 +201,39 @@ function nextId(resource: string): string {
  * Deterministic: same inputs → same ActionDag.
  */
 export function planPhase(input: PlanPhaseInput): PlanPhaseOutput {
-  const { ir, stateMap, instances } = input;
+  const { ir, stateMap, instances, tags, skipTags } = input;
   const issues: ResourceIssue[] = [];
   const actions: ActionNode[] = [];
 
+  // Compute tag filtering before action computation
+  const tagFilter = computeTagFilter(ir.resources, tags, skipTags);
+
   for (const resource of ir.resources) {
+    // Apply tag filter — skip excluded resources
+    if (tagFilter !== undefined) {
+      if (!tagFilter.included.has(resource.name)) {
+        continue;
+      }
+
+      // Force dependency-only resources to read mode
+      if (
+        tagFilter.dependencyOnly.has(resource.name) &&
+        resource.mode === "manage"
+      ) {
+        const state = stateMap.get(resource.name);
+        actions.push({
+          id: nextId(resource.name),
+          action: state === undefined ? "no-op" : "read",
+          resource: resource.name,
+          provider: resource.provider,
+          kind: resource.kind,
+          spec: rebuildSpec(resource),
+          deps: collectDeps(resource),
+        });
+        continue;
+      }
+    }
+
     const provider = instances.get(resource.provider);
     if (provider === undefined) {
       issues.push({
