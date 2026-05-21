@@ -53,9 +53,8 @@ const DIRECTORY_USER_READONLY_SCOPE =
 const DIRECTORY_USER_SCOPE =
   "https://www.googleapis.com/auth/admin.directory.user";
 
-/** Required OAuth scope for Admin Directory API schema management. */
-const DIRECTORY_SCHEMA_SCOPE =
-  "https://www.googleapis.com/auth/admin.directory.schema";
+// Schema management requires the admin.directory.userschema scope — separate from
+// admin.directory.user which covers user CRUD only.
 
 /** Base URL for the Admin Directory API. */
 const DIRECTORY_BASE = "https://admin.googleapis.com/admin/directory/v1";
@@ -189,7 +188,10 @@ export function buildDirectoryWriteRequester(
       client_email: credentials.client_email,
       private_key: credentials.private_key,
     },
-    scopes: [DIRECTORY_USER_SCOPE, DIRECTORY_SCHEMA_SCOPE],
+    scopes: [
+      DIRECTORY_USER_SCOPE,
+      "https://www.googleapis.com/auth/admin.directory.userschema",
+    ],
     clientOptions: { subject: options.subjectEmail },
   });
 }

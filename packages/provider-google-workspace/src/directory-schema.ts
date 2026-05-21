@@ -65,8 +65,9 @@ export type SchemaFieldSpec = z.infer<typeof schemaFieldSpecSchema>;
 
 // ─── Spec schema ─────────────────────────────────────────────────────────────
 
-export const directorySchemaSpecSchema = z.strictObject({
+export const directorySchemaSpecSchema = z.object({
   kind: z.literal("DirectorySchema"),
+  name: z.string().trim().min(1).optional(),
   schemaName: z.string().trim().min(1),
   fields: z.array(schemaFieldSpecSchema).min(1),
 });

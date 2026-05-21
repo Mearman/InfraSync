@@ -38,8 +38,9 @@ export const buildUserCustomAttributeRefs: RefBuilder<
 
 // ─── Spec schema ─────────────────────────────────────────────────────────────
 
-export const userCustomAttributeSpecSchema = z.strictObject({
+export const userCustomAttributeSpecSchema = z.object({
   kind: z.literal("UserCustomAttribute"),
+  name: z.string().trim().min(1).optional(),
   /** The user's primary email — used as the user key in the API. */
   primaryEmail: z.email(),
   /** The custom schema name (e.g. "microsoftEntra"). */
@@ -67,8 +68,9 @@ const userCustomAttributeStateSchema = z
 
 // ─── Identity and desired-state sub-schemas ──────────────────────────────────
 
-const userCustomAttributeIdentitySchema = z.strictObject({
+const userCustomAttributeIdentitySchema = z.object({
   kind: z.literal("UserCustomAttribute"),
+  name: z.string().trim().min(1).optional(),
   primaryEmail: userCustomAttributeSpecSchema.shape.primaryEmail,
   schemaName: userCustomAttributeSpecSchema.shape.schemaName,
   fieldName: userCustomAttributeSpecSchema.shape.fieldName,
