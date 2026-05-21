@@ -173,15 +173,15 @@ async function detectOrphans(
       for (const listedResource of listed) {
         const isOrphan = !irResources.some((irResource) => {
           // Parse the IR resource's spec through the identity schema
-          // to get comparable identity fields
-          const specWithMeta = {
+          // to get comparable identity fields.
+          // Unlike readNode, we use the raw spec (with kind injected)
+          // without overriding name — the spec's own identity fields
+          // are what should match the listed resource.
+          const specWithKind = {
             ...irResource.spec,
             kind: irResource.kind,
-            name: irResource.name,
           };
-          const identityResult = handler.identitySchema
-            .loose()
-            .safeParse(specWithMeta);
+          const identityResult = handler.identitySchema.safeParse(specWithKind);
           if (!identityResult.success) return false;
 
           // Compare identity fields between the listed resource and the IR resource
