@@ -118,6 +118,9 @@ const VALID_FEDERATION_SPEC = {
   signOutUri: "https://idp.example.com/signout",
   signingCertificate: "MIIB-base64-cert",
   preferredAuthenticationProtocol: "saml" as const,
+  federatedIdpMfaBehavior: "acceptIfMfaDoneByFederatedIdp" as const,
+  promptLoginBehavior: "disabled" as const,
+  isSignedAuthenticationRequestRequired: false,
 };
 
 const FULL_FEDERATION_RESPONSE = {
@@ -402,6 +405,8 @@ describe("Microsoft Entra ID adapter", () => {
       signingCertificate: "MIIB-base64-cert",
       preferredAuthenticationProtocol: "saml",
       federatedIdpMfaBehavior: "acceptIfMfaDoneByFederatedIdp",
+      promptLoginBehavior: "disabled",
+      isSignedAuthenticationRequestRequired: false,
     });
     assert.equal(federationHandle.kind, "DomainFederationConfiguration");
     assert.equal(federationHandle.ref.domain.path, "domain");

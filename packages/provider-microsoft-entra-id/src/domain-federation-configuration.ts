@@ -48,6 +48,14 @@ export const domainFederationConfigurationSpecSchema = z.strictObject({
       "rejectMfaByFederatedIdp",
     ])
     .default("acceptIfMfaDoneByFederatedIdp"),
+  promptLoginBehavior: z
+    .enum([
+      "translateToFreshPasswordAuthentication",
+      "nativeSupport",
+      "disabled",
+    ])
+    .default("disabled"),
+  isSignedAuthenticationRequestRequired: z.boolean().default(false),
 });
 
 export type DomainFederationConfigurationSpec = z.infer<
@@ -81,6 +89,8 @@ const domainFederationConfigurationStateSchema = z
     signingCertificate: z.string().trim().min(1),
     preferredAuthenticationProtocol: z.string().trim().min(1),
     federatedIdpMfaBehavior: z.string().trim().min(1),
+    promptLoginBehavior: z.string().trim().min(1).optional(),
+    isSignedAuthenticationRequestRequired: z.boolean().optional(),
   })
   .brand<"EntraIdDomainFederationConfigurationState">()
   .readonly();
@@ -122,6 +132,11 @@ const desiredStateSchema = z.object({
       .preferredAuthenticationProtocol,
   federatedIdpMfaBehavior:
     domainFederationConfigurationSpecSchema.shape.federatedIdpMfaBehavior,
+  promptLoginBehavior:
+    domainFederationConfigurationSpecSchema.shape.promptLoginBehavior,
+  isSignedAuthenticationRequestRequired:
+    domainFederationConfigurationSpecSchema.shape
+      .isSignedAuthenticationRequestRequired,
 });
 
 // ─── API response validation ─────────────────────────────────────────────────
@@ -151,6 +166,16 @@ const singleResponseSchema = z.looseObject({
   signingCertificate: z.string().trim().min(1),
   preferredAuthenticationProtocol: z.string().trim().min(1),
   federatedIdpMfaBehavior: z.string().trim().min(1),
+  promptLoginBehavior: z
+    .string()
+    .trim()
+    .min(1)
+    .nullish()
+    .transform((v) => v ?? undefined),
+  isSignedAuthenticationRequestRequired: z
+    .boolean()
+    .nullish()
+    .transform((v) => v ?? undefined),
 });
 
 /**
@@ -209,6 +234,9 @@ function buildBody(
     signingCertificate: spec.signingCertificate,
     preferredAuthenticationProtocol: spec.preferredAuthenticationProtocol,
     federatedIdpMfaBehavior: spec.federatedIdpMfaBehavior,
+    promptLoginBehavior: spec.promptLoginBehavior,
+    isSignedAuthenticationRequestRequired:
+      spec.isSignedAuthenticationRequestRequired,
   };
   if (spec.metadataExchangeUri !== undefined) {
     body.metadataExchangeUri = spec.metadataExchangeUri;
