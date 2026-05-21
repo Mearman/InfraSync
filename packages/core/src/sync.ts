@@ -34,6 +34,10 @@ export interface SyncOptions {
   readonly cache?: ResourceCache;
   /** Cache TTL in milliseconds for this run. Default: cache.defaultTtl */
   readonly cacheTtl?: number;
+  /** Include ONLY resources matching any of these tags, plus their transitive dependencies */
+  readonly tags?: readonly string[];
+  /** Exclude resources matching any of these tags, unless depended on by an included resource */
+  readonly skipTags?: readonly string[];
 }
 
 /** Per-resource outcome from a sync run. */
@@ -70,9 +74,13 @@ export class SyncEngine {
     const read = await readPhase({
       ir,
       adapters: this.adapters,
-      ...(options?.secretResolver !== undefined ? { secretResolver: options.secretResolver } : {}),
+      ...(options?.secretResolver !== undefined
+        ? { secretResolver: options.secretResolver }
+        : {}),
       ...(options?.cache !== undefined ? { cache: options.cache } : {}),
-      ...(options?.cacheTtl !== undefined ? { cacheTtl: options.cacheTtl } : {}),
+      ...(options?.cacheTtl !== undefined
+        ? { cacheTtl: options.cacheTtl }
+        : {}),
     });
 
     if (read.issues.length > 0) {
@@ -87,6 +95,10 @@ export class SyncEngine {
         stateMap: read.stateMap,
         instances: read.instances,
         configs: read.configs,
+        ...(options?.tags !== undefined ? { tags: options.tags } : {}),
+        ...(options?.skipTags !== undefined
+          ? { skipTags: options.skipTags }
+          : {}),
       });
 
       if (plan.issues.length > 0) {
@@ -111,7 +123,10 @@ export class SyncEngine {
   /**
    * Plan only — returns the ActionDag and StateMap without executing.
    */
-  async plan(ir: InfraIR, options?: SyncOptions): Promise<{
+  async plan(
+    ir: InfraIR,
+    options?: SyncOptions,
+  ): Promise<{
     actionDag: ActionDag;
     stateMap: StateMap;
     issues: readonly ResourceIssue[];
@@ -119,9 +134,13 @@ export class SyncEngine {
     const read = await readPhase({
       ir,
       adapters: this.adapters,
-      ...(options?.secretResolver !== undefined ? { secretResolver: options.secretResolver } : {}),
+      ...(options?.secretResolver !== undefined
+        ? { secretResolver: options.secretResolver }
+        : {}),
       ...(options?.cache !== undefined ? { cache: options.cache } : {}),
-      ...(options?.cacheTtl !== undefined ? { cacheTtl: options.cacheTtl } : {}),
+      ...(options?.cacheTtl !== undefined
+        ? { cacheTtl: options.cacheTtl }
+        : {}),
     });
 
     if (read.issues.length > 0) {
@@ -132,7 +151,11 @@ export class SyncEngine {
         infraIRHash: "",
         stateMapHash: "",
       };
-      return { actionDag: emptyDag, stateMap: read.stateMap, issues: read.issues };
+      return {
+        actionDag: emptyDag,
+        stateMap: read.stateMap,
+        issues: read.issues,
+      };
     }
 
     try {
@@ -141,9 +164,17 @@ export class SyncEngine {
         stateMap: read.stateMap,
         instances: read.instances,
         configs: read.configs,
+        ...(options?.tags !== undefined ? { tags: options.tags } : {}),
+        ...(options?.skipTags !== undefined
+          ? { skipTags: options.skipTags }
+          : {}),
       });
 
-      return { actionDag: plan.actionDag, stateMap: read.stateMap, issues: plan.issues };
+      return {
+        actionDag: plan.actionDag,
+        stateMap: read.stateMap,
+        issues: plan.issues,
+      };
     } finally {
       await disconnectProviders(read.instances);
     }
@@ -159,7 +190,9 @@ export class SyncEngine {
     const read = await readPhase({
       ir: reconstructIR(actionDag),
       adapters: this.adapters,
-      ...(options?.secretResolver !== undefined ? { secretResolver: options.secretResolver } : {}),
+      ...(options?.secretResolver !== undefined
+        ? { secretResolver: options.secretResolver }
+        : {}),
     });
 
     if (read.issues.length > 0) {
@@ -185,7 +218,10 @@ export class SyncEngine {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function mapResult(result: { resources: readonly ExecutorResourceOutcome[]; issues: readonly ResourceIssue[] }): SyncResult {
+function mapResult(result: {
+  resources: readonly ExecutorResourceOutcome[];
+  issues: readonly ResourceIssue[];
+}): SyncResult {
   return {
     resources: result.resources.map((r) => ({
       name: r.name,
@@ -199,7 +235,10 @@ function mapResult(result: { resources: readonly ExecutorResourceOutcome[]; issu
 }
 
 function reconstructIR(actionDag: ActionDag): InfraIR {
-  const providers = new Map<string, { key: string; adapterName: string; config: Record<string, unknown> }>();
+  const providers = new Map<
+    string,
+    { key: string; adapterName: string; config: Record<string, unknown> }
+  >();
 
   for (const action of actionDag.actions) {
     if (!providers.has(action.provider)) {
