@@ -217,9 +217,21 @@ export class TieredCacheStore implements CacheStore {
   }
 }
 
+// ─── Cache entry type ───────────────────────────────────────────────────────
+
+/** Cache entry with metadata. */
+export interface CacheEntry {
+  /** ISO-8601 timestamp when this entry was last updated */
+  readonly lastUpdated: string;
+  /** The cached state value */
+  readonly state: unknown;
+}
+
 // ─── Cache entry schema ──────────────────────────────────────────────────────
 
 const cacheEntrySchema = z.object({
+  /** ISO-8601 timestamp when this entry was last updated */
+  lastUpdated: z.string().trim(),
   /** ISO-8601 timestamp when this entry expires */
   expiresAt: z.string().trim(),
   /** The cached state value */
@@ -293,6 +305,15 @@ export class ResourceCache {
    * Returns undefined if the entry doesn't exist, is corrupted, or has expired.
    */
   get(key: string): unknown {
+    const entry = this.getEntry(key);
+    return entry === undefined ? undefined : entry.state;
+  }
+
+  /**
+   * Look up a cached state entry with its metadata.
+   * Returns undefined if the entry doesn't exist, is corrupted, or has expired.
+   */
+  getEntry(key: string): CacheEntry | undefined {
     const raw = this.store.get(key);
     if (raw === undefined) return undefined;
 
@@ -311,21 +332,36 @@ export class ResourceCache {
       return undefined;
     }
 
-    const { expiresAt, state } = result.data;
+    const { lastUpdated, expiresAt, state } = result.data;
     if (Date.now() > Date.parse(expiresAt)) {
       this.store.delete(key);
       return undefined;
     }
 
-    return state;
+    return { lastUpdated, state };
+  }
+
+  /**
+   * Check whether a cached entry is stale (older than `maxAgeMs`) but not yet expired.
+   * Returns undefined if the entry doesn't exist or has expired.
+   */
+  isStale(key: string, maxAgeMs: number): boolean | undefined {
+    const entry = this.getEntry(key);
+    if (entry === undefined) return undefined;
+    return Date.now() - Date.parse(entry.lastUpdated) > maxAgeMs;
   }
 
   /**
    * Store a state entry with an optional TTL override.
    */
   set(key: string, state: unknown, ttl?: number): void {
-    const expiresAt = new Date(Date.now() + (ttl ?? this.defaultTtl));
-    const entry = { expiresAt: expiresAt.toISOString(), state };
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + (ttl ?? this.defaultTtl));
+    const entry = {
+      lastUpdated: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      state,
+    };
     this.store.set(key, JSON.stringify(entry));
   }
 
