@@ -17,6 +17,7 @@ import {
   type ProviderPort,
   type ResourcePort,
 } from "./provider.js";
+import type { OrphanedResource } from "./provider.js";
 import type { ResourceIssue, FieldDiff } from "./resource.js";
 import { collectZodIssues, deepEqual, deepDiff, isRecord } from "./resource.js";
 import type { StateMap } from "./state-map.js";
@@ -34,6 +35,10 @@ export interface PlanPhaseInput {
   readonly tags?: readonly string[];
   /** Exclude resources matching any of these tags, unless depended on by an included resource */
   readonly skipTags?: readonly string[];
+  /** Orphans detected during the read phase. */
+  readonly orphans?: readonly OrphanedResource[];
+  /** When true, produce delete actions for orphans. Otherwise report as issues. */
+  readonly pruneOrphans?: boolean;
 }
 
 export interface PlanPhaseOutput {
@@ -309,6 +314,42 @@ export function planPhase(input: PlanPhaseInput): PlanPhaseOutput {
         diff: baseAction.diff !== undefined ? [...baseAction.diff] : undefined,
         deps: collectDeps(resource),
       });
+    }
+  }
+
+  // Handle orphans detected during the read phase
+  if (input.orphans !== undefined && input.orphans.length > 0) {
+    if (input.pruneOrphans === true) {
+      // Produce independent delete actions for each orphan
+      for (const orphan of input.orphans) {
+        // Find the provider key for this orphan's kind
+        const providerKey = findProviderForKind(orphan.kind, instances);
+        if (providerKey === undefined) {
+          issues.push({
+            resource: orphan.stateId,
+            message: `Orphan of kind "${orphan.kind}" has no provider instance that supports it`,
+          });
+          continue;
+        }
+
+        actions.push({
+          id: `orphan:delete:${orphan.stateId}`,
+          action: "delete",
+          resource: orphan.stateId,
+          provider: providerKey,
+          kind: orphan.kind,
+          spec: null,
+          deps: [],
+        });
+      }
+    } else {
+      // Report orphans as warnings/issues
+      for (const orphan of input.orphans) {
+        issues.push({
+          resource: orphan.stateId,
+          message: `Orphan detected: ${orphan.kind} resource not in IR (stateId: ${orphan.stateId})`,
+        });
+      }
     }
   }
 
@@ -722,4 +763,18 @@ function rebuildSpec(resource: ResourceIR): Record<string, unknown> {
 function hashJSON(value: unknown): string {
   const serialised = JSON.stringify(value);
   return crypto.createHash("sha256").update(serialised).digest("hex");
+}
+
+/**
+ * Find the provider instance key that supports a given resource kind.
+ * Returns the first matching provider key, or undefined if none found.
+ */
+function findProviderForKind(
+  kind: string,
+  instances: Map<string, ProviderPort>,
+): string | undefined {
+  for (const [key, provider] of instances) {
+    if (provider.supportedKinds().includes(kind)) return key;
+  }
+  return undefined;
 }

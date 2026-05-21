@@ -105,6 +105,10 @@ export const resourceIRSchema = z
       description:
         "Symbolic ref bindings extracted from the spec at compile time",
     }),
+    tags: z.array(z.string().trim()).readonly().optional().meta({
+      description:
+        "Arbitrary tags for selective execution — resources matching tag filters are included with their transitive dependencies",
+    }),
   })
   .meta({ description: "A single resource as it appears in compiled InfraIR" });
 
