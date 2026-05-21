@@ -127,6 +127,7 @@ function collectResources(scope: InfraScope): ResourceIR[] {
 function compileHandle(handle: ResourceHandle<unknown, unknown>): ResourceIR {
   const serializedSpec = serializeSpec(handle.rawSpec);
   const dependsOn = Array.from(handle.explicitDeps, (dep) => dep.name);
+  const tags = Array.from(handle.tags);
 
   return Object.freeze({
     name: handle.name,
@@ -136,6 +137,7 @@ function compileHandle(handle: ResourceHandle<unknown, unknown>): ResourceIR {
     spec: serializedSpec,
     dependsOn: Object.freeze(dependsOn),
     refBindings: Object.freeze([...handle.refBindings]),
+    ...(tags.length > 0 ? { tags: Object.freeze(tags) } : {}),
   });
 }
 

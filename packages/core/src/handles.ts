@@ -76,6 +76,9 @@ export interface ResourceOptions {
 
   /** Explicit dependency edges — resources that must be processed before this one */
   readonly dependsOn?: readonly Dependable[];
+
+  /** Arbitrary tags for selective execution — resources matching tag filters are included with their transitive dependencies */
+  readonly tags?: readonly string[];
 }
 
 // ─── ResourceHandle ──────────────────────────────────────────────────────────
@@ -113,6 +116,9 @@ export interface ResourceHandle<TSpec = unknown, TRefs = GenericRefs> {
   /** Handles listed in dependsOn */
   readonly explicitDeps: ReadonlySet<Dependable>;
 
+  /** Arbitrary tags for selective execution */
+  readonly tags: ReadonlySet<string>;
+
   /**
    * Typed ref surface for this resource.
    *
@@ -135,6 +141,7 @@ export interface ResourceHandle<TSpec = unknown, TRefs = GenericRefs> {
 class ResourceHandleImpl<TSpec, TRefs> implements ResourceHandle<TSpec, TRefs> {
   readonly refBindings: readonly RefBindingIR[];
   readonly explicitDeps: ReadonlySet<Dependable>;
+  readonly tags: ReadonlySet<string>;
 
   constructor(
     readonly name: string,
@@ -147,6 +154,7 @@ class ResourceHandleImpl<TSpec, TRefs> implements ResourceHandle<TSpec, TRefs> {
   ) {
     this.refBindings = extractRefBindings(rawSpec);
     this.explicitDeps = new Set(options?.dependsOn ?? []);
+    this.tags = new Set(options?.tags ?? []);
   }
 }
 
