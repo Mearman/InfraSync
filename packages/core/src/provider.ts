@@ -1,5 +1,9 @@
 import type * as z from "zod";
 import type { ConvergenceGuard } from "./convergence-guards.js";
+import type {
+  TransitionDeclaration,
+  PreconditionDeclaration,
+} from "./transitions.js";
 
 // ─── Codec interface ─────────────────────────────────────────────────────────
 
@@ -189,6 +193,39 @@ export interface ResourcePort<
    * When omitted or empty, the resource converges without preconditions.
    */
   readonly convergenceGuards?: readonly ConvergenceGuard[];
+
+  /**
+   * Typed transitions for multi-step resource convergence.
+   *
+   * Declares intermediate specs to apply when guarded fields diverge.
+   * Each step is a value of the resource's own spec type — the planner
+   * validates through specSchema and produces action nodes in the DAG.
+   *
+   * Two forms:
+   * - Data-only (`steps`): partial spec overlays. Pure by construction.
+   * - Function (`computeSteps`): for dynamic paths. Documented as must-be-pure.
+   *
+   * The planner calls computeSteps once during planning and freezes the
+   * result. Transition functions never execute during the Execute phase.
+   *
+   * Replaces convergenceGuards. During migration, both are consumed.
+   */
+  readonly transitions?: readonly TransitionDeclaration<TSpecSchema, TStateSchema>[];
+
+  /**
+   * Cross-resource preconditions for guarded updates.
+   *
+   * Declares that another resource (matched by schema object and field
+   * value) must be in a specific state before this resource can be updated.
+   * The planner inserts delete/create actions for prerequisite resources.
+   *
+   * References schema objects directly (not kind strings) for compile-time
+   * safety. The planner resolves schema → kind → handler at plan time.
+   *
+   * Replaces the matchKind/matchScope pattern in convergenceGuards.
+   * During migration, both are consumed.
+   */
+  readonly preconditions?: readonly PreconditionDeclaration<TSpecSchema, z.ZodType>[];
 
   /**
    * Scopes this resource operates within.
