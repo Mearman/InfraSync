@@ -38,6 +38,10 @@ export interface SyncOptions {
   readonly tags?: readonly string[];
   /** Exclude resources matching any of these tags, unless depended on by an included resource */
   readonly skipTags?: readonly string[];
+  /** Enable orphan detection during the read phase. */
+  readonly orphanDetection?: { readonly enabled: boolean };
+  /** When true, produce delete actions for detected orphans. Otherwise report as issues. */
+  readonly pruneOrphans?: boolean;
 }
 
 /** Per-resource outcome from a sync run. */
@@ -81,6 +85,9 @@ export class SyncEngine {
       ...(options?.cacheTtl !== undefined
         ? { cacheTtl: options.cacheTtl }
         : {}),
+      ...(options?.orphanDetection !== undefined
+        ? { orphanDetection: options.orphanDetection }
+        : {}),
     });
 
     if (read.issues.length > 0) {
@@ -98,6 +105,10 @@ export class SyncEngine {
         ...(options?.tags !== undefined ? { tags: options.tags } : {}),
         ...(options?.skipTags !== undefined
           ? { skipTags: options.skipTags }
+          : {}),
+        ...(read.orphans !== undefined ? { orphans: read.orphans } : {}),
+        ...(options?.pruneOrphans !== undefined
+          ? { pruneOrphans: options.pruneOrphans }
           : {}),
       });
 
@@ -141,6 +152,9 @@ export class SyncEngine {
       ...(options?.cacheTtl !== undefined
         ? { cacheTtl: options.cacheTtl }
         : {}),
+      ...(options?.orphanDetection !== undefined
+        ? { orphanDetection: options.orphanDetection }
+        : {}),
     });
 
     if (read.issues.length > 0) {
@@ -167,6 +181,10 @@ export class SyncEngine {
         ...(options?.tags !== undefined ? { tags: options.tags } : {}),
         ...(options?.skipTags !== undefined
           ? { skipTags: options.skipTags }
+          : {}),
+        ...(read.orphans !== undefined ? { orphans: read.orphans } : {}),
+        ...(options?.pruneOrphans !== undefined
+          ? { pruneOrphans: options.pruneOrphans }
           : {}),
       });
 
