@@ -1,6 +1,18 @@
 import type { InfraIR } from "@infrasync-org/core/types";
+import type { OrphanedResource } from "@infrasync-org/core/provider";
 import type { AdapterRegistry } from "../registry.js";
 import { SyncEngine } from "@infrasync-org/core/sync";
+
+// ─── Options ─────────────────────────────────────────────────────────────────
+
+export interface DriftOptions {
+  /** Enable orphan detection during the read phase. */
+  readonly showOrphans?: boolean;
+  /** Produce delete actions for detected orphans. */
+  readonly prune?: boolean;
+}
+
+// ─── Drift command ────────────────────────────────────────────────────────────
 
 /**
  * Execute a drift detection run — read current state and report
@@ -10,17 +22,29 @@ import { SyncEngine } from "@infrasync-org/core/sync";
  * the engine *would* change, without generating a formal plan entry
  * for each resource.
  *
+ * When showOrphans is enabled, also detects orphaned resources
+ * (resources in the provider not present in the IR).
+ * When prune is enabled, adds delete actions for detected orphans.
+ *
  * @param ir - Compiled InfraIR
  * @param adapters - Registry of available provider adapters
+ * @param options - Drift detection options
  * @returns Drift report listing divergent resources
  */
 export async function drift(
   ir: InfraIR,
   adapters: AdapterRegistry,
+  options?: DriftOptions,
 ): Promise<DriftOutput> {
   const engine = new SyncEngine(adapters);
   // Plan mode reads state and computes actions without applying
-  const result = await engine.execute(ir, { mode: "plan" });
+  const result = await engine.execute(ir, {
+    mode: "plan",
+    ...(options?.showOrphans === true
+      ? { orphanDetection: { enabled: true } }
+      : {}),
+    ...(options?.prune === true ? { pruneOrphans: true } : {}),
+  });
 
   const drifted = result.resources.filter(
     (r) => r.action !== "no-op" && r.action !== "read",
@@ -53,4 +77,6 @@ export interface DriftOutput {
   }[];
   /** Whether any drift was detected */
   readonly hasDrift: boolean;
+  /** Orphaned resources detected (when --show-orphans is enabled) */
+  readonly orphans?: readonly OrphanedResource[];
 }
