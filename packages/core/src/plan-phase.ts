@@ -10,12 +10,14 @@
  * Deterministic: same inputs → same ActionDag.
  */
 import * as crypto from "node:crypto";
+import type * as z from "zod";
 import type { InfraIR, ResourceIR } from "./types.js";
 import { ResolvedScopes, type ProviderPort, type ResourcePort } from "./provider.js";
 import type { ResourceIssue, FieldDiff } from "./resource.js";
 import { collectZodIssues, deepEqual, deepDiff, isRecord } from "./resource.js";
 import type { StateMap } from "./state-map.js";
 import type { ActionNode, ActionDag } from "./action-dag.js";
+import type { PreconditionDeclaration } from "./transitions.js";
 import {
   matchGuards,
   planTransitions,
@@ -106,6 +108,7 @@ export function planPhase(input: PlanPhaseInput): PlanPhaseOutput {
       handler,
       ir,
       stateMap,
+      instances,
       issues,
     );
 
@@ -193,6 +196,7 @@ function evaluateGuards(
   handler: ResourcePort,
   ir: InfraIR,
   stateMap: StateMap,
+  instances: Map<string, ProviderPort>,
   issues: ResourceIssue[],
 ): ActionNode[] | undefined {
   if (baseAction.type !== "update" || baseAction.diff === undefined || baseAction.diff.length === 0) {
@@ -205,9 +209,26 @@ function evaluateGuards(
       resource,
       baseAction,
       handler,
+      stateMap,
     );
     if (transitionActions !== undefined) {
       return transitionActions;
+    }
+  }
+
+  // Check typed preconditions (new system)
+  if (handler.preconditions !== undefined && handler.preconditions.length > 0) {
+    const preconditionActions = evaluatePreconditions(
+      resource,
+      baseAction,
+      handler.preconditions,
+      ir,
+      stateMap,
+      instances,
+      issues,
+    );
+    if (preconditionActions !== undefined) {
+      return preconditionActions;
     }
   }
 
@@ -236,6 +257,7 @@ function evaluateTransitions(
   resource: ResourceIR,
   baseAction: BaseAction,
   handler: ResourcePort,
+  stateMap: StateMap,
 ): ActionNode[] | undefined {
   const divergentFields = (baseAction.diff ?? []).map((d) => d.path);
   let stepCounter = 0;
@@ -285,6 +307,35 @@ function evaluateTransitions(
 
       return actions;
     }
+
+    if ("computeSteps" in transition && transition.computeSteps !== undefined) {
+      // Function form: call once during planning, freeze result into action nodes.
+      // Documented as must-be-pure — no side effects, no closures over mutable state.
+      const state = stateMap.get(resource.name);
+      const steps = transition.computeSteps(
+        desiredSpec as never,
+        state as never,
+      );
+
+      const actions: ActionNode[] = [];
+      let prevId: string | undefined;
+
+      for (const stepSpec of steps) {
+        const stepId = `transition:${resource.name}:${String(stepCounter++)}`;
+        actions.push({
+          id: stepId,
+          action: "update",
+          resource: resource.name,
+          provider: resource.provider,
+          kind: resource.kind,
+          spec: stepSpec,
+          deps: prevId !== undefined ? [prevId] : collectDeps(resource),
+        });
+        prevId = stepId;
+      }
+
+      return actions;
+    }
   }
 
   return undefined;
@@ -293,6 +344,170 @@ function evaluateTransitions(
 /**
  * Evaluate legacy convergence guards — translates to action nodes.
  */
+/**
+ * Evaluate typed preconditions — cross-resource ordering constraints.
+ *
+ * For each precondition, resolves the target schema to matching resources
+ * in the IR, checks the guard fields, and produces delete/create action
+ * nodes to ensure the target is in the required state before the
+ * guarded update runs.
+ */
+function evaluatePreconditions(
+  resource: ResourceIR,
+  baseAction: BaseAction,
+  preconditions: readonly PreconditionDeclaration[],
+  ir: InfraIR,
+  stateMap: StateMap,
+  instances: Map<string, ProviderPort>,
+  issues: ResourceIssue[],
+): ActionNode[] | undefined {
+  const divergentFields = new Set((baseAction.diff ?? []).map((d) => d.path));
+
+  for (const precondition of preconditions) {
+    // Check if any guard fields diverge
+    const triggered = precondition.guardFields.some((f) =>
+      divergentFields.has(f),
+    );
+    if (!triggered) continue;
+
+    // Resolve target schema to matching resources in the IR
+    const matchedResources = resolveTargetResources(
+      precondition.target,
+      resource,
+      precondition.matchOn,
+      ir,
+      instances,
+      issues,
+    );
+
+    if (matchedResources.length === 0) continue;
+
+    // For each matched target resource, produce ordering actions
+    const actions: ActionNode[] = [];
+    let lastDep: string | undefined;
+
+    for (const targetResource of matchedResources) {
+      const targetState = stateMap.get(targetResource.name);
+
+      if (precondition.required === "absent" && targetState !== undefined) {
+        // Target must be absent — delete it first
+        const deleteId = `precondition:delete:${targetResource.name}`;
+        actions.push({
+          id: deleteId,
+          action: "delete",
+          resource: targetResource.name,
+          provider: targetResource.provider,
+          kind: targetResource.kind,
+          spec: null,
+          deps: [],
+        });
+        lastDep = deleteId;
+      }
+
+      if (precondition.required === "present" && targetState === undefined) {
+        // Target must be present — create it first
+        const createId = `precondition:create:${targetResource.name}`;
+        actions.push({
+          id: createId,
+          action: "create",
+          resource: targetResource.name,
+          provider: targetResource.provider,
+          kind: targetResource.kind,
+          spec: targetResource.spec,
+          deps: [],
+        });
+        lastDep = createId;
+      }
+    }
+
+    // The guarded update itself
+    const updateId = `precondition:update:${resource.name}`;
+    actions.push({
+      id: updateId,
+      action: "update",
+      resource: resource.name,
+      provider: resource.provider,
+      kind: resource.kind,
+      spec: rebuildSpec(resource),
+      diff: baseAction.diff !== undefined ? [...baseAction.diff] : undefined,
+      deps: [
+        ...collectDeps(resource),
+        ...(lastDep !== undefined ? [lastDep] : []),
+      ],
+    });
+
+    // Restore targets after the guarded update
+    for (const targetResource of matchedResources) {
+      const targetState = stateMap.get(targetResource.name);
+
+      if (precondition.required === "absent" && targetState !== undefined) {
+        // Recreate the target after the guarded update
+        const recreateId = `precondition:recreate:${targetResource.name}`;
+        actions.push({
+          id: recreateId,
+          action: "create",
+          resource: targetResource.name,
+          provider: targetResource.provider,
+          kind: targetResource.kind,
+          spec: targetResource.spec,
+          deps: [updateId],
+        });
+      }
+    }
+
+    if (actions.length > 0) return actions;
+  }
+
+  return undefined;
+}
+
+/**
+ * Resolve a target schema to matching resources in the IR.
+ *
+ * Compares the precondition's `target` schema against each resource's
+ * handler's `specSchema` using identity (===). If `matchOn` is specified,
+ * filters to resources where the source and target match on that field.
+ */
+function resolveTargetResources(
+  targetSchema: z.ZodType,
+  sourceResource: ResourceIR,
+  matchOn: string | undefined,
+  ir: InfraIR,
+  instances: Map<string, ProviderPort>,
+  _issues: ResourceIssue[],
+): ResourceIR[] {
+  const matched: ResourceIR[] = [];
+
+  for (const resource of ir.resources) {
+    // Skip the source resource itself
+    if (resource.name === sourceResource.name) continue;
+
+    // Get the handler for this resource
+    const provider = instances.get(resource.provider);
+    if (provider === undefined) continue;
+
+    const handler = provider.resourceHandler(resource.kind, ResolvedScopes.empty);
+
+    // Compare schema identity
+    if (handler.specSchema !== targetSchema) continue;
+
+    // If matchOn is specified, check field equality
+    if (matchOn !== undefined) {
+      const sourceSpec = rebuildSpec(sourceResource);
+      const targetSpec = rebuildSpec(resource);
+
+      const sourceValue = isRecord(sourceSpec) ? sourceSpec[matchOn] : undefined;
+      const targetValue = isRecord(targetSpec) ? targetSpec[matchOn] : undefined;
+
+      if (sourceValue !== targetValue) continue;
+    }
+
+    matched.push(resource);
+  }
+
+  return matched;
+}
+
 function evaluateLegacyGuards(
   resource: ResourceIR,
   baseAction: BaseAction,
