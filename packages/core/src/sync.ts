@@ -22,6 +22,11 @@ import type { SecretResolver } from "./resource.js";
 import { ProviderApiError } from "./errors.js";
 import type { ResourceCache } from "./cache.js";
 import { CachedProviderPort } from "./cache.js";
+import {
+  matchGuards,
+  planTransitions,
+  type TransitionStep,
+} from "./convergence-guards.js";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -141,6 +146,7 @@ export class SyncEngine {
           level.map((node) =>
             this.processNode(
               node,
+              ir,
               instances,
               configs,
               stateMap,
@@ -230,6 +236,7 @@ export class SyncEngine {
 
   private async processNode(
     node: DagNode,
+    ir: InfraIR,
     instances: Map<string, ProviderPort>,
     configs: Map<string, Record<string, unknown>>,
     stateMap: Map<string, unknown>,
@@ -375,6 +382,72 @@ export class SyncEngine {
     }
 
     try {
+      // 6a. Check convergence guards — if the update has divergent fields
+      // that trigger a guard, the engine must transition prerequisite
+      // resources before applying the update, then restore them after.
+      const guards = handler.convergenceGuards;
+      let guardSteps: TransitionStep[] | undefined;
+
+      if (
+        action === "update" &&
+        guards !== undefined &&
+        guards.length > 0 &&
+        updateDiff.length > 0
+      ) {
+        const matched = matchGuards(
+          guards,
+          updateDiff,
+          resolvedSpec,
+          ir.resources,
+          stateMap,
+        );
+
+        if (matched.length > 0) {
+          guardSteps = planTransitions(matched, ir.resources);
+        }
+      }
+
+      // 6b. If guards triggered, execute delete phase first
+      if (guardSteps !== undefined) {
+        const deleteSteps = guardSteps.filter(
+          (s): s is TransitionStep & { type: "delete" } => s.type === "delete",
+        );
+
+        for (const step of deleteSteps) {
+          const stepProvider = instances.get(step.provider);
+          if (stepProvider === undefined) {
+            issues.push({
+              resource: step.resourceName,
+              message: `Provider "${step.provider}" not connected for guard transition`,
+            });
+            outcomes.push(fail(resource.name, action, updateDiff));
+            return;
+          }
+
+          const stepHandler = stepProvider.resourceHandler(
+            step.kind,
+            ResolvedScopes.empty,
+          );
+
+          if (stepHandler.delete === undefined) {
+            issues.push({
+              resource: step.resourceName,
+              message: `Resource kind "${step.kind}" does not implement delete() — required for convergence guard`,
+            });
+            outcomes.push(fail(resource.name, action, updateDiff));
+            return;
+          }
+
+          const stepState = stateMap.get(step.resourceName);
+          if (stepState !== undefined) {
+            const stepStateId = stepHandler.getStateId(stepState);
+            await stepHandler.delete(stepStateId);
+            stateMap.set(step.resourceName, undefined);
+          }
+        }
+      }
+
+      // 6c. Apply the guarded (or normal) update
       let result: unknown;
 
       if (action === "create") {
@@ -389,12 +462,70 @@ export class SyncEngine {
       const responseResult = handler.stateSchema.safeParse(result);
       if (!responseResult.success) {
         issues.push(...collectZodIssues(resource.name, responseResult.error));
-        outcomes.push(fail(resource.name, action));
+        outcomes.push(fail(resource.name, action, updateDiff));
+        // Don't proceed with recreation if the guarded update failed
         return;
       }
 
       // Update state map with the new state
       stateMap.set(resource.name, responseResult.data);
+
+      // 6d. If guards triggered, recreate deleted prerequisite resources
+      if (guardSteps !== undefined) {
+        const recreateSteps = guardSteps.filter(
+          (s): s is TransitionStep & { type: "recreate" } =>
+            s.type === "recreate",
+        );
+
+        for (const step of recreateSteps) {
+          const stepProvider = instances.get(step.provider);
+          if (stepProvider === undefined) continue; // Already reported above
+
+          const stepHandler = stepProvider.resourceHandler(
+            step.kind,
+            ResolvedScopes.empty,
+          );
+
+          // Resolve refs in the prerequisite spec
+          let stepSpec: unknown;
+          try {
+            stepSpec = resolveRefs(
+              isRecord(step.spec) ? step.spec : {},
+              stateMap,
+            );
+          } catch {
+            // If refs can't be resolved, use the raw spec
+            stepSpec = step.spec;
+          }
+
+          // Inject identity fields
+          if (isRecord(stepSpec)) {
+            if (!("kind" in stepSpec)) stepSpec.kind = step.kind;
+            if (!("name" in stepSpec)) stepSpec.name = step.resourceName;
+          }
+
+          try {
+            const recreateResult = await stepHandler.create(stepSpec);
+            const recreateValidated =
+              stepHandler.stateSchema.safeParse(recreateResult);
+            if (recreateValidated.success) {
+              stateMap.set(step.resourceName, recreateValidated.data);
+            }
+          } catch (err) {
+            if (err instanceof ProviderApiError) {
+              issues.push(
+                ...err.issues.map((issue) => ({
+                  resource: step.resourceName,
+                  message: `${issue.path.map(String).join(".")}: ${issue.message}`,
+                })),
+              );
+            }
+            // Don't fail the guarded resource — the recreation is a
+            // best-effort restore. The guarded update already succeeded.
+          }
+        }
+      }
+
       outcomes.push(
         succeed(
           resource.name,

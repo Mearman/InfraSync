@@ -1,4 +1,5 @@
 import type * as z from "zod";
+import type { ConvergenceGuard } from "./convergence-guards.js";
 
 // ─── Codec interface ─────────────────────────────────────────────────────────
 
@@ -177,6 +178,19 @@ export interface ResourcePort<
   readonly codec?: ResourceCodec;
 
   /**
+   * Optional convergence guards — preconditions on other resources
+   * that must hold before certain field changes can be applied.
+   *
+   * The engine evaluates these during the plan phase. When a guard is
+   * triggered (a guarded field is divergent), the engine computes a
+   * transition sequence: delete prerequisite → apply guarded update →
+   * recreate prerequisite. This is transparent to the config author.
+   *
+   * When omitted or empty, the resource converges without preconditions.
+   */
+  readonly convergenceGuards?: readonly ConvergenceGuard[];
+
+  /**
    * Scopes this resource operates within.
    *
    * Declares how each scope is sourced — from provider config or from a
@@ -209,6 +223,19 @@ export interface ResourcePort<
    * Adapters should validate `spec` through `specSchema.safeParse()` internally.
    */
   update(id: string, spec: unknown): Promise<unknown>;
+
+  /**
+   * Delete a resource by its provider-assigned ID.
+   *
+   * Used by the engine to satisfy convergence guards — deleting a
+   * prerequisite resource so a guarded update can proceed, before
+   * recreating it. When omitted, the engine cannot delete resources
+   * for guard transitions and will fail with an error if a guard
+   * requires it.
+   *
+   * Adapters should validate `id` is valid before calling the provider API.
+   */
+  delete?(id: string): Promise<void>;
 }
 
 // ─── ProviderPort ────────────────────────────────────────────────────────────
