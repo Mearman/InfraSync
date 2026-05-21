@@ -657,10 +657,12 @@ describe("Google Workspace adapter", () => {
     assert.ok(result.success);
     assert.equal(result.data.schemaName, "microsoftEntra");
     assert.equal(result.data.fields.length, 1);
-    assert.equal(result.data.fields[0].fieldName, "immutableId");
-    assert.equal(result.data.fields[0].fieldType, "STRING");
-    assert.equal(result.data.fields[0].multiValued, false);
-    assert.equal(result.data.fields[0].readAccessType, "ADMINS_AND_SELF");
+    const field = result.data.fields[0];
+    assert.ok(field !== undefined);
+    assert.equal(field.fieldName, "immutableId");
+    assert.equal(field.fieldType, "STRING");
+    assert.equal(field.multiValued, false);
+    assert.equal(field.readAccessType, "ADMINS_AND_SELF");
   });
 
   it("rejects DirectorySchema with empty schemaName", () => {
@@ -808,7 +810,14 @@ describe("Google Workspace adapter", () => {
     const schemaHandle = handle.directorySchema("entra-schema", {
       kind: "DirectorySchema",
       schemaName: "microsoftEntra",
-      fields: [{ fieldName: "immutableId", fieldType: "STRING" }],
+      fields: [
+        {
+          fieldName: "immutableId",
+          fieldType: "STRING",
+          multiValued: false,
+          readAccessType: "ADMINS_AND_SELF",
+        },
+      ],
     });
     assert.equal(schemaHandle.kind, "DirectorySchema");
     assert.equal(schemaHandle.name, "entra-schema");

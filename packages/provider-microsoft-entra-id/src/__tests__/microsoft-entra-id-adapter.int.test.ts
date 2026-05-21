@@ -889,7 +889,9 @@ describe("UserAuthenticationMethods spec", () => {
         }),
       (error: unknown) => {
         assert.ok(error instanceof ProviderApiError);
-        assert.ok(error.issues[0].message.includes("password"));
+        const firstIssue = error.issues[0];
+        assert.ok(firstIssue !== undefined);
+        assert.ok(firstIssue.message.includes("password"));
         return true;
       },
     );
@@ -986,7 +988,7 @@ describe("UserAuthenticationMethodsResource", () => {
         select: () => ({
           get: async () => {
             const err = new Error("Not Found");
-            (err as Record<string, unknown>).statusCode = 404;
+            Object.assign(err, { statusCode: 404 });
             throw err;
           },
         }),
@@ -1039,8 +1041,10 @@ describe("UserAuthenticationMethodsResource", () => {
     assert.equal(recorder.getCallCount.value, 4);
     // 1 DELETE for the softwareOath method
     assert.equal(recorder.deleteCalls.length, 1);
+    const deleteCall = recorder.deleteCalls[0];
+    assert.ok(deleteCall !== undefined);
     assert.ok(
-      recorder.deleteCalls[0].includes("softwareOathMethods"),
+      deleteCall.includes("softwareOathMethods"),
       "deletes via type-specific endpoint",
     );
     assert.deepEqual(state, {
@@ -1087,10 +1091,14 @@ describe("UserAuthenticationMethodsResource", () => {
     const state = await resource.update("user-1", VALID_AUTH_METHODS_SPEC);
 
     assert.equal(recorder.deleteCalls.length, 1);
-    assert.ok(
-      recorder.deleteCalls[0].includes("microsoftAuthenticatorMethods"),
-    );
-    assert.deepEqual(state?.methodTypes, ["password"]);
+    const deleteCall = recorder.deleteCalls[0];
+    assert.ok(deleteCall !== undefined);
+    assert.ok(deleteCall.includes("microsoftAuthenticatorMethods"));
+    assert.deepEqual(state, {
+      id: "user-1",
+      userPrincipalName: "alice@example.com",
+      methodTypes: ["password"],
+    });
   });
 
   it("desiredStateSchema parses provider state", () => {
