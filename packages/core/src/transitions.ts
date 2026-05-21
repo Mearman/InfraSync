@@ -140,16 +140,19 @@ export type PreconditionDeclaration<
   readonly target: z.ZodType;
 
   /**
-   * Field that must match between this resource's spec and the target
-   * resource's spec for the precondition to apply to a specific target
-   * instance.
+   * Field or function to determine whether a target resource instance
+   * is relevant to this precondition.
    *
-   * Validated at plan time against both schema shapes — the planner
-   * checks that both specs have a field with this name.
+   * - String form: a field name that must be equal on both the source
+   *   and target specs. Both specs must have a field with this name.
+   * - Function form: a pure predicate receiving both specs, returning
+   *   true if the target matches. Use when the matching requires
+   *   derived values (e.g. extracting a domain from an email address).
+   *   Documented as must-be-pure.
    *
    * When omitted, all resources of the target kind are matched.
    */
-  readonly matchOn?: string;
+  readonly matchOn?: string | ((source: z.infer<TSpec>, target: unknown) => boolean);
 
   /**
    * Fields on this resource that, when divergent between desired and

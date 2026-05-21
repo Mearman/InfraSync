@@ -471,7 +471,7 @@ function evaluatePreconditions(
 function resolveTargetResources(
   targetSchema: z.ZodType,
   sourceResource: ResourceIR,
-  matchOn: string | undefined,
+  matchOn: string | ((source: unknown, target: unknown) => boolean) | undefined,
   ir: InfraIR,
   instances: Map<string, ProviderPort>,
   _issues: ResourceIssue[],
@@ -491,15 +491,21 @@ function resolveTargetResources(
     // Compare schema identity
     if (handler.specSchema !== targetSchema) continue;
 
-    // If matchOn is specified, check field equality
+    // If matchOn is specified, check matching
     if (matchOn !== undefined) {
       const sourceSpec = rebuildSpec(sourceResource);
       const targetSpec = rebuildSpec(resource);
 
-      const sourceValue = isRecord(sourceSpec) ? sourceSpec[matchOn] : undefined;
-      const targetValue = isRecord(targetSpec) ? targetSpec[matchOn] : undefined;
+      if (typeof matchOn === "function") {
+        // Function form: pure predicate
+        if (!matchOn(sourceSpec, targetSpec)) continue;
+      } else {
+        // String form: field equality
+        const sourceValue = isRecord(sourceSpec) ? sourceSpec[matchOn] : undefined;
+        const targetValue = isRecord(targetSpec) ? targetSpec[matchOn] : undefined;
 
-      if (sourceValue !== targetValue) continue;
+        if (sourceValue !== targetValue) continue;
+      }
     }
 
     matched.push(resource);
