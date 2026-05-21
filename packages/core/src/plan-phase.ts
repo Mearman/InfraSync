@@ -12,18 +12,16 @@
 import * as crypto from "node:crypto";
 import type * as z from "zod";
 import type { InfraIR, ResourceIR } from "./types.js";
-import { ResolvedScopes, type ProviderPort, type ResourcePort } from "./provider.js";
+import {
+  ResolvedScopes,
+  type ProviderPort,
+  type ResourcePort,
+} from "./provider.js";
 import type { ResourceIssue, FieldDiff } from "./resource.js";
 import { collectZodIssues, deepEqual, deepDiff, isRecord } from "./resource.js";
 import type { StateMap } from "./state-map.js";
 import type { ActionNode, ActionDag } from "./action-dag.js";
 import type { PreconditionDeclaration } from "./transitions.js";
-import {
-  matchGuards,
-  planTransitions,
-  type TransitionStep,
-  type ConvergenceGuard,
-} from "./convergence-guards.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -65,7 +63,10 @@ export function planPhase(input: PlanPhaseInput): PlanPhaseOutput {
       continue;
     }
 
-    const handler: ResourcePort = provider.resourceHandler(resource.kind, ResolvedScopes.empty);
+    const handler: ResourcePort = provider.resourceHandler(
+      resource.kind,
+      ResolvedScopes.empty,
+    );
 
     // Compute the base action for this resource
     const state = stateMap.get(resource.name);
@@ -109,7 +110,6 @@ export function planPhase(input: PlanPhaseInput): PlanPhaseOutput {
       ir,
       stateMap,
       instances,
-      issues,
     );
 
     if (guardActions !== undefined) {
@@ -122,9 +122,10 @@ export function planPhase(input: PlanPhaseInput): PlanPhaseOutput {
         provider: resource.provider,
         kind: resource.kind,
         spec: rebuildSpec(resource),
-        stateId: baseAction.type === "update" && state !== undefined
-          ? handler.getStateId(state)
-          : undefined,
+        stateId:
+          baseAction.type === "update" && state !== undefined
+            ? handler.getStateId(state)
+            : undefined,
         diff: baseAction.diff !== undefined ? [...baseAction.diff] : undefined,
         deps: collectDeps(resource),
       });
@@ -197,9 +198,12 @@ function evaluateGuards(
   ir: InfraIR,
   stateMap: StateMap,
   instances: Map<string, ProviderPort>,
-  issues: ResourceIssue[],
 ): ActionNode[] | undefined {
-  if (baseAction.type !== "update" || baseAction.diff === undefined || baseAction.diff.length === 0) {
+  if (
+    baseAction.type !== "update" ||
+    baseAction.diff === undefined ||
+    baseAction.diff.length === 0
+  ) {
     return undefined;
   }
 
@@ -225,25 +229,9 @@ function evaluateGuards(
       ir,
       stateMap,
       instances,
-      issues,
     );
     if (preconditionActions !== undefined) {
       return preconditionActions;
-    }
-  }
-
-  // Fall back to legacy convergence guards
-  if (handler.convergenceGuards !== undefined && handler.convergenceGuards.length > 0) {
-    const legacyActions = evaluateLegacyGuards(
-      resource,
-      baseAction,
-      handler.convergenceGuards,
-      ir,
-      stateMap,
-      issues,
-    );
-    if (legacyActions !== undefined) {
-      return legacyActions;
     }
   }
 
@@ -271,7 +259,7 @@ function evaluateTransitions(
 
     const desiredSpec = rebuildSpec(resource);
 
-    if ("steps" in transition && transition.steps !== undefined) {
+    if ("steps" in transition) {
       const actions: ActionNode[] = [];
       let prevId: string | undefined;
 
@@ -288,7 +276,7 @@ function evaluateTransitions(
           provider: resource.provider,
           kind: resource.kind,
           spec: stepSpec,
-          deps: prevId !== undefined ? [prevId] : collectDeps(resource),
+          deps: buildDeps(prevId, resource),
         });
         prevId = stepId;
       }
@@ -302,20 +290,20 @@ function evaluateTransitions(
         kind: resource.kind,
         spec: desiredSpec,
         diff: baseAction.diff !== undefined ? [...baseAction.diff] : undefined,
-        deps: prevId !== undefined ? [prevId] : collectDeps(resource),
+        deps: buildDeps(prevId, resource),
       });
 
       return actions;
     }
 
-    if ("computeSteps" in transition && transition.computeSteps !== undefined) {
+    if ("computeSteps" in transition) {
       // Function form: call once during planning, freeze result into action nodes.
       // Documented as must-be-pure — no side effects, no closures over mutable state.
       const state = stateMap.get(resource.name);
-      const steps = transition.computeSteps(
-        desiredSpec as never,
-        state as never,
-      );
+      // The generic parameters default to z.ZodType which produces `any` for
+      // inferred types. The actual runtime values are the spec and state objects.
+      const computeStepsFn = transition.computeSteps;
+      const steps = computeStepsFn(desiredSpec, state);
 
       const actions: ActionNode[] = [];
       let prevId: string | undefined;
@@ -329,7 +317,7 @@ function evaluateTransitions(
           provider: resource.provider,
           kind: resource.kind,
           spec: stepSpec,
-          deps: prevId !== undefined ? [prevId] : collectDeps(resource),
+          deps: buildDeps(prevId, resource),
         });
         prevId = stepId;
       }
@@ -359,7 +347,6 @@ function evaluatePreconditions(
   ir: InfraIR,
   stateMap: StateMap,
   instances: Map<string, ProviderPort>,
-  issues: ResourceIssue[],
 ): ActionNode[] | undefined {
   const divergentFields = new Set((baseAction.diff ?? []).map((d) => d.path));
 
@@ -377,7 +364,6 @@ function evaluatePreconditions(
       precondition.matchOn,
       ir,
       instances,
-      issues,
     );
 
     if (matchedResources.length === 0) continue;
@@ -474,7 +460,6 @@ function resolveTargetResources(
   matchOn: string | ((source: unknown, target: unknown) => boolean) | undefined,
   ir: InfraIR,
   instances: Map<string, ProviderPort>,
-  _issues: ResourceIssue[],
 ): ResourceIR[] {
   const matched: ResourceIR[] = [];
 
@@ -486,7 +471,10 @@ function resolveTargetResources(
     const provider = instances.get(resource.provider);
     if (provider === undefined) continue;
 
-    const handler = provider.resourceHandler(resource.kind, ResolvedScopes.empty);
+    const handler = provider.resourceHandler(
+      resource.kind,
+      ResolvedScopes.empty,
+    );
 
     // Compare schema identity
     if (handler.specSchema !== targetSchema) continue;
@@ -501,8 +489,12 @@ function resolveTargetResources(
         if (!matchOn(sourceSpec, targetSpec)) continue;
       } else {
         // String form: field equality
-        const sourceValue = isRecord(sourceSpec) ? sourceSpec[matchOn] : undefined;
-        const targetValue = isRecord(targetSpec) ? targetSpec[matchOn] : undefined;
+        const sourceValue = isRecord(sourceSpec)
+          ? sourceSpec[matchOn]
+          : undefined;
+        const targetValue = isRecord(targetSpec)
+          ? targetSpec[matchOn]
+          : undefined;
 
         if (sourceValue !== targetValue) continue;
       }
@@ -514,96 +506,12 @@ function resolveTargetResources(
   return matched;
 }
 
-function evaluateLegacyGuards(
-  resource: ResourceIR,
-  baseAction: BaseAction,
-  guards: readonly ConvergenceGuard[],
-  ir: InfraIR,
-  stateMap: StateMap,
-  _issues: ResourceIssue[],
-): ActionNode[] | undefined {
-  const resolvedSpec = rebuildSpec(resource);
-
-  // matchGuards expects a Map<string, unknown> for stateMap
-  const stateMapAsMap = new Map<string, unknown>();
-  for (const [key, value] of Object.entries(stateMap.toJSON())) {
-    stateMapAsMap.set(key, value);
-  }
-
-  const matched = matchGuards(
-    guards,
-    baseAction.diff ?? [],
-    resolvedSpec,
-    ir.resources,
-    stateMapAsMap,
-  );
-
-  if (matched.length === 0) return undefined;
-
-  const guardSteps = planTransitions(matched, ir.resources);
-  if (guardSteps === undefined) return undefined;
-
-  const actions: ActionNode[] = [];
-  let lastPreId: string | undefined;
-
-  // Delete steps
-  const deleteSteps = guardSteps.filter(
-    (s): s is TransitionStep & { type: "delete" } => s.type === "delete",
-  );
-  for (const step of deleteSteps) {
-    const stepState = stateMap.get(step.resourceName);
-    if (stepState === undefined) continue;
-
-    const deleteId = `guard:delete:${step.resourceName}`;
-    actions.push({
-      id: deleteId,
-      action: "delete",
-      resource: step.resourceName,
-      provider: step.provider,
-      kind: step.kind,
-      spec: null,
-      stateId: undefined, // Will be populated by executor at runtime
-      deps: [],
-    });
-    lastPreId = deleteId;
-  }
-
-  // The guarded update itself
-  const updateId = `guard:update:${resource.name}`;
-  actions.push({
-    id: updateId,
-    action: "update",
-    resource: resource.name,
-    provider: resource.provider,
-    kind: resource.kind,
-    spec: resolvedSpec,
-    diff: baseAction.diff !== undefined ? [...baseAction.diff] : undefined,
-    deps: lastPreId !== undefined ? [lastPreId] : collectDeps(resource),
-  });
-
-  // Recreate steps
-  const recreateSteps = guardSteps.filter(
-    (s): s is TransitionStep & { type: "recreate" } => s.type === "recreate",
-  );
-  let lastId: string = updateId;
-  for (const step of recreateSteps) {
-    const recreateId = `guard:recreate:${step.resourceName}`;
-    actions.push({
-      id: recreateId,
-      action: "create",
-      resource: step.resourceName,
-      provider: step.provider,
-      kind: step.kind,
-      spec: step.spec,
-      deps: [lastId],
-    });
-    lastId = recreateId;
-  }
-
-  return actions;
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function buildDeps(prevId: string | undefined, resource: ResourceIR): string[] {
+  if (prevId !== undefined) return [prevId];
+  return collectDeps(resource);
+}
 
 function collectDeps(resource: ResourceIR): string[] {
   const deps: string[] = [];

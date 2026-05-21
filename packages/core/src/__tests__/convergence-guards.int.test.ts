@@ -1,6 +1,6 @@
 /**
- * Tests for the convergence guards engine — predicate-based guard matching,
- * transition planning, and end-to-end engine integration.
+ * Tests for the precondition engine — cross-resource ordering constraints
+ * and end-to-end engine integration.
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -13,9 +13,7 @@ import type {
   ResolvedScopes,
 } from "../provider.js";
 import { SyncEngine } from "../sync.js";
-import { matchGuards, planTransitions } from "../convergence-guards.js";
-import type { ConvergenceGuard } from "../convergence-guards.js";
-import type { FieldDiff } from "../resource.js";
+import type { PreconditionDeclaration } from "../transitions.js";
 
 /** Non-null assertion for array find results. */
 function findOrThrow<T>(arr: readonly T[], predicate: (item: T) => boolean): T {
@@ -162,18 +160,17 @@ class GuardedResource implements ResourcePort {
 
   constructor(private readonly store: Map<string, GuardedEntry>) {}
 
-  readonly convergenceGuards: readonly ConvergenceGuard[] = [
+  readonly preconditions: readonly PreconditionDeclaration[] = [
     {
-      matchKind: "Lock",
-      shouldGuard: (diff: readonly FieldDiff[]) =>
-        diff.some((d) => d.path === "secret"),
-      matchResource: (thisSpec: unknown, targetSpec: unknown) => {
-        const ts = guardedSpecSchema.safeParse(thisSpec);
+      target: lockSpecSchema,
+      matchOn: (sourceSpec: unknown, targetSpec: unknown) => {
+        const gs = guardedSpecSchema.safeParse(sourceSpec);
         const ls = lockSpecSchema.safeParse(targetSpec);
-        if (!ts.success || !ls.success) return false;
-        return ts.data.domain === ls.data.domain;
+        if (!gs.success || !ls.success) return false;
+        return gs.data.domain === ls.data.domain;
       },
-      requiredState: "absent",
+      guardFields: ["secret"],
+      required: "absent",
     },
   ];
 
@@ -281,219 +278,6 @@ function guardedAdapterWithStores(
     createGuardedProvider(lockStore, guardedStore),
   );
 }
-
-// ─── Unit tests: matchGuards ─────────────────────────────────────────────────
-
-describe("matchGuards", () => {
-  const guard: ConvergenceGuard = {
-    matchKind: "Lock",
-    shouldGuard: (diff) => diff.some((d) => d.path === "secret"),
-    matchResource: (thisSpec, targetSpec) => {
-      const ts = guardedSpecSchema.safeParse(thisSpec);
-      const ls = lockSpecSchema.safeParse(targetSpec);
-      if (!ts.success || !ls.success) return false;
-      return ts.data.domain === ls.data.domain;
-    },
-    requiredState: "absent",
-  };
-
-  it("returns empty when no divergent fields trigger the guard", () => {
-    const diff: FieldDiff[] = [
-      { path: "value", desired: "new", actual: "old" },
-    ];
-    const matched = matchGuards(
-      [guard],
-      diff,
-      {
-        kind: "Guarded",
-        name: "test",
-        domain: "example.com",
-        value: "new",
-      },
-      [
-        {
-          name: "lock-1",
-          kind: "Lock",
-          spec: { kind: "Lock", name: "my-lock", domain: "example.com" },
-        },
-      ],
-      new Map([
-        ["lock-1", { id: "1", name: "my-lock", domain: "example.com" }],
-      ]),
-    );
-    assert.equal(matched.length, 0);
-  });
-
-  it("matches when a guarded field is divergent and scopes match", () => {
-    const diff: FieldDiff[] = [
-      { path: "secret", desired: "new-secret", actual: undefined },
-    ];
-    const matched = matchGuards(
-      [guard],
-      diff,
-      {
-        kind: "Guarded",
-        name: "test",
-        domain: "example.com",
-        value: "v1",
-      },
-      [
-        {
-          name: "lock-1",
-          kind: "Lock",
-          spec: { kind: "Lock", name: "my-lock", domain: "example.com" },
-        },
-      ],
-      new Map([
-        ["lock-1", { id: "1", name: "my-lock", domain: "example.com" }],
-      ]),
-    );
-    assert.equal(matched.length, 1);
-    const m = findOrThrow(matched, () => true);
-    assert.equal(m.resourceName, "lock-1");
-    assert.equal(m.requiredState, "absent");
-    assert.ok(m.currentState !== undefined);
-  });
-
-  it("does not match when scopes differ", () => {
-    const diff: FieldDiff[] = [
-      { path: "secret", desired: "new", actual: undefined },
-    ];
-    const matched = matchGuards(
-      [guard],
-      diff,
-      {
-        kind: "Guarded",
-        name: "test",
-        domain: "other.com",
-        value: "v1",
-      },
-      [
-        {
-          name: "lock-1",
-          kind: "Lock",
-          spec: { kind: "Lock", name: "my-lock", domain: "example.com" },
-        },
-      ],
-      new Map([
-        ["lock-1", { id: "1", name: "my-lock", domain: "example.com" }],
-      ]),
-    );
-    assert.equal(matched.length, 0);
-  });
-
-  it("returns already-satisfied guards as matched (engine decides transitions)", () => {
-    const diff: FieldDiff[] = [
-      { path: "secret", desired: "new", actual: undefined },
-    ];
-    // Lock is absent (not in stateMap)
-    const matched = matchGuards(
-      [guard],
-      diff,
-      {
-        kind: "Guarded",
-        name: "test",
-        domain: "example.com",
-        value: "v1",
-      },
-      [
-        {
-          name: "lock-1",
-          kind: "Lock",
-          spec: { kind: "Lock", name: "my-lock", domain: "example.com" },
-        },
-      ],
-      new Map(), // Empty — lock is absent
-    );
-    assert.equal(matched.length, 1);
-    const m = findOrThrow(matched, () => true);
-    assert.equal(m.currentState, undefined); // Already absent
-  });
-});
-
-// ─── Unit tests: planTransitions ─────────────────────────────────────────────
-
-describe("planTransitions", () => {
-  it("returns undefined when no transitions are needed", () => {
-    const result = planTransitions(
-      [
-        {
-          resourceName: "lock-1",
-          guard: {
-            matchKind: "Lock",
-            shouldGuard: () => true,
-            matchResource: () => true,
-            requiredState: "absent",
-          },
-          currentState: undefined, // Already absent
-          requiredState: "absent",
-        },
-      ],
-      [{ name: "lock-1", provider: "p", kind: "Lock", spec: {} }],
-    );
-    assert.equal(result, undefined);
-  });
-
-  it("plans delete + recreate when resource must be absent but is present", () => {
-    const result = planTransitions(
-      [
-        {
-          resourceName: "lock-1",
-          guard: {
-            matchKind: "Lock",
-            shouldGuard: () => true,
-            matchResource: () => true,
-            requiredState: "absent",
-          },
-          currentState: { id: "1", name: "my-lock" }, // Present
-          requiredState: "absent",
-        },
-      ],
-      [
-        {
-          name: "lock-1",
-          provider: "p",
-          kind: "Lock",
-          spec: { kind: "Lock", name: "my-lock", domain: "example.com" },
-        },
-      ],
-    );
-    assert.ok(result !== undefined);
-    assert.equal(result.length, 2);
-    const del = findOrThrow(result, (s) => s.type === "delete");
-    const rec = findOrThrow(result, (s) => s.type === "recreate");
-    assert.equal(del.resourceName, "lock-1");
-    assert.equal(rec.resourceName, "lock-1");
-  });
-
-  it("de-duplicates when multiple guards target the same resource", () => {
-    const guard = {
-      matchKind: "Lock",
-      shouldGuard: () => true,
-      matchResource: () => true,
-      requiredState: "absent" as const,
-    };
-    const result = planTransitions(
-      [
-        {
-          resourceName: "lock-1",
-          guard,
-          currentState: { id: "1" },
-          requiredState: "absent",
-        },
-        {
-          resourceName: "lock-1",
-          guard,
-          currentState: { id: "1" },
-          requiredState: "absent",
-        },
-      ],
-      [{ name: "lock-1", provider: "p", kind: "Lock", spec: {} }],
-    );
-    assert.ok(result !== undefined);
-    assert.equal(result.length, 2); // One delete + one recreate, not four
-  });
-});
 
 // ─── End-to-end engine tests ─────────────────────────────────────────────────
 

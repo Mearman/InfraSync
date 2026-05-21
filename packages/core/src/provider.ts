@@ -1,5 +1,4 @@
 import type * as z from "zod";
-import type { ConvergenceGuard } from "./convergence-guards.js";
 import type {
   TransitionDeclaration,
   PreconditionDeclaration,
@@ -182,19 +181,6 @@ export interface ResourcePort<
   readonly codec?: ResourceCodec;
 
   /**
-   * Optional convergence guards — preconditions on other resources
-   * that must hold before certain field changes can be applied.
-   *
-   * The engine evaluates these during the plan phase. When a guard is
-   * triggered (a guarded field is divergent), the engine computes a
-   * transition sequence: delete prerequisite → apply guarded update →
-   * recreate prerequisite. This is transparent to the config author.
-   *
-   * When omitted or empty, the resource converges without preconditions.
-   */
-  readonly convergenceGuards?: readonly ConvergenceGuard[];
-
-  /**
    * Typed transitions for multi-step resource convergence.
    *
    * Declares intermediate specs to apply when guarded fields diverge.
@@ -207,10 +193,11 @@ export interface ResourcePort<
    *
    * The planner calls computeSteps once during planning and freezes the
    * result. Transition functions never execute during the Execute phase.
-   *
-   * Replaces convergenceGuards. During migration, both are consumed.
    */
-  readonly transitions?: readonly TransitionDeclaration<TSpecSchema, TStateSchema>[];
+  readonly transitions?: readonly TransitionDeclaration<
+    TSpecSchema,
+    TStateSchema
+  >[];
 
   /**
    * Cross-resource preconditions for guarded updates.
@@ -222,10 +209,10 @@ export interface ResourcePort<
    * References schema objects directly (not kind strings) for compile-time
    * safety. The planner resolves schema → kind → handler at plan time.
    *
-   * Replaces the matchKind/matchScope pattern in convergenceGuards.
+   * Replaces the matchKind/matchScope pattern from the legacy guard system.
    * During migration, both are consumed.
    */
-  readonly preconditions?: readonly PreconditionDeclaration<TSpecSchema, z.ZodType>[];
+  readonly preconditions?: readonly PreconditionDeclaration<TSpecSchema>[];
 
   /**
    * Scopes this resource operates within.
@@ -264,7 +251,7 @@ export interface ResourcePort<
   /**
    * Delete a resource.
    *
-   * Used by the engine to satisfy convergence guards — deleting a
+   * Used by the engine to satisfy preconditions — deleting a
    * prerequisite resource so a guarded update can proceed, before
    * recreating it. When omitted, the engine cannot delete resources
    * for guard transitions and will fail with an error if a guard
