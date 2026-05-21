@@ -1,8 +1,8 @@
 # InfraSync
 
-Idempotent, deterministic, stateless infrastructure management for TypeScript — with equal functional and declarative authoring.
+Stateless, typesafe, serialisable, declarative, deterministic, idempotent infrastructure management — powered by a DAG and written in TypeScript.
 
-InfraSync is a TypeScript package and CLI for managing cloud infrastructure without a state file. Infrastructure can be authored with nested `Infra` scopes, declarative fragments, or any mixture of the two. Both forms compile to a serialisable `InfraIR`, then each run reads the current state from the provider, compares it against your desired configuration, and applies only the changes needed. No stored state to corrupt, no lock files to stale, no remote backend to configure.
+InfraSync is a TypeScript package and CLI for managing cloud infrastructure without a state file. Infrastructure can be authored with nested `Infra` scopes, declarative fragments, or any mixture of the two. Both forms compile to a serialisable `InfraIR`. The engine then executes a three-phase pipeline — read current state from providers, plan an action DAG, execute the DAG — applying only the changes needed. No stored state to corrupt, no lock files to stale, no remote backend to configure.
 
 An alternative to Terraform for teams who want infrastructure-as-code without the operational overhead of state management, while keeping both programmable and declarative styles first-class.
 
@@ -52,14 +52,36 @@ The pattern emerged from a real project — a script that configured Cloudflare 
 
 ## Design Principles
 
+InfraSync is a **stateless, typesafe, serialisable, declarative, deterministic, idempotent DAG**. Every property holds end-to-end — from authoring through compilation, planning, and execution.
+
 - **Stateless.** No state file, no lock file, no remote backend. The provider API is the source of truth.
-- **Idempotent.** Running the same configuration twice produces the same result. Create-if-missing, update-if-changed, skip-if-matching.
-- **Deterministic.** Given the same desired configuration and the same current state, the same plan is produced every time.
+- **Typesafe.** Every type derives from a Zod schema — resource specs, provider state, provider config, ref bindings, action nodes. TypeScript types are inferred via `z.infer`; runtime validation via `safeParse()`. No `any`, no `as` casts at core boundaries, no separate interface definitions that could drift from runtime validation. Cross-resource preconditions reference schema objects directly, not kind strings.
+- **Serialisable.** Every phase boundary produces plain JSON: `InfraIR` from compilation, `StateMap` from the read phase, `ActionDag` from the plan phase, `SyncResult` from execution. Zod schemas and SDK clients are confined to the adapter layer and never cross the serialisation boundary. Plans can be saved, transmitted, and executed in a separate process.
+- **Declarative.** Users declare *what* state should exist, never *how* to reach it. Every action in the DAG carries a spec — a declaration of desired state. The engine determines the operation (create, update, delete, no-op) from current state comparison. Transition steps carry intermediate specs, not imperative instructions. The executor is a generic DAG processor with no domain logic.
+- **Deterministic.** The plan is a pure function of `(InfraIR, StateMap)`. Same config, same current state, same action DAG every time. The DAG topology comes from compile-time edges (refs, `dependsOn`) and plan-time edges (transitions, preconditions). Non-determinism is confined to the read phase (external API queries) and captured as a snapshot.
+- **Idempotent.** Every action goes through convergence checking. If the spec matches current state, the action is a no-op regardless of its type. After partial failure, re-run reads updated state, re-plans, and already-completed steps converge to no-ops. Multi-step transitions are idempotent at each step — a crash mid-transition resumes cleanly.
+- **DAG.** The action DAG is the single execution model. Normal resources, transition steps, preconditions, and read-mode resources are all action nodes with dependency edges. The executor processes the DAG level by level, parallel within each level. There is no other control flow — no branching on guard types, no inline transition logic, no imperative orchestration.
 - **TypeScript-native.** Infrastructure is defined with full type safety. No HCL, no DSL, no template strings. Intellisense, refactoring, and type checking all work. Zod schemas are the single source of truth for every type — runtime validation and static types are always in sync.
 - **Programmable first, CLI second.** The core is a library. The CLI is a thin wrapper that loads an infra file and invokes the programmatic API.
 - **Equal authoring styles.** Infra can be authored functionally, declaratively, or as a mixture of both. These styles are first-class peers and fully interoperable.
-- **Serialisable core.** All authoring compiles to `InfraIR`, a canonical intermediate representation the engine executes independent of the language frontend.
 - **Provider-agnostic.** The sync engine knows nothing about Cloudflare, AWS, or GCP. Providers are adapters that implement a uniform interface over provider-specific APIs.
+
+### Three-Phase Pipeline
+
+InfraSync executes in three phases, each producing a serialisable data structure consumed by the next:
+
+```
+InfraIR (serialisable) ──┐
+                         ├──► Read Phase ──► StateMap (serialisable)
+Adapters (runtime)    ───┤
+                         ├──► Plan Phase ──► ActionDag (serialisable)
+                         │
+                         ├──► Execute Phase ──► SyncResult (serialisable)
+```
+
+- **Read Phase.** Connects providers, builds the resource DAG, reads current state for each resource in dependency order, resolves symbolic refs. Non-deterministic (queries external APIs). Output is a snapshot.
+- **Plan Phase.** Compares current state against desired config. Evaluates transitions and preconditions. Produces an `ActionDag` — a directed acyclic graph of concrete actions (create, update, delete, no-op, read) with dependency edges. Pure function of `(InfraIR, StateMap)`. Deterministic.
+- **Execute Phase.** Topological sort of the action DAG. Process level by level, parallel within each level. Apply each action through the adapter port, validate result, record outcome. Generic DAG processor — no domain logic, no branching on resource types.
 
 ## Installation
 
@@ -1670,6 +1692,7 @@ If any safeParse fails, the engine produces structured errors with exact field p
 | **Multi-account**       | Multiple instances of the same provider with different credentials | Same (provider aliases in Terraform 0.12+) |
 | **Learning curve**      | TypeScript knowledge transfers            | HCL and Terraform-specific concepts        |
 | **Orphan handling**     | No state → no orphans                     | `terraform state rm` for cleanup           |
+| **Execution model**     | Three-phase DAG (read → plan → execute)  | Two-phase (plan → apply)                   |
 | **Concurrency**         | Provider API rate limits only             | State lock contention                      |
 
 ## Limitations
