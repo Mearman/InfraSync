@@ -18,8 +18,15 @@ import {
   defineProvider,
   ResourceRegistry as Registry,
 } from "@infrasync-org/core/provider";
-import { CloudIdentityClient, buildRequester } from "./client.js";
+import {
+  CloudIdentityClient,
+  buildRequester,
+  DirectoryClient,
+  buildDirectoryWriteRequester,
+} from "./client.js";
 import { InboundSamlSsoProfileResource } from "./inbound-saml-sso-profile.js";
+import { DirectorySchemaResource } from "./directory-schema.js";
+import { UserCustomAttributeResource } from "./user-custom-attribute.js";
 
 // ─── Config schema ───────────────────────────────────────────────────────────
 
@@ -72,11 +79,20 @@ export class GoogleWorkspaceProvider implements ProviderPort<
   readonly registry: ResourceRegistry = new Registry();
 
   private client: CloudIdentityClient | undefined;
+  private directoryClient: DirectoryClient | undefined;
 
   constructor() {
     this.registry.register(
       "InboundSamlSsoProfile",
       () => new InboundSamlSsoProfileResource(this.client),
+    );
+    this.registry.register(
+      "DirectorySchema",
+      () => new DirectorySchemaResource(this.directoryClient),
+    );
+    this.registry.register(
+      "UserCustomAttribute",
+      () => new UserCustomAttributeResource(this.directoryClient),
     );
   }
 
@@ -88,6 +104,16 @@ export class GoogleWorkspaceProvider implements ProviderPort<
       );
     }
     return this.client;
+  }
+
+  /** Returns the connected Directory client or throws if not connected. */
+  connectedDirectoryClient(): DirectoryClient {
+    if (this.directoryClient === undefined) {
+      throw new Error(
+        "Google Workspace provider not connected — call connect() first",
+      );
+    }
+    return this.directoryClient;
   }
 
   async connect(config: unknown): Promise<void> {
@@ -111,11 +137,32 @@ export class GoogleWorkspaceProvider implements ProviderPort<
             subjectEmail: result.data.subjectEmail,
           });
     this.client = new CloudIdentityClient(requester, result.data.customerId);
+
+    // Build a Directory client with write scopes for schema/attribute management
+    const directoryRequester =
+      result.data.kind === "oauth-user"
+        ? buildDirectoryWriteRequester({
+            kind: "oauth-user",
+            clientId: result.data.clientId,
+            clientSecret: result.data.clientSecret,
+            refreshToken: result.data.refreshToken,
+          })
+        : buildDirectoryWriteRequester({
+            kind: "service-account",
+            serviceAccountKey: result.data.serviceAccountKey,
+            subjectEmail: result.data.subjectEmail,
+          });
+    this.directoryClient = new DirectoryClient(
+      directoryRequester,
+      result.data.customerId,
+    );
+
     await Promise.resolve();
   }
 
   async disconnect(): Promise<void> {
     this.client = undefined;
+    this.directoryClient = undefined;
     await Promise.resolve();
   }
 
@@ -139,6 +186,23 @@ export {
 } from "./inbound-saml-sso-profile.js";
 
 export {
+  directorySchemaSpecSchema,
+  type DirectorySchemaSpec,
+  type SchemaFieldSpec,
+  buildDirectorySchemaRefs,
+  type DirectorySchemaRefs,
+  DirectorySchemaResource,
+} from "./directory-schema.js";
+
+export {
+  userCustomAttributeSpecSchema,
+  type UserCustomAttributeSpec,
+  buildUserCustomAttributeRefs,
+  type UserCustomAttributeRefs,
+  UserCustomAttributeResource,
+} from "./user-custom-attribute.js";
+
+export {
   createGoogleWorkspaceHandle,
   type GoogleWorkspaceProviderHandle,
 } from "./handle.js";
@@ -146,6 +210,7 @@ export {
 export {
   DirectoryClient,
   buildDirectoryRequester,
+  buildDirectoryWriteRequester,
   type DirectoryUser,
   directoryUserSchema,
 } from "./client.js";

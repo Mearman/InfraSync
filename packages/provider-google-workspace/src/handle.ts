@@ -16,6 +16,16 @@ import type {
   InboundSamlSsoProfileSpec,
 } from "./inbound-saml-sso-profile.js";
 import { buildInboundSamlSsoProfileRefs } from "./inbound-saml-sso-profile.js";
+import type {
+  DirectorySchemaRefs,
+  DirectorySchemaSpec,
+} from "./directory-schema.js";
+import { buildDirectorySchemaRefs } from "./directory-schema.js";
+import type {
+  UserCustomAttributeRefs,
+  UserCustomAttributeSpec,
+} from "./user-custom-attribute.js";
+import { buildUserCustomAttributeRefs } from "./user-custom-attribute.js";
 
 // ─── Registration function ───────────────────────────────────────────────────
 
@@ -46,6 +56,26 @@ export interface GoogleWorkspaceProviderHandle {
     spec: InboundSamlSsoProfileSpec,
     options?: ResourceOptions,
   ): ResourceHandle<InboundSamlSsoProfileSpec, InboundSamlSsoProfileRefs>;
+
+  /**
+   * Create a custom user schema (Directory API schemas resource).
+   * Returns a handle with typed ref surface (schemaId, schemaName).
+   */
+  directorySchema(
+    id: string,
+    spec: DirectorySchemaSpec,
+    options?: ResourceOptions,
+  ): ResourceHandle<DirectorySchemaSpec, DirectorySchemaRefs>;
+
+  /**
+   * Set a custom attribute value on a user profile.
+   * Returns a handle with typed ref surface (value).
+   */
+  userCustomAttribute(
+    id: string,
+    spec: UserCustomAttributeSpec,
+    options?: ResourceOptions,
+  ): ResourceHandle<UserCustomAttributeSpec, UserCustomAttributeRefs>;
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────────
@@ -68,6 +98,34 @@ class GoogleWorkspaceProviderHandleImpl implements GoogleWorkspaceProviderHandle
       spec,
       options,
       buildInboundSamlSsoProfileRefs,
+    );
+  }
+
+  directorySchema(
+    id: string,
+    spec: DirectorySchemaSpec,
+    options?: ResourceOptions,
+  ): ResourceHandle<DirectorySchemaSpec, DirectorySchemaRefs> {
+    return this.typedResource(
+      "DirectorySchema",
+      id,
+      spec,
+      options,
+      buildDirectorySchemaRefs,
+    );
+  }
+
+  userCustomAttribute(
+    id: string,
+    spec: UserCustomAttributeSpec,
+    options?: ResourceOptions,
+  ): ResourceHandle<UserCustomAttributeSpec, UserCustomAttributeRefs> {
+    return this.typedResource(
+      "UserCustomAttribute",
+      id,
+      spec,
+      options,
+      buildUserCustomAttributeRefs,
     );
   }
 

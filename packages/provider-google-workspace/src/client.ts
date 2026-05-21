@@ -46,8 +46,16 @@ const LRO_POLL_MAX_MS = 4000;
 const LRO_POLL_TIMEOUT_MS = 60_000;
 
 /** Required OAuth scope for Admin Directory API read operations. */
-const DIRECTORY_USER_SCOPE =
+const DIRECTORY_USER_READONLY_SCOPE =
   "https://www.googleapis.com/auth/admin.directory.user.readonly";
+
+/** Required OAuth scope for Admin Directory API user read/write operations. */
+const DIRECTORY_USER_SCOPE =
+  "https://www.googleapis.com/auth/admin.directory.user";
+
+/** Required OAuth scope for Admin Directory API schema management. */
+const DIRECTORY_SCHEMA_SCOPE =
+  "https://www.googleapis.com/auth/admin.directory.schema";
 
 /** Base URL for the Admin Directory API. */
 const DIRECTORY_BASE = "https://admin.googleapis.com/admin/directory/v1";
@@ -136,6 +144,10 @@ export function buildRequester(options: AuthOptions): GoogleRequester {
  * additional scope configuration is needed. Service accounts must be granted
  * the Directory user read scope explicitly via domain-wide delegation.
  */
+/**
+ * Build a requester for the Admin Directory API with read-only user scope.
+ * Suitable for listing/fetching users without write access.
+ */
 export function buildDirectoryRequester(options: AuthOptions): GoogleRequester {
   if (options.kind === "oauth-user") {
     const oauthClient = new OAuth2Client({
@@ -151,7 +163,33 @@ export function buildDirectoryRequester(options: AuthOptions): GoogleRequester {
       client_email: credentials.client_email,
       private_key: credentials.private_key,
     },
-    scopes: [DIRECTORY_USER_SCOPE],
+    scopes: [DIRECTORY_USER_READONLY_SCOPE],
+    clientOptions: { subject: options.subjectEmail },
+  });
+}
+
+/**
+ * Build a requester for the Admin Directory API with full user and schema
+ * scopes. Required for managing custom schemas and user custom attributes.
+ */
+export function buildDirectoryWriteRequester(
+  options: AuthOptions,
+): GoogleRequester {
+  if (options.kind === "oauth-user") {
+    const oauthClient = new OAuth2Client({
+      clientId: options.clientId,
+      clientSecret: options.clientSecret,
+    });
+    oauthClient.setCredentials({ refresh_token: options.refreshToken });
+    return oauthClient;
+  }
+  const credentials = parseServiceAccountKey(options.serviceAccountKey);
+  return new GoogleAuth({
+    credentials: {
+      client_email: credentials.client_email,
+      private_key: credentials.private_key,
+    },
+    scopes: [DIRECTORY_USER_SCOPE, DIRECTORY_SCHEMA_SCOPE],
     clientOptions: { subject: options.subjectEmail },
   });
 }
@@ -425,6 +463,104 @@ export class DirectoryClient {
       }
       return result.data;
     });
+  }
+
+  // ─── Schema CRUD ────────────────────────────────────────────────────────
+
+  /**
+   * Get a custom user schema by schema name or ID.
+   * Returns the raw API response — callers validate with Zod.
+   *
+   * @see https://developers.google.com/workspace/admin/directory/v1/reference/schemas/get
+   */
+  async getSchema(schemaKey: string): Promise<unknown> {
+    const response = await this.auth.request<unknown>({
+      url: `${DIRECTORY_BASE}/customer/${this.customerId}/schemas/${schemaKey}`,
+      method: "GET",
+    });
+    return response.data;
+  }
+
+  /**
+   * List all custom user schemas in the account.
+   * Returns the raw API response — callers validate with Zod.
+   *
+   * @see https://developers.google.com/workspace/admin/directory/v1/reference/schemas/list
+   */
+  async listSchemas(): Promise<unknown> {
+    const response = await this.auth.request<unknown>({
+      url: `${DIRECTORY_BASE}/customer/${this.customerId}/schemas`,
+      method: "GET",
+    });
+    return response.data;
+  }
+
+  /**
+   * Create a custom user schema.
+   * Returns the raw API response — callers validate with Zod.
+   *
+   * @see https://developers.google.com/workspace/admin/directory/v1/reference/schemas/insert
+   */
+  async createSchema(body: Record<string, unknown>): Promise<unknown> {
+    const response = await this.auth.request<unknown>({
+      url: `${DIRECTORY_BASE}/customer/${this.customerId}/schemas`,
+      method: "POST",
+      data: body,
+    });
+    return response.data;
+  }
+
+  /**
+   * Update a custom user schema (full replacement).
+   * Returns the raw API response — callers validate with Zod.
+   *
+   * @see https://developers.google.com/workspace/admin/directory/v1/reference/schemas/update
+   */
+  async updateSchema(
+    schemaKey: string,
+    body: Record<string, unknown>,
+  ): Promise<unknown> {
+    const response = await this.auth.request<unknown>({
+      url: `${DIRECTORY_BASE}/customer/${this.customerId}/schemas/${schemaKey}`,
+      method: "PUT",
+      data: body,
+    });
+    return response.data;
+  }
+
+  // ─── User custom attributes ─────────────────────────────────────────────
+
+  /**
+   * Get a user by primary email or key, including custom schemas.
+   * Returns the raw API response — callers validate with Zod.
+   *
+   * @see https://developers.google.com/workspace/admin/directory/v1/reference/users/get
+   */
+  async getUser(userKey: string): Promise<unknown> {
+    const response = await this.auth.request<unknown>({
+      url: `${DIRECTORY_BASE}/users/${userKey}`,
+      method: "GET",
+      params: { projection: "full" },
+    });
+    return response.data;
+  }
+
+  /**
+   * Patch a user's customSchemas (or other mutable fields).
+   * Returns the raw API response — callers validate with Zod.
+   *
+   * @see https://developers.google.com/workspace/admin/directory/v1/reference/users/patch
+   */
+  async patchUser(
+    userKey: string,
+    body: Record<string, unknown>,
+  ): Promise<unknown> {
+    const response = await this.auth.request<unknown>({
+      url: `${DIRECTORY_BASE}/users/${userKey}`,
+      method: "PATCH",
+      data: body,
+    });
+    return response.data;
   }
 }
 

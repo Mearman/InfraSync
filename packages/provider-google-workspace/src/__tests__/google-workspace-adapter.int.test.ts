@@ -7,6 +7,8 @@ import {
   buildInboundSamlSsoProfileRefs,
   createGoogleWorkspaceHandle,
   InboundSamlSsoProfileResource,
+  directorySchemaSpecSchema,
+  userCustomAttributeSpecSchema,
 } from "../index.js";
 import { CloudIdentityClient, type GoogleRequester } from "../client.js";
 import { ResolvedScopes } from "@infrasync-org/core/provider";
@@ -109,7 +111,11 @@ describe("Google Workspace adapter", () => {
 
   it("provider lists supported kinds", () => {
     const provider = new GoogleWorkspaceProvider();
-    assert.deepEqual(provider.supportedKinds(), ["InboundSamlSsoProfile"]);
+    assert.deepEqual(provider.supportedKinds(), [
+      "InboundSamlSsoProfile",
+      "DirectorySchema",
+      "UserCustomAttribute",
+    ]);
   });
 
   it("provider creates handler for each supported kind", () => {
@@ -633,5 +639,195 @@ describe("Google Workspace adapter", () => {
         return true;
       },
     );
+  });
+
+  // ─── DirectorySchema spec ──────────────────────────────────────────────────
+
+  it("parses a valid DirectorySchema spec", () => {
+    const result = directorySchemaSpecSchema.safeParse({
+      kind: "DirectorySchema",
+      schemaName: "microsoftEntra",
+      fields: [
+        {
+          fieldName: "immutableId",
+          fieldType: "STRING",
+        },
+      ],
+    });
+    assert.ok(result.success);
+    assert.equal(result.data.schemaName, "microsoftEntra");
+    assert.equal(result.data.fields.length, 1);
+    assert.equal(result.data.fields[0].fieldName, "immutableId");
+    assert.equal(result.data.fields[0].fieldType, "STRING");
+    assert.equal(result.data.fields[0].multiValued, false);
+    assert.equal(result.data.fields[0].readAccessType, "ADMINS_AND_SELF");
+  });
+
+  it("rejects DirectorySchema with empty schemaName", () => {
+    const result = directorySchemaSpecSchema.safeParse({
+      kind: "DirectorySchema",
+      schemaName: "",
+      fields: [{ fieldName: "x", fieldType: "STRING" }],
+    });
+    assert.ok(!result.success);
+  });
+
+  it("rejects DirectorySchema with empty fields", () => {
+    const result = directorySchemaSpecSchema.safeParse({
+      kind: "DirectorySchema",
+      schemaName: "test",
+      fields: [],
+    });
+    assert.ok(!result.success);
+  });
+
+  it("rejects DirectorySchema with invalid fieldType", () => {
+    const result = directorySchemaSpecSchema.safeParse({
+      kind: "DirectorySchema",
+      schemaName: "test",
+      fields: [{ fieldName: "x", fieldType: "BINARY" }],
+    });
+    assert.ok(!result.success);
+  });
+
+  // ─── UserCustomAttribute spec ─────────────────────────────────────────────
+
+  it("parses a valid UserCustomAttribute spec", () => {
+    const result = userCustomAttributeSpecSchema.safeParse({
+      kind: "UserCustomAttribute",
+      primaryEmail: "joe@example.com",
+      schemaName: "microsoftEntra",
+      fieldName: "immutableId",
+      value: "116671446635013837259",
+    });
+    assert.ok(result.success);
+    assert.equal(result.data.primaryEmail, "joe@example.com");
+    assert.equal(result.data.value, "116671446635013837259");
+  });
+
+  it("rejects UserCustomAttribute with invalid email", () => {
+    const result = userCustomAttributeSpecSchema.safeParse({
+      kind: "UserCustomAttribute",
+      primaryEmail: "not-an-email",
+      schemaName: "microsoftEntra",
+      fieldName: "immutableId",
+      value: "123",
+    });
+    assert.ok(!result.success);
+  });
+
+  it("rejects UserCustomAttribute with empty value", () => {
+    const result = userCustomAttributeSpecSchema.safeParse({
+      kind: "UserCustomAttribute",
+      primaryEmail: "joe@example.com",
+      schemaName: "microsoftEntra",
+      fieldName: "immutableId",
+      value: "",
+    });
+    assert.ok(!result.success);
+  });
+
+  // ─── DirectorySchemaResource handler ──────────────────────────────────────
+
+  it("DirectorySchema handler reports correct kind", () => {
+    const provider = new GoogleWorkspaceProvider();
+    const handler = provider.resourceHandler(
+      "DirectorySchema",
+      ResolvedScopes.empty,
+    );
+    assert.equal(handler.kind, "DirectorySchema");
+  });
+
+  it("DirectorySchema handler getStateId extracts schemaId", () => {
+    const provider = new GoogleWorkspaceProvider();
+    const handler = provider.resourceHandler(
+      "DirectorySchema",
+      ResolvedScopes.empty,
+    );
+    const id = handler.getStateId({ schemaId: "schema-123" });
+    assert.equal(id, "schema-123");
+  });
+
+  it("DirectorySchema handler getStateId throws on missing schemaId", () => {
+    const provider = new GoogleWorkspaceProvider();
+    const handler = provider.resourceHandler(
+      "DirectorySchema",
+      ResolvedScopes.empty,
+    );
+    assert.throws(() => handler.getStateId({ schemaName: "test" }));
+  });
+
+  // ─── UserCustomAttributeResource handler ──────────────────────────────────
+
+  it("UserCustomAttribute handler reports correct kind", () => {
+    const provider = new GoogleWorkspaceProvider();
+    const handler = provider.resourceHandler(
+      "UserCustomAttribute",
+      ResolvedScopes.empty,
+    );
+    assert.equal(handler.kind, "UserCustomAttribute");
+  });
+
+  it("UserCustomAttribute handler getStateId composes composite key", () => {
+    const provider = new GoogleWorkspaceProvider();
+    const handler = provider.resourceHandler(
+      "UserCustomAttribute",
+      ResolvedScopes.empty,
+    );
+    const id = handler.getStateId({
+      primaryEmail: "joe@example.com",
+      schemaName: "microsoftEntra",
+      fieldName: "immutableId",
+    });
+    assert.equal(id, "joe@example.com#microsoftEntra#immutableId");
+  });
+
+  it("UserCustomAttribute handler getStateId throws on missing fields", () => {
+    const provider = new GoogleWorkspaceProvider();
+    const handler = provider.resourceHandler(
+      "UserCustomAttribute",
+      ResolvedScopes.empty,
+    );
+    assert.throws(() =>
+      handler.getStateId({ primaryEmail: "joe@example.com" }),
+    );
+  });
+
+  // ─── Typed handle for new resources ───────────────────────────────────────
+
+  it("typed handle registers DirectorySchema and UserCustomAttribute", () => {
+    const registered: { kind: string; name: string }[] = [];
+    const handle = createGoogleWorkspaceHandle(
+      "gw",
+      "google-workspace",
+      (h: ResourceHandle<unknown, unknown>) => {
+        registered.push({ kind: h.kind, name: h.name });
+      },
+    );
+
+    const schemaHandle = handle.directorySchema("entra-schema", {
+      kind: "DirectorySchema",
+      schemaName: "microsoftEntra",
+      fields: [{ fieldName: "immutableId", fieldType: "STRING" }],
+    });
+    assert.equal(schemaHandle.kind, "DirectorySchema");
+    assert.equal(schemaHandle.name, "entra-schema");
+    assert.ok(schemaHandle.ref.schemaId instanceof RefToken);
+
+    const attrHandle = handle.userCustomAttribute("joe-immutable-id", {
+      kind: "UserCustomAttribute",
+      primaryEmail: "joe@example.com",
+      schemaName: "microsoftEntra",
+      fieldName: "immutableId",
+      value: "116671446635013837259",
+    });
+    assert.equal(attrHandle.kind, "UserCustomAttribute");
+    assert.equal(attrHandle.name, "joe-immutable-id");
+    assert.ok(attrHandle.ref.value instanceof RefToken);
+
+    assert.deepEqual(registered, [
+      { kind: "DirectorySchema", name: "entra-schema" },
+      { kind: "UserCustomAttribute", name: "joe-immutable-id" },
+    ]);
   });
 });
