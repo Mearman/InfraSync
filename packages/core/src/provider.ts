@@ -115,6 +115,53 @@ export class ScopeError extends Error {
   }
 }
 
+// ─── Listed resource ─────────────────────────────────────────────────────────
+
+/**
+ * A resource discovered via `ResourcePort.list()`.
+ *
+ * Carries the provider-assigned state ID, identity fields, and full state.
+ * Used by orphan detection to compare provider-side resources against the IR.
+ */
+export interface ListedResource {
+  /** Provider-assigned unique identifier (e.g. record UUID, resource ARN) */
+  readonly stateId: string;
+  /** Identity fields extracted from the resource */
+  readonly identity: Record<string, unknown>;
+  /** Full resource state as returned by the provider API */
+  readonly state: unknown;
+}
+
+/**
+ * A resource detected in the provider but not present in the IR.
+ *
+ * Produced by the read phase when `orphanDetection` is enabled. The plan phase
+ * consumes these to optionally produce delete actions.
+ */
+export interface OrphanedResource {
+  /** Resource kind (e.g. "DnsRecord", "S3Bucket") */
+  readonly kind: string;
+  /** Provider-assigned unique identifier */
+  readonly stateId: string;
+  /** Identity fields extracted from the provider resource */
+  readonly identity: Record<string, unknown>;
+  /** Full resource state */
+  readonly state: unknown;
+}
+
+/**
+ * Tags/annotations this provider supports for marking managed resources.
+ *
+ * When present, the engine can tag resources at creation time so that
+ * orphan detection can distinguish managed resources from pre-existing ones.
+ */
+export interface ManagedMarkers {
+  /** The state field to set (e.g. "tags", "annotations") */
+  readonly field: string;
+  /** Formats the config name into the marker value */
+  readonly format: (configName: string) => unknown;
+}
+
 // ─── ResourcePort ────────────────────────────────────────────────────────────
 
 /**
@@ -268,6 +315,24 @@ export interface ResourcePort<
    * correct API endpoint (e.g. domain name for federation config).
    */
   delete?(state: unknown): Promise<void>;
+
+  /**
+   * List all resources of this kind visible to the provider.
+   *
+   * Returns identity + state for each resource. Used by the read phase
+   * for orphan detection — comparing provider-side resources against the IR.
+   *
+   * When omitted, the engine skips orphan detection for this resource kind.
+   */
+  list?(): Promise<readonly ListedResource[]>;
+
+  /**
+   * Tags/annotations this provider supports for marking managed resources.
+   *
+   * When present, the engine can tag resources at creation time so that
+   * orphan detection can distinguish managed resources from pre-existing ones.
+   */
+  readonly managedMarkers?: ManagedMarkers;
 }
 
 // ─── ProviderPort ────────────────────────────────────────────────────────────
