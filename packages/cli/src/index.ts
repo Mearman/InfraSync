@@ -8,6 +8,7 @@ import type { ProviderAdapter } from "@infrasync-org/core/provider";
 import { plan } from "./commands/plan.js";
 import { apply } from "./commands/apply.js";
 import { drift } from "./commands/drift.js";
+import { loadInventory, mergeInventoryConfig } from "./inventory.js";
 import { cacheStatus, cacheClear } from "./commands/cache.js";
 import { exportCdktfTypeScript } from "./commands/export-cdktf-ts.js";
 import { runFidelityCommand } from "./commands/fidelity.js";
@@ -115,6 +116,11 @@ const args = parseArgs({
       description:
         "Show what would happen without making changes (use with --apply)",
     },
+    inventory: {
+      type: "string",
+      description:
+        "Path to an inventory file (YAML or JSON) with provider config overrides",
+    },
     help: {
       type: "boolean",
       short: "h",
@@ -163,7 +169,7 @@ Options:
       --direction <dir>                    Migration direction (tf-to-infrasync|infrasync-to-tf)
       --apply                             Execute the migration plan
       --dry-run                           Show what would happen without changes
-      --adapters <path>                   Adapters module (required with --apply)
+      --inventory <path>                    Path to inventory file (YAML or JSON) with provider config overrides
   -h, --help                               Show this help message
 
 Examples:
@@ -785,7 +791,10 @@ async function runWithIR(
   adaptersPath: string,
 ): Promise<void> {
   console.log(`Loading IR from ${irPath}...`);
-  const ir = await loadIR(irPath);
+  let ir = await loadIR(irPath);
+
+  // Apply inventory overrides if provided
+  ir = await applyInventory(ir);
 
   console.log(`Loading adapters from ${adaptersPath}...`);
   const adapterRecord = await loadAdapters(adaptersPath);
@@ -840,7 +849,10 @@ async function run(command: RuntimeCommand, configPath: string): Promise<void> {
   }
 
   // Compile to IR
-  const ir = config.infraResult.toIR();
+  let ir = config.infraResult.toIR();
+
+  // Apply inventory overrides if provided
+  ir = await applyInventory(ir);
   const resourceCount = String(ir.resources.length);
   const providerCount = String(ir.providers.length);
   console.log(
@@ -865,6 +877,28 @@ async function run(command: RuntimeCommand, configPath: string): Promise<void> {
       break;
     }
   }
+}
+
+// ─── Inventory ───────────────────────────────────────────────────────────────
+
+/**
+ * Load and merge inventory if --inventory was provided.
+ *
+ * Returns the IR unchanged if no inventory path is set.
+ * This is a no-op helper that keeps the call sites clean.
+ */
+async function applyInventory(ir: InfraIR): Promise<InfraIR> {
+  const inventoryPath = args.values.inventory;
+  if (inventoryPath === undefined || typeof inventoryPath !== "string") {
+    return ir;
+  }
+
+  console.log(`Loading inventory from ${inventoryPath}...`);
+  const inventory = await loadInventory(inventoryPath);
+  console.log(
+    `Merged inventory with ${String(Object.keys(inventory.providers).length)} provider override(s)`,
+  );
+  return mergeInventoryConfig(ir, inventory);
 }
 
 // ─── Output formatting ───────────────────────────────────────────────────────
