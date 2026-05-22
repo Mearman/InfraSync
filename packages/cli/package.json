@@ -19,14 +19,15 @@
     "_build": "tsdown",
     "_typecheck": "tsc -p tsconfig.json --noEmit",
     "_lint": "eslint . --cache",
-    "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts'"
+    "_test": "node --import tsx --test 'src/__tests__/*.int.test.ts' 'src/__tests__/*.unit.test.ts'"
   },
   "dependencies": {
     "@infrasync-org/adapter-terraform-config-json": "workspace:*",
     "@infrasync-org/adapter-terraform-show-json": "workspace:*",
     "@infrasync-org/core-ir": "workspace:*",
     "@infrasync-org/migration-planner": "workspace:*",
-    "jiti": "2.6.1"
+    "jiti": "2.6.1",
+    "yaml": "2.9.0"
   },
   "peerDependencies": {
     "@infrasync-org/core": "workspace:*"
