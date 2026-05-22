@@ -7,6 +7,7 @@ import type {
 import { InfraScope } from "./infra.js";
 import type { ResourceHandle } from "./handles.js";
 import { isRefToken, refTokenToIR } from "./refs.js";
+import type { InfraHandler } from "./handlers.js";
 
 // ─── Type guard ──────────────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ export function defineInfra<TOutputs>(
   return {
     name,
     toIR: () => compileToIR(scope),
+    handlers: collectHandlers(scope),
     outputs: result.outputs,
   };
 }
@@ -55,6 +57,8 @@ export function defineInfra<TOutputs>(
 export interface InfraResult<TOutputs> {
   readonly name: string;
   toIR(): InfraIR;
+  /** Collect handlers separately — they contain functions and can't be serialised. */
+  readonly handlers: readonly InfraHandler[];
   readonly outputs: TOutputs;
 }
 
@@ -200,6 +204,22 @@ function serializeValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(serializeValue);
   if (isRecord(value)) return serializeSpec(value);
   return value;
+}
+
+// ─── Handler collection ─────────────────────────────────────────────────────
+
+/**
+ * Collect handlers from all scopes in the tree.
+ * Handlers contain functions and are NOT part of the serialisable IR.
+ */
+function collectHandlers(scope: InfraScope): InfraHandler[] {
+  const handlers: InfraHandler[] = [...scope.handlers];
+
+  for (const child of scope.children) {
+    handlers.push(...collectHandlers(child));
+  }
+
+  return handlers;
 }
 
 // ─── Ref extraction for declarative resources ────────────────────────────────

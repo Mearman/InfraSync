@@ -3,6 +3,7 @@ import type { SecretSourceIR } from "./types.js";
 import type { ProviderAdapter } from "./provider.js";
 import { createProviderHandle } from "./handles.js";
 import type { ProviderHandle, ResourceHandle } from "./handles.js";
+import type { InfraHandler } from "./handlers.js";
 
 // ─── Declarative fragment type ───────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ export class InfraScope {
   readonly resources: ResourceHandle<unknown, unknown>[] = [];
   readonly children: InfraScope[] = [];
   readonly fragments: DeclarativeFragment[] = [];
+  readonly handlers: InfraHandler[] = [];
 
   constructor(readonly name: string) {}
 
@@ -136,6 +138,16 @@ export class InfraScope {
    */
   use(fragment: DeclarativeFragment): void {
     this.fragments.push(fragment);
+  }
+
+  /**
+   * Register a post-apply handler.
+   *
+   * Handlers run after Phase 3 (execute), triggered by changes to specific
+   * resources. They are side effects — not infrastructure state.
+   */
+  handler(handler: InfraHandler): void {
+    this.handlers.push(handler);
   }
 
   /** Secret source descriptors — resolved at execution time */

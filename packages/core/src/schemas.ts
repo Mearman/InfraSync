@@ -112,6 +112,48 @@ export const resourceIRSchema = z
   })
   .meta({ description: "A single resource as it appears in compiled InfraIR" });
 
+// ─── Handler metadata ────────────────────────────────────────────────────────
+
+/**
+ * The actions a handler can trigger on.
+ * Re-exported from handlers.ts for convenience.
+ */
+export const handlerActionSchema = z
+  .enum(["create", "update", "delete"])
+  .meta({ description: "Actions a handler can trigger on" });
+
+export type HandlerAction = z.infer<typeof handlerActionSchema>;
+
+/**
+ * Serialisable handler metadata — trigger names and action types.
+ * The `run` function is not serialisable and is not included.
+ * This schema captures the declarative trigger configuration that
+ * could be persisted to a plan file for inspection.
+ */
+export const handlerMetaSchema = z
+  .object({
+    name: z.string().trim().meta({ description: "Unique handler name" }),
+    triggers: z
+      .array(z.string().trim())
+      .meta({
+        description:
+          'Resource names that trigger this handler. Use "*" for wildcard.',
+      }),
+    on: z
+      .array(handlerActionSchema)
+      .optional()
+      .meta({
+        description:
+          "Which actions trigger this handler. Omit to trigger on all actions.",
+      }),
+  })
+  .meta({
+    description:
+      "Serialisable handler trigger metadata — excludes the run function",
+  });
+
+export type HandlerMeta = z.infer<typeof handlerMetaSchema>;
+
 // ─── Top-level ───────────────────────────────────────────────────────────────
 
 export const infraIRSchema = z

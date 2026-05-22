@@ -14,6 +14,8 @@ import type { ResourceIssue, FieldDiff, SecretResolver } from "./resource.js";
 import type { ResourceCache } from "./cache.js";
 import type { PlanAction } from "./action-dag.js";
 import type { ActionDag } from "./action-dag.js";
+import type { InfraHandler, HandlerOutcome } from "./handlers.js";
+import { executeHandlers } from "./handlers.js";
 import { StateMap } from "./state-map.js";
 import { readPhase, disconnectProviders } from "./read-phase.js";
 import { planPhase } from "./plan-phase.js";
@@ -42,6 +44,12 @@ export interface SyncOptions {
   readonly orphanDetection?: { readonly enabled: boolean };
   /** When true, produce delete actions for detected orphans. Otherwise report as issues. */
   readonly pruneOrphans?: boolean;
+  /**
+   * Post-apply handlers — side-effect actions triggered by resource changes.
+   * Handlers contain functions and can't be serialised, so they are passed
+   * separately from the IR.
+   */
+  readonly handlers?: readonly InfraHandler[];
 }
 
 /** Per-resource outcome from a sync run. */
@@ -57,6 +65,8 @@ export interface ResourceOutcome {
 export interface SyncResult {
   readonly resources: readonly ResourceOutcome[];
   readonly issues: readonly ResourceIssue[];
+  /** Handler outcomes — only populated in apply mode when handlers are registered. */
+  readonly handlerOutcomes: readonly HandlerOutcome[];
 }
 
 // ─── SyncEngine ──────────────────────────────────────────────────────────────
@@ -92,7 +102,7 @@ export class SyncEngine {
 
     if (read.issues.length > 0) {
       await disconnectProviders(read.instances);
-      return { resources: [], issues: read.issues };
+      return { resources: [], issues: read.issues, handlerOutcomes: [] };
     }
 
     try {
@@ -113,7 +123,7 @@ export class SyncEngine {
       });
 
       if (plan.issues.length > 0) {
-        return { resources: [], issues: plan.issues };
+        return { resources: [], issues: plan.issues, handlerOutcomes: [] };
       }
 
       // Phase 3: Execute
@@ -125,7 +135,7 @@ export class SyncEngine {
         dryRun,
       });
 
-      return mapResult(execute.result);
+      return await buildResult(execute.result, dryRun, options?.handlers);
     } finally {
       await disconnectProviders(read.instances);
     }
@@ -215,7 +225,7 @@ export class SyncEngine {
 
     if (read.issues.length > 0) {
       await disconnectProviders(read.instances);
-      return { resources: [], issues: read.issues };
+      return { resources: [], issues: read.issues, handlerOutcomes: [] };
     }
 
     try {
@@ -227,7 +237,7 @@ export class SyncEngine {
         dryRun: options?.mode === "plan",
       });
 
-      return mapResult(execute.result);
+      return await buildResult(execute.result, options?.mode === "plan", options?.handlers);
     } finally {
       await disconnectProviders(read.instances);
     }
@@ -236,19 +246,39 @@ export class SyncEngine {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function mapResult(result: {
-  resources: readonly ExecutorResourceOutcome[];
-  issues: readonly ResourceIssue[];
-}): SyncResult {
+async function buildResult(
+  result: {
+    resources: readonly ExecutorResourceOutcome[];
+    issues: readonly ResourceIssue[];
+  },
+  dryRun: boolean,
+  handlers?: readonly InfraHandler[],
+): Promise<SyncResult> {
+  const resources: ResourceOutcome[] = result.resources.map((r) => ({
+    name: r.name,
+    action: r.action,
+    status: r.status,
+    state: r.state,
+    diff: r.diff,
+  }));
+
+  // Run post-apply handlers (only in apply mode)
+  let handlerOutcomes: readonly HandlerOutcome[] = [];
+  if (!dryRun && handlers !== undefined && handlers.length > 0) {
+    handlerOutcomes = await executeHandlers(
+      handlers,
+      resources.map((r) => ({
+        name: r.name,
+        action: r.action,
+        diff: r.diff,
+      })),
+    );
+  }
+
   return {
-    resources: result.resources.map((r) => ({
-      name: r.name,
-      action: r.action,
-      status: r.status,
-      state: r.state,
-      diff: r.diff,
-    })),
+    resources,
     issues: result.issues,
+    handlerOutcomes,
   };
 }
 
