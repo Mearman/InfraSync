@@ -32,9 +32,7 @@ import { ActionsSecretResource } from "./actions-secret.js";
 export const github: ProviderAdapter<typeof githubConfigSchema> =
   defineProvider("github", () => new GitHubProvider());
 
-export class GitHubProvider implements ProviderPort<
-  typeof githubConfigSchema
-> {
+export class GitHubProvider implements ProviderPort<typeof githubConfigSchema> {
   readonly name = "github";
   readonly configSchema = githubConfigSchema;
 
@@ -118,7 +116,4 @@ export {
   type ActionsSecretSpec,
   type ActionsSecretRefs,
 } from "./actions-secret.js";
-export {
-  createGitHubHandle,
-  type GitHubProviderHandle,
-} from "./handle.js";
+export { createGitHubHandle, type GitHubProviderHandle } from "./handle.js";

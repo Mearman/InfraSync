@@ -1,7 +1,7 @@
 /**
  * Actions secret resource for the GitHub provider.
  *
- * Manages GitHub Actions secrets at repository and organisation level.
+ * Manages GitHub Actions secrets at repository level.
  * Note: secret values cannot be read back from the API — only metadata
  * (name, created_at, updated_at) is readable. This resource manages
  * existence and updates; convergence on the value side is not possible
@@ -17,6 +17,7 @@ import type {
 import { RefToken } from "@infrasync-org/core/refs";
 import type { RefBuilder } from "@infrasync-org/core/handles";
 import { GitHubClient, requireClient } from "./client.js";
+import { getStringField } from "./helpers.js";
 import * as z from "zod";
 import { ProviderApiError } from "@infrasync-org/core/errors";
 
@@ -43,16 +44,16 @@ export const actionsSecretSpecSchema = z.object({
   /** Secret name */
   secretName: z.string().trim().min(1),
   /** Secret value (will not be returned by reads) */
-  value: z.string().min(1),
+  value: z.string().trim().min(1),
 });
 
 export type ActionsSecretSpec = z.infer<typeof actionsSecretSpecSchema>;
 
 const actionsSecretStateSchema = z
   .looseObject({
-    name: z.string(),
-    created_at: z.string().optional(),
-    updated_at: z.string().optional(),
+    name: z.string().trim(),
+    created_at: z.string().trim().optional(),
+    updated_at: z.string().trim().optional(),
   })
   .brand<"GitHubActionsSecretState">()
   .readonly();
@@ -99,25 +100,14 @@ export class ActionsSecretResource implements ResourcePort<
       throw new ProviderApiError("github", "read", parsed.error.issues);
     }
 
-    try {
-      const response =
-        await requireClient(this.client).octokit.rest.actions.getRepoSecret({
-          owner: parsed.data.owner,
-          repo: parsed.data.repo,
-          secret_name: parsed.data.secretName,
-        });
-      return response.data;
-    } catch (error: unknown) {
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "status" in error &&
-        (error as { status: number }).status === 404
-      ) {
-        return undefined;
-      }
-      throw error;
-    }
+    return requireClient(this.client).get(
+      "/repos/{owner}/{repo}/actions/secrets/{secret_name}",
+      {
+        owner: parsed.data.owner,
+        repo: parsed.data.repo,
+        secret_name: parsed.data.secretName,
+      },
+    );
   }
 
   async create(spec: unknown): Promise<unknown> {
@@ -126,15 +116,19 @@ export class ActionsSecretResource implements ResourcePort<
       throw new ProviderApiError("github", "create", parsed.error.issues);
     }
 
-    // GitHub requires the secret value to be encrypted with the repo's public key.
-    // For simplicity, we use the sealed_value approach via the SDK.
-    await requireClient(this.client).octokit.rest.actions.createOrUpdateRepoSecret(
+    // GitHub requires the secret value to be encrypted with the repo's
+    // public key using libsodium. This is a TODO — for now, store the
+    // value as encrypted_value placeholder.
+    await requireClient(this.client).put(
+      "/repos/{owner}/{repo}/actions/secrets/{secret_name}",
       {
         owner: parsed.data.owner,
         repo: parsed.data.repo,
         secret_name: parsed.data.secretName,
-        encrypted_value: "", // TODO: implement proper encryption with Sodium
-        key_id: "", // TODO: fetch from getRepoPublicKey
+      },
+      {
+        encrypted_value: parsed.data.value,
+        key_id: "TODO",
       },
     );
 
@@ -146,6 +140,7 @@ export class ActionsSecretResource implements ResourcePort<
 
   async update(id: string, spec: unknown): Promise<unknown> {
     // Update is the same as create for secrets (PUT is idempotent)
+    void id;
     return this.create(spec);
   }
 
@@ -155,29 +150,23 @@ export class ActionsSecretResource implements ResourcePort<
         { message: "Invalid state for delete", path: [] },
       ]);
     }
-    const name = (state as Record<string, unknown>).name;
-    if (typeof name !== "string") {
+    const name = getStringField(state, "name");
+    const owner = getStringField(state, "_owner");
+    const repo = getStringField(state, "_repo");
+
+    if (
+      typeof owner !== "string" ||
+      typeof repo !== "string" ||
+      typeof name !== "string"
+    ) {
       throw new ProviderApiError("github", "delete", [
-        { message: "Cannot determine secret name from state", path: [] },
+        { message: "Cannot determine owner/repo/name from state", path: [] },
       ]);
     }
 
-    // We need owner/repo from the spec, but delete only receives state.
-    // Since identity includes owner/repo/secretName, and state carries
-    // just the name, we store the full identity in state for delete.
-    const owner = (state as Record<string, unknown>)._owner;
-    const repo = (state as Record<string, unknown>)._repo;
-
-    if (typeof owner !== "string" || typeof repo !== "string") {
-      throw new ProviderApiError("github", "delete", [
-        { message: "Cannot determine owner/repo from state", path: [] },
-      ]);
-    }
-
-    await requireClient(this.client).octokit.rest.actions.deleteRepoSecret({
-      owner,
-      repo,
-      secret_name: name,
-    });
+    await requireClient(this.client).delete(
+      "/repos/{owner}/{repo}/actions/secrets/{secret_name}",
+      { owner, repo, secret_name: name },
+    );
   }
 }

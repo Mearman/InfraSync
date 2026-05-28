@@ -13,6 +13,7 @@ import type {
 import { RefToken } from "@infrasync-org/core/refs";
 import type { RefBuilder } from "@infrasync-org/core/handles";
 import { GitHubClient, requireClient } from "./client.js";
+import { getStringField } from "./helpers.js";
 import * as z from "zod";
 import { ProviderApiError } from "@infrasync-org/core/errors";
 
@@ -85,11 +86,11 @@ export type BranchProtectionSpec = z.infer<typeof branchProtectionSpecSchema>;
 
 const branchProtectionStateSchema = z
   .looseObject({
-    url: z.string().optional(),
+    url: z.string().trim().optional(),
     required_status_checks: z
       .looseObject({
         strict: z.boolean().optional(),
-        contexts: z.array(z.string()).optional(),
+        contexts: z.array(z.string().trim()).optional(),
       })
       .nullable()
       .optional(),
@@ -115,9 +116,9 @@ const branchProtectionStateSchema = z
       .optional(),
     restrictions: z
       .looseObject({
-        teams: z.array(z.looseObject({ slug: z.string() })).optional(),
-        users: z.array(z.looseObject({ login: z.string() })).optional(),
-        apps: z.array(z.looseObject({ slug: z.string() })).optional(),
+        teams: z.array(z.looseObject({ slug: z.string().trim() })).optional(),
+        users: z.array(z.looseObject({ login: z.string().trim() })).optional(),
+        apps: z.array(z.looseObject({ slug: z.string().trim() })).optional(),
       })
       .nullable()
       .optional(),
@@ -230,13 +231,18 @@ export class BranchProtectionResource implements ResourcePort<
   getStateId(state: unknown): string {
     // Branch protection doesn't have a native ID — synthesise from URL
     if (typeof state === "object" && state !== null && "url" in state) {
-      const url = (state as { url: string }).url;
-      // URL format: https://api.github.com/repos/{owner}/{repo}/branches/{branch}/protection
-      const match = url.match(
-        /\/repos\/([^/]+)\/([^/]+)\/branches\/([^/]+)\/protection$/,
-      );
-      if (match !== null) {
-        return `${match[1]}/${match[2]}/${match[3]}`;
+      const url = getStringField(state, "url");
+      if (url !== undefined) {
+        // URL format: https://api.github.com/repos/{owner}/{repo}/branches/{branch}/protection
+        const match =
+          /\/repos\/([^/]+)\/([^/]+)\/branches\/([^/]+)\/protection$/.exec(url);
+        if (
+          match?.[1] !== undefined &&
+          match[2] !== undefined &&
+          match[3] !== undefined
+        ) {
+          return `${match[1]}/${match[2]}/${match[3]}`;
+        }
       }
     }
     throw new Error(
@@ -250,27 +256,14 @@ export class BranchProtectionResource implements ResourcePort<
       throw new ProviderApiError("github", "read", parsed.error.issues);
     }
 
-    try {
-      const { data } = await requireClient(this.client).octokit.request(
-        "GET /repos/{owner}/{repo}/branches/{branch}/protection",
-        {
-          owner: parsed.data.owner,
-          repo: parsed.data.repo,
-          branch: parsed.data.branch,
-        },
-      );
-      return data;
-    } catch (error: unknown) {
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "status" in error &&
-        (error as { status: number }).status === 404
-      ) {
-        return undefined;
-      }
-      throw error;
-    }
+    return requireClient(this.client).get(
+      "/repos/{owner}/{repo}/branches/{branch}/protection",
+      {
+        owner: parsed.data.owner,
+        repo: parsed.data.repo,
+        branch: parsed.data.branch,
+      },
+    );
   }
 
   async create(spec: unknown): Promise<unknown> {
@@ -280,36 +273,35 @@ export class BranchProtectionResource implements ResourcePort<
     }
 
     const body = buildProtectionBody(parsed.data);
-    const { data } = await requireClient(this.client).octokit.request(
-      "PUT /repos/{owner}/{repo}/branches/{branch}/protection",
+    return requireClient(this.client).put(
+      "/repos/{owner}/{repo}/branches/{branch}/protection",
       {
         owner: parsed.data.owner,
         repo: parsed.data.repo,
         branch: parsed.data.branch,
-        ...body,
-      } as never,
+      },
+      body,
     );
-    return data;
   }
 
   async update(id: string, spec: unknown): Promise<unknown> {
     // Branch protection is idempotent — same as create (PUT replaces entirely)
+    void id;
     const parsed = branchProtectionSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError("github", "update", parsed.error.issues);
     }
 
     const body = buildProtectionBody(parsed.data);
-    const { data } = await requireClient(this.client).octokit.request(
-      "PUT /repos/{owner}/{repo}/branches/{branch}/protection",
+    return requireClient(this.client).put(
+      "/repos/{owner}/{repo}/branches/{branch}/protection",
       {
         owner: parsed.data.owner,
         repo: parsed.data.repo,
         branch: parsed.data.branch,
-        ...body,
-      } as never,
+      },
+      body,
     );
-    return data;
   }
 
   async delete(state: unknown): Promise<void> {
@@ -319,25 +311,24 @@ export class BranchProtectionResource implements ResourcePort<
       ]);
     }
 
-    const url = (state as Record<string, unknown>).url;
+    const url = getStringField(state, "url");
     if (typeof url !== "string") {
       throw new ProviderApiError("github", "delete", [
         { message: "Cannot determine branch from state", path: [] },
       ]);
     }
 
-    const match = url.match(
-      /\/repos\/([^/]+)\/([^/]+)\/branches\/([^/]+)\/protection$/,
-    );
+    const match =
+      /\/repos\/([^/]+)\/([^/]+)\/branches\/([^/]+)\/protection$/.exec(url);
     if (match === null) {
       throw new ProviderApiError("github", "delete", [
         { message: "Cannot parse owner/repo/branch from URL", path: [] },
       ]);
     }
 
-    await requireClient(this.client).octokit.request(
-      "DELETE /repos/{owner}/{repo}/branches/{branch}/protection",
-      { owner: match[1], repo: match[2], branch: match[3] } as never,
+    await requireClient(this.client).delete(
+      "/repos/{owner}/{repo}/branches/{branch}/protection",
+      { owner: match[1], repo: match[2], branch: match[3] },
     );
   }
 }

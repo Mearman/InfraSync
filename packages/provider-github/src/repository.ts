@@ -1,8 +1,7 @@
 /**
  * Repository resource for the GitHub provider.
  *
- * Manages GitHub repositories — create, read, update, and delete via the
- * Octokit REST API.
+ * Manages GitHub repositories — create, read, update, and delete.
  *
  * @see https://docs.github.com/en/rest/repos/repos
  */
@@ -14,6 +13,7 @@ import type {
 import { RefToken } from "@infrasync-org/core/refs";
 import type { RefBuilder } from "@infrasync-org/core/handles";
 import { GitHubClient, requireClient } from "./client.js";
+import { getNestedStringField, getStringField } from "./helpers.js";
 import * as z from "zod";
 import { ProviderApiError } from "@infrasync-org/core/errors";
 
@@ -40,7 +40,7 @@ export const repositorySpecSchema = z.object({
   /** Repository name */
   name: z.string().trim().min(1),
   /** Repository description */
-  description: z.string().optional(),
+  description: z.string().trim().optional(),
   /** Whether the repository is private */
   private: z.boolean().optional(),
   /** Whether issues are enabled */
@@ -76,16 +76,16 @@ export type RepositorySpec = z.infer<typeof repositorySpecSchema>;
 const repositoryStateSchema = z
   .looseObject({
     id: z.number(),
-    node_id: z.string(),
-    name: z.string(),
-    full_name: z.string(),
+    node_id: z.string().trim(),
+    name: z.string().trim(),
+    full_name: z.string().trim(),
     owner: z
       .looseObject({
-        login: z.string(),
+        login: z.string().trim(),
       })
       .optional(),
     private: z.boolean().optional(),
-    description: z.string().nullable().optional(),
+    description: z.string().trim().nullable().optional(),
     has_issues: z.boolean().optional(),
     has_projects: z.boolean().optional(),
     has_wiki: z.boolean().optional(),
@@ -94,12 +94,12 @@ const repositoryStateSchema = z
     allow_rebase_merge: z.boolean().optional(),
     allow_auto_merge: z.boolean().optional(),
     delete_branch_on_merge: z.boolean().optional(),
-    default_branch: z.string().optional(),
-    homepage: z.string().nullable().optional(),
+    default_branch: z.string().trim().optional(),
+    homepage: z.string().trim().nullable().optional(),
     is_template: z.boolean().optional(),
-    topics: z.array(z.string()).optional(),
-    visibility: z.string().optional(),
-    html_url: z.string().optional(),
+    topics: z.array(z.string().trim()).optional(),
+    visibility: z.string().trim().optional(),
+    html_url: z.string().trim().optional(),
   })
   .brand<"GitHubRepositoryState">()
   .readonly();
@@ -131,10 +131,9 @@ const desiredStateSchema = repositorySpecSchema.pick({
 
 /**
  * Build a request body from spec, mapping camelCase to snake_case and
- * omitting undefined values. Uses octokit.request() to avoid
- * exactOptionalPropertyTypes friction with the typed endpoint methods.
+ * omitting undefined values.
  */
-function buildCreateRequest(
+function buildCreateBody(
   spec: z.infer<typeof repositorySpecSchema>,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { name: spec.name };
@@ -159,10 +158,10 @@ function buildCreateRequest(
   return body;
 }
 
-function buildUpdateRequest(
+function buildUpdateBody(
   spec: z.infer<typeof repositorySpecSchema>,
 ): Record<string, unknown> {
-  const body = buildCreateRequest(spec);
+  const body = buildCreateBody(spec);
   if (spec.defaultBranch !== undefined)
     body.default_branch = spec.defaultBranch;
   if (spec.topics !== undefined) body.topics = spec.topics;
@@ -195,12 +194,8 @@ export class RepositoryResource implements ResourcePort<
     }
     // Fall back to owner/name combination
     if (typeof state === "object" && state !== null) {
-      const s = state as Record<string, unknown>;
-      const owner =
-        typeof s.owner === "object" && s.owner !== null
-          ? (s.owner as { login?: string }).login
-          : undefined;
-      const name = s.name;
+      const owner = getNestedStringField(state, "owner", "login");
+      const name = getStringField(state, "name");
       if (typeof owner === "string" && typeof name === "string") {
         return `${owner}/${name}`;
       }
@@ -214,23 +209,10 @@ export class RepositoryResource implements ResourcePort<
       throw new ProviderApiError("github", "read", parsed.error.issues);
     }
 
-    try {
-      const { data } = await requireClient(this.client).octokit.request(
-        "GET /repos/{owner}/{repo}",
-        { owner: parsed.data.owner, repo: parsed.data.name },
-      );
-      return data;
-    } catch (error: unknown) {
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "status" in error &&
-        (error as { status: number }).status === 404
-      ) {
-        return undefined;
-      }
-      throw error;
-    }
+    return requireClient(this.client).get("/repos/{owner}/{repo}", {
+      owner: parsed.data.owner,
+      repo: parsed.data.name,
+    });
   }
 
   async create(spec: unknown): Promise<unknown> {
@@ -239,12 +221,12 @@ export class RepositoryResource implements ResourcePort<
       throw new ProviderApiError("github", "create", parsed.error.issues);
     }
 
-    const body = buildCreateRequest(parsed.data);
-    const { data } = await requireClient(this.client).octokit.request(
-      "POST /orgs/{org}/repos",
-      { org: parsed.data.owner, ...body } as never,
+    const body = buildCreateBody(parsed.data);
+    return requireClient(this.client).post(
+      "/orgs/{org}/repos",
+      { org: parsed.data.owner },
+      body,
     );
-    return data;
   }
 
   async update(id: string, spec: unknown): Promise<unknown> {
@@ -253,13 +235,13 @@ export class RepositoryResource implements ResourcePort<
       throw new ProviderApiError("github", "update", parsed.error.issues);
     }
 
-    const body = buildUpdateRequest(parsed.data);
+    const body = buildUpdateBody(parsed.data);
     const [owner, repo] = id.split("/", 2);
-    const { data } = await requireClient(this.client).octokit.request(
-      "PATCH /repos/{owner}/{repo}",
-      { owner, repo, ...body } as never,
+    return requireClient(this.client).patch(
+      "/repos/{owner}/{repo}",
+      { owner, repo },
+      body,
     );
-    return data;
   }
 
   async delete(state: unknown): Promise<void> {
@@ -268,12 +250,8 @@ export class RepositoryResource implements ResourcePort<
         { message: "Invalid state for delete", path: [] },
       ]);
     }
-    const s = state as Record<string, unknown>;
-    const owner =
-      typeof s.owner === "object" && s.owner !== null
-        ? (s.owner as { login?: string }).login
-        : undefined;
-    const name = s.name;
+    const owner = getNestedStringField(state, "owner", "login");
+    const name = getStringField(state, "name");
 
     if (owner === undefined || typeof name !== "string") {
       throw new ProviderApiError("github", "delete", [
@@ -281,9 +259,9 @@ export class RepositoryResource implements ResourcePort<
       ]);
     }
 
-    await requireClient(this.client).octokit.request(
-      "DELETE /repos/{owner}/{repo}",
-      { owner, repo: name } as never,
-    );
+    await requireClient(this.client).delete("/repos/{owner}/{repo}", {
+      owner,
+      repo: name,
+    });
   }
 }

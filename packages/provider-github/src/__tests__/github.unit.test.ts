@@ -7,9 +7,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import * as z from "zod";
 import {
-  GitHubProvider,
   github,
   githubConfigSchema,
   repositorySpecSchema,
@@ -57,7 +55,7 @@ describe("githubConfigSchema", () => {
 
 // ─── Provider construction ───────────────────────────────────────────────────
 
-describe("GitHubProvider", () => {
+describe("GitHub provider", () => {
   it("has the correct adapter name", () => {
     assert.equal(github.adapterName, "github");
   });
@@ -308,38 +306,34 @@ describe("actionsSecretSpecSchema", () => {
 describe("resource handler construction", () => {
   it("creates a Repository handler", () => {
     const provider = github.create();
-    const handler = provider.resourceHandler(
-      "Repository",
-      { get: () => "unused" } as never,
-    );
+    const handler = provider.resourceHandler("Repository", {
+      get: () => "unused",
+    } as never);
     assert.equal(handler.kind, "Repository");
     assert.ok(handler.specSchema === repositorySpecSchema);
   });
 
   it("creates a BranchProtection handler", () => {
     const provider = github.create();
-    const handler = provider.resourceHandler(
-      "BranchProtection",
-      { get: () => "unused" } as never,
-    );
+    const handler = provider.resourceHandler("BranchProtection", {
+      get: () => "unused",
+    } as never);
     assert.equal(handler.kind, "BranchProtection");
   });
 
   it("creates a Team handler", () => {
     const provider = github.create();
-    const handler = provider.resourceHandler(
-      "Team",
-      { get: () => "unused" } as never,
-    );
+    const handler = provider.resourceHandler("Team", {
+      get: () => "unused",
+    } as never);
     assert.equal(handler.kind, "Team");
   });
 
   it("creates an ActionsSecret handler", () => {
     const provider = github.create();
-    const handler = provider.resourceHandler(
-      "ActionsSecret",
-      { get: () => "unused" } as never,
-    );
+    const handler = provider.resourceHandler("ActionsSecret", {
+      get: () => "unused",
+    } as never);
     assert.equal(handler.kind, "ActionsSecret");
   });
 
@@ -356,20 +350,18 @@ describe("resource handler construction", () => {
 describe("RepositoryResource.getStateId", () => {
   it("extracts state ID from full_name", () => {
     const provider = github.create();
-    const handler = provider.resourceHandler(
-      "Repository",
-      { get: () => "unused" } as never,
-    );
+    const handler = provider.resourceHandler("Repository", {
+      get: () => "unused",
+    } as never);
     const id = handler.getStateId({ full_name: "my-org/my-repo" });
     assert.equal(id, "my-org/my-repo");
   });
 
   it("falls back to owner/name extraction", () => {
     const provider = github.create();
-    const handler = provider.resourceHandler(
-      "Repository",
-      { get: () => "unused" } as never,
-    );
+    const handler = provider.resourceHandler("Repository", {
+      get: () => "unused",
+    } as never);
     const id = handler.getStateId({
       owner: { login: "my-org" },
       name: "my-repo",
@@ -379,10 +371,9 @@ describe("RepositoryResource.getStateId", () => {
 
   it("throws for invalid state", () => {
     const provider = github.create();
-    const handler = provider.resourceHandler(
-      "Repository",
-      { get: () => "unused" } as never,
-    );
+    const handler = provider.resourceHandler("Repository", {
+      get: () => "unused",
+    } as never);
     assert.throws(() => handler.getStateId({}));
   });
 });
@@ -392,27 +383,25 @@ describe("RepositoryResource.getStateId", () => {
 describe("TeamResource.getStateId", () => {
   it("extracts state ID from id field", () => {
     const provider = github.create();
-    const handler = provider.resourceHandler(
-      "Team",
-      { get: () => "unused" } as never,
-    );
+    const handler = provider.resourceHandler("Team", {
+      get: () => "unused",
+    } as never);
     const id = handler.getStateId({ id: 42, name: "engineering" });
     assert.equal(id, "42");
   });
 
   it("throws for invalid state", () => {
     const provider = github.create();
-    const handler = provider.resourceHandler(
-      "Team",
-      { get: () => "unused" } as never,
-    );
+    const handler = provider.resourceHandler("Team", {
+      get: () => "unused",
+    } as never);
     assert.throws(() => handler.getStateId({}));
   });
 });
 
 // ─── Provider connect/disconnect ─────────────────────────────────────────────
 
-describe("GitHubProvider connect/disconnect", () => {
+describe("GitHub provider connect/disconnect", () => {
   it("connects with valid config", async () => {
     const provider = github.create();
     // Should not throw — token is validated

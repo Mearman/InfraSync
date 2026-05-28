@@ -13,6 +13,7 @@ import type {
 import { RefToken } from "@infrasync-org/core/refs";
 import type { RefBuilder } from "@infrasync-org/core/handles";
 import { GitHubClient, requireClient } from "./client.js";
+import { getStringField } from "./helpers.js";
 import * as z from "zod";
 import { ProviderApiError } from "@infrasync-org/core/errors";
 
@@ -39,7 +40,7 @@ export const teamSpecSchema = z.object({
   /** Team name */
   name: z.string().trim().min(1),
   /** Team description */
-  description: z.string().optional(),
+  description: z.string().trim().optional(),
   /** Parent team slug (for nested teams) */
   parentTeamSlug: z.string().trim().min(1).optional(),
   /** Team privacy level */
@@ -53,19 +54,19 @@ export type TeamSpec = z.infer<typeof teamSpecSchema>;
 const teamStateSchema = z
   .looseObject({
     id: z.number(),
-    node_id: z.string(),
-    name: z.string(),
-    slug: z.string(),
-    description: z.string().nullable().optional(),
-    privacy: z.string().optional(),
-    permission: z.string().optional(),
+    node_id: z.string().trim(),
+    name: z.string().trim(),
+    slug: z.string().trim(),
+    description: z.string().trim().nullable().optional(),
+    privacy: z.string().trim().optional(),
+    permission: z.string().trim().optional(),
     parent: z
       .looseObject({
-        slug: z.string(),
+        slug: z.string().trim(),
       })
       .nullable()
       .optional(),
-    html_url: z.string().optional(),
+    html_url: z.string().trim().optional(),
   })
   .brand<"GitHubTeamState">()
   .readonly();
@@ -139,23 +140,10 @@ export class TeamResource implements ResourcePort<
       throw new ProviderApiError("github", "read", parsed.error.issues);
     }
 
-    try {
-      const { data } = await requireClient(this.client).octokit.request(
-        "GET /orgs/{org}/teams/{team_slug}",
-        { org: parsed.data.org, team_slug: parsed.data.name },
-      );
-      return data;
-    } catch (error: unknown) {
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "status" in error &&
-        (error as { status: number }).status === 404
-      ) {
-        return undefined;
-      }
-      throw error;
-    }
+    return requireClient(this.client).get("/orgs/{org}/teams/{team_slug}", {
+      org: parsed.data.org,
+      team_slug: parsed.data.name,
+    });
   }
 
   async create(spec: unknown): Promise<unknown> {
@@ -165,25 +153,26 @@ export class TeamResource implements ResourcePort<
     }
 
     const body = buildCreateBody(parsed.data);
-    const { data } = await requireClient(this.client).octokit.request(
-      "POST /orgs/{org}/teams",
-      { org: parsed.data.org, ...body } as never,
+    return requireClient(this.client).post(
+      "/orgs/{org}/teams",
+      { org: parsed.data.org },
+      body,
     );
-    return data;
   }
 
   async update(id: string, spec: unknown): Promise<unknown> {
+    void id;
     const parsed = teamSpecSchema.safeParse(spec);
     if (!parsed.success) {
       throw new ProviderApiError("github", "update", parsed.error.issues);
     }
 
     const body = buildUpdateBody(parsed.data);
-    const { data } = await requireClient(this.client).octokit.request(
-      "PATCH /orgs/{org}/teams/{team_slug}",
-      { org: parsed.data.org, team_slug: parsed.data.name, ...body } as never,
+    return requireClient(this.client).patch(
+      "/orgs/{org}/teams/{team_slug}",
+      { org: parsed.data.org, team_slug: parsed.data.name },
+      body,
     );
-    return data;
   }
 
   async delete(state: unknown): Promise<void> {
@@ -192,9 +181,8 @@ export class TeamResource implements ResourcePort<
         { message: "Invalid state for delete", path: [] },
       ]);
     }
-    const s = state as Record<string, unknown>;
-    const slug = s.slug;
-    const owner = this.extractOrgFromState(s);
+    const slug = getStringField(state, "slug");
+    const owner = this.extractOrgFromState(state);
 
     if (owner === undefined || typeof slug !== "string") {
       throw new ProviderApiError("github", "delete", [
@@ -202,17 +190,17 @@ export class TeamResource implements ResourcePort<
       ]);
     }
 
-    await requireClient(this.client).octokit.request(
-      "DELETE /orgs/{org}/teams/{team_slug}",
-      { org: owner, team_slug: slug } as never,
-    );
+    await requireClient(this.client).delete("/orgs/{org}/teams/{team_slug}", {
+      org: owner,
+      team_slug: slug,
+    });
   }
 
-  private extractOrgFromState(s: Record<string, unknown>): string | undefined {
+  private extractOrgFromState(state: unknown): string | undefined {
     // The html_url format for teams is: https://github.com/orgs/{org}/teams/{slug}
-    const url = s.html_url;
-    if (typeof url === "string") {
-      const match = url.match(/\/orgs\/([^/]+)\/teams\//);
+    const url = getStringField(state, "html_url");
+    if (url !== undefined) {
+      const match = /\/orgs\/([^/]+)\/teams\//.exec(url);
       if (match !== null) return match[1];
     }
     return undefined;
