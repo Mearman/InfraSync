@@ -1,3 +1,7 @@
-# pnpm exec lint-staged deadlocks with projectService: true — invoke directly
-node ./node_modules/lint-staged/bin/lint-staged.js
+# Run eslint directly on staged files — bypasses lint-staged which deadlocks
+# with projectService: true (tsserver hangs under lint-staged's stash/restore)
+FILES=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.tsx' '*.json' '*.md')
+if [ -n "$FILES" ]; then
+  echo "$FILES" | xargs node ./node_modules/.bin/eslint --fix --cache
+fi
 
