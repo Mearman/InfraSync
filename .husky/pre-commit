@@ -1,1 +1,3 @@
-pnpm exec lint-staged
+# pnpm exec lint-staged deadlocks with projectService: true — invoke directly
+node ./node_modules/lint-staged/bin/lint-staged.js
+

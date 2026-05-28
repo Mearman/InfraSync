@@ -1,1 +1,2 @@
-pnpm exec commitlint --edit $1
+# pnpm exec commitlint deadlocks with projectService: true — invoke directly
+node ./node_modules/@commitlint/cli/cli.js --edit $1
