@@ -8,6 +8,7 @@
     "eslint.config.ts",
     "lint-staged.config.ts",
     "release.config.ts",
+    "src/release",
     "turbo.json",
     "pnpm-workspace.yaml"
   ]

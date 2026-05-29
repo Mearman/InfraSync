@@ -1,4 +1,4 @@
-import { monorepoRelease } from "./src/release/index.js";
+import { monorepoRelease } from "./dist/release/index.js";
 
 // monorepoRelease implements the full plugin lifecycle internally.
 // semantic-release expects PluginSpec[], but our plugin is a

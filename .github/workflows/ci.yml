@@ -81,6 +81,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Build release plugin
+        run: pnpm exec tsc --project tsconfig.build.json
+
       - name: Semantic release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
