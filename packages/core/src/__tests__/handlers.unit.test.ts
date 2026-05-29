@@ -6,10 +6,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type {
-  InfraHandler,
-  TriggeredOutcome,
-} from "../handlers.js";
+import type { InfraHandler, TriggeredOutcome } from "../handlers.js";
 import { executeHandlers } from "../handlers.js";
 import type { FieldDiff } from "../resource.js";
 

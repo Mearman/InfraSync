@@ -125,9 +125,7 @@ export type TransitionDeclaration<
  * 2. update this resource (the guarded operation)
  * 3. create target resource (restore after guarded update)
  */
-export interface PreconditionDeclaration<
-  TSpec extends z.ZodType = z.ZodType,
-> {
+export interface PreconditionDeclaration<TSpec extends z.ZodType = z.ZodType> {
   /**
    * Schema object reference for the target resource kind.
    * The planner resolves this to a kind string via the adapter registry
