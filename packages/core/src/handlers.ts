@@ -90,7 +90,8 @@ export async function executeHandlers(
 ): Promise<readonly HandlerOutcome[]> {
   // Filter to meaningful actions only (exclude no-op and read)
   const changedOutcomes = outcomes.filter(
-    (o) => o.action === "create" || o.action === "update" || o.action === "delete",
+    (o) =>
+      o.action === "create" || o.action === "update" || o.action === "delete",
   );
 
   if (changedOutcomes.length === 0 || handlers.length === 0) {
@@ -114,8 +115,7 @@ export async function executeHandlers(
         status: "success",
       });
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : String(err);
+      const message = err instanceof Error ? err.message : String(err);
       handlerOutcomes.push({
         handler: handler.name,
         triggeredResources: triggered.map((t) => t.resource),
@@ -159,11 +159,7 @@ function matchTriggers(
 
     // Check action match (omit/empty on means all actions)
     if (allowedActions !== undefined && allowedActions.length > 0) {
-      if (
-        !allowedActions.includes(
-          outcome.action as "create" | "update" | "delete",
-        )
-      ) {
+      if (!allowedActions.some((a) => a === outcome.action)) {
         continue;
       }
     }

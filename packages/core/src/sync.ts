@@ -237,7 +237,11 @@ export class SyncEngine {
         dryRun: options?.mode === "plan",
       });
 
-      return await buildResult(execute.result, options?.mode === "plan", options?.handlers);
+      return await buildResult(
+        execute.result,
+        options?.mode === "plan",
+        options?.handlers,
+      );
     } finally {
       await disconnectProviders(read.instances);
     }

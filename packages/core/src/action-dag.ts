@@ -35,7 +35,7 @@ export type PlanAction = z.infer<typeof planActionSchema>;
 // ─── Field diff ──────────────────────────────────────────────────────────────
 
 export const fieldDiffSchema = z.object({
-  path: z.string(),
+  path: z.string().trim(),
   desired: z.unknown(),
   actual: z.unknown(),
 });
@@ -56,15 +56,15 @@ export type FieldDiff = z.infer<typeof fieldDiffSchema>;
  */
 export const actionNodeSchema = z.object({
   /** Unique identifier within the DAG */
-  id: z.string(),
+  id: z.string().trim(),
   /** The operation to perform */
   action: planActionSchema,
   /** IR resource name this action targets */
-  resource: z.string(),
+  resource: z.string().trim(),
   /** Provider instance key */
-  provider: z.string(),
+  provider: z.string().trim(),
   /** Resource kind within the provider */
-  kind: z.string(),
+  kind: z.string().trim(),
   /**
    * The spec to apply. Validated through specSchema at plan time.
    * Plain JSON — no schema references, no RefTokenIR values.
@@ -74,14 +74,14 @@ export const actionNodeSchema = z.object({
    * Provider-assigned ID for update/delete actions.
    * undefined for create/read/no-op.
    */
-  stateId: z.string().optional(),
+  stateId: z.string().trim().optional(),
   /**
    * Field-level diff for update actions.
    * undefined for create/read/delete/no-op.
    */
   diff: z.array(fieldDiffSchema).optional(),
   /** IDs of actions that must complete before this one */
-  deps: z.array(z.string()),
+  deps: z.array(z.string().trim()),
 });
 
 export type ActionNode = z.infer<typeof actionNodeSchema>;
@@ -104,11 +104,11 @@ export const actionDagSchema = z.object({
   /** The action nodes, in no particular order (executor topologically sorts) */
   actions: z.array(actionNodeSchema),
   /** ISO-8601 timestamp when this plan was produced */
-  planTimestamp: z.string().datetime({ local: true }),
+  planTimestamp: z.iso.datetime({ local: true }),
   /** SHA-256 hex digest of the serialised InfraIR used to produce this plan */
-  infraIRHash: z.string(),
+  infraIRHash: z.string().trim(),
   /** SHA-256 hex digest of the serialised StateMap used to produce this plan */
-  stateMapHash: z.string(),
+  stateMapHash: z.string().trim(),
 });
 
 export type ActionDag = z.infer<typeof actionDagSchema>;

@@ -10,7 +10,11 @@ import assert from "node:assert/strict";
 import * as z from "zod";
 import { defineInfra } from "../compiler.js";
 import { defineProvider } from "../provider.js";
-import type { ProviderPort, ResourcePort, ResolvedScopes } from "../provider.js";
+import type {
+  ProviderPort,
+  ResourcePort,
+  ResolvedScopes,
+} from "../provider.js";
 import { defineRole, useRole } from "../role.js";
 import type { RoleHandle } from "../role.js";
 import { RefToken } from "../refs.js";
@@ -57,7 +61,7 @@ function at<T>(arr: readonly T[], index: number): T {
 describe("defineRole", () => {
   it("creates a role definition with a name and params schema", () => {
     const role = defineRole("webApp", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         prov.resource("DnsRecord", "record", { domain: params.domain });
@@ -88,7 +92,7 @@ describe("defineRole", () => {
 describe("Resource namespacing", () => {
   it("prefixes resource names with the role name by default", () => {
     const role = defineRole("webApp", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         prov.resource("DnsRecord", "record", { domain: params.domain });
@@ -108,7 +112,7 @@ describe("Resource namespacing", () => {
 
   it("uses a custom prefix when provided", () => {
     const role = defineRole("app", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         prov.resource("DnsRecord", "record", { domain: params.domain });
@@ -128,7 +132,7 @@ describe("Resource namespacing", () => {
 
   it("creates distinct resources when the same role is used twice", () => {
     const role = defineRole("app", {
-      params: z.object({ name: z.string() }),
+      params: z.object({ name: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("svc", mock, {});
         prov.resource("Resource", "main", { name: params.name });
@@ -152,7 +156,7 @@ describe("Resource namespacing", () => {
 
   it("registers role providers in the compiled IR", () => {
     const role = defineRole("app", {
-      params: z.object({ region: z.string() }),
+      params: z.object({ region: z.string().trim() }),
       create(infra, params) {
         infra.provider("aws", mock, { region: params.region });
         return { outputs: {} };
@@ -177,8 +181,8 @@ describe("Params validation", () => {
   it("throws on invalid params at useRole() time", () => {
     const role = defineRole("app", {
       params: z.object({
-        domain: z.string().min(1),
-        port: z.number().int().positive(),
+        domain: z.string().trim().min(1),
+        port: z.int().positive(),
       }),
       create(infra, params) {
         const prov = infra.provider("svc", mock, {});
@@ -211,7 +215,7 @@ describe("Params validation", () => {
 
   it("throws on missing required params", () => {
     const role = defineRole("app", {
-      params: z.strictObject({ domain: z.string() }),
+      params: z.strictObject({ domain: z.string().trim() }),
       create(infra, params) {
         infra.provider("svc", mock, {});
         infra.provider("svc", mock, { domain: params.domain });
@@ -219,16 +223,13 @@ describe("Params validation", () => {
       },
     });
 
-    assert.throws(
-      () => {
-        defineInfra("test", (i) => {
-          // @ts-expect-error — intentionally passing wrong params to test runtime validation
-          useRole(i, role, {});
-          return { outputs: {} };
-        });
-      },
-      /Role "app" params validation failed/,
-    );
+    assert.throws(() => {
+      defineInfra("test", (i) => {
+        // @ts-expect-error — intentionally passing wrong params to test runtime validation
+        useRole(i, role, {});
+        return { outputs: {} };
+      });
+    }, /Role "app" params validation failed/);
   });
 });
 
@@ -237,7 +238,7 @@ describe("Params validation", () => {
 describe("Ref resolution from role outputs", () => {
   it("returns RefTokens pointing at namespaced resource names", () => {
     const role = defineRole("app", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         const record = prov.resource("DnsRecord", "record", {
@@ -252,7 +253,9 @@ describe("Ref resolution from role outputs", () => {
       },
     });
 
-    let handle: RoleHandle<{ hostname: RefToken; endpoint: RefToken }> | undefined;
+    let handle:
+      | RoleHandle<{ hostname: RefToken; endpoint: RefToken }>
+      | undefined;
 
     defineInfra("test", (i) => {
       handle = useRole(i, role, { domain: "example.com" });
@@ -270,7 +273,7 @@ describe("Ref resolution from role outputs", () => {
 
   it("role outputs can be used as RefTokens in parent resources", () => {
     const role = defineRole("dns", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         const record = prov.resource("DnsRecord", "record", {
@@ -299,10 +302,10 @@ describe("Ref resolution from role outputs", () => {
     const api = ir.resources.find((r) => r.name === "api");
     assert.ok(api !== undefined, "api resource should exist");
     assert.ok(api.refBindings !== undefined, "api should have refBindings");
-    assert.equal(api.refBindings!.length, 1);
-    assert.equal(at(api.refBindings!, 0).targetResource, "dns:record");
-    assert.equal(at(api.refBindings!, 0).specPath, "endpoint");
-    assert.equal(at(api.refBindings!, 0).statePath, "hostname");
+    assert.equal(api.refBindings.length, 1);
+    assert.equal(at(api.refBindings, 0).targetResource, "dns:record");
+    assert.equal(at(api.refBindings, 0).specPath, "endpoint");
+    assert.equal(at(api.refBindings, 0).statePath, "hostname");
 
     // The compiled spec should contain the serialised RefTokenIR
     const specValue = api.spec.endpoint;
@@ -316,7 +319,7 @@ describe("Ref resolution from role outputs", () => {
 
   it("outputs from different role uses are distinct", () => {
     const role = defineRole("app", {
-      params: z.object({ name: z.string() }),
+      params: z.object({ name: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("svc", mock, {});
         const res = prov.resource("Resource", "main", { name: params.name });
@@ -347,7 +350,7 @@ describe("Ref resolution from role outputs", () => {
 describe("DAG participation", () => {
   it("role resources form ref bindings for cross-resource refs", () => {
     const role = defineRole("app", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         const zone = prov.resource("Zone", "zone", { domain: params.domain });
@@ -372,15 +375,15 @@ describe("DAG participation", () => {
 
     // record should have a ref binding to app:zone
     assert.ok(record.refBindings !== undefined);
-    assert.equal(record.refBindings!.length, 1);
-    assert.equal(at(record.refBindings!, 0).targetResource, "app:zone");
-    assert.equal(at(record.refBindings!, 0).specPath, "zoneId");
-    assert.equal(at(record.refBindings!, 0).statePath, "zoneId");
+    assert.equal(record.refBindings.length, 1);
+    assert.equal(at(record.refBindings, 0).targetResource, "app:zone");
+    assert.equal(at(record.refBindings, 0).specPath, "zoneId");
+    assert.equal(at(record.refBindings, 0).statePath, "zoneId");
   });
 
   it("role resources support explicit dependsOn", () => {
     const role = defineRole("app", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         const zone = prov.resource("Zone", "zone", { domain: params.domain });
@@ -404,12 +407,12 @@ describe("DAG participation", () => {
     const record = ir.resources.find((r) => r.name === "app:record");
     assert.ok(record !== undefined, "app:record should exist");
     assert.ok(record.dependsOn !== undefined, "record should have dependsOn");
-    assert.deepEqual([...record.dependsOn!], ["app:zone"]);
+    assert.deepEqual([...record.dependsOn], ["app:zone"]);
   });
 
   it("role resources with tags are preserved in the IR", () => {
     const role = defineRole("app", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         prov.resource(
@@ -432,12 +435,12 @@ describe("DAG participation", () => {
     const record = ir.resources.find((r) => r.name === "app:record");
     assert.ok(record !== undefined);
     assert.ok(record.tags !== undefined);
-    assert.deepEqual([...record.tags!], ["public", "dns"]);
+    assert.deepEqual([...record.tags], ["public", "dns"]);
   });
 
   it("role resources support read mode", () => {
     const role = defineRole("app", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         prov.resource(
@@ -468,7 +471,7 @@ describe("DAG participation", () => {
 describe("Nested roles", () => {
   it("inner role resources get their own prefix", () => {
     const inner = defineRole("dns", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         const record = prov.resource("DnsRecord", "record", {
@@ -479,7 +482,10 @@ describe("Nested roles", () => {
     });
 
     const outer = defineRole("app", {
-      params: z.object({ appName: z.string(), domain: z.string() }),
+      params: z.object({
+        appName: z.string().trim(),
+        domain: z.string().trim(),
+      }),
       create(infra, params) {
         const dns = useRole(infra, inner, { domain: params.domain });
         const prov = infra.provider("svc", mock, {});
@@ -506,7 +512,7 @@ describe("Nested roles", () => {
 
   it("inner role outputs cross-reference correctly", () => {
     const inner = defineRole("dns", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         const record = prov.resource("DnsRecord", "record", {
@@ -517,7 +523,10 @@ describe("Nested roles", () => {
     });
 
     const outer = defineRole("app", {
-      params: z.object({ appName: z.string(), domain: z.string() }),
+      params: z.object({
+        appName: z.string().trim(),
+        domain: z.string().trim(),
+      }),
       create(infra, params) {
         const dns = useRole(infra, inner, { domain: params.domain });
         const prov = infra.provider("svc", mock, {});
@@ -540,14 +549,14 @@ describe("Nested roles", () => {
     const api = ir.resources.find((r) => r.name === "app:api");
     assert.ok(api !== undefined);
     assert.ok(api.refBindings !== undefined);
-    assert.equal(api.refBindings!.length, 1);
-    assert.equal(at(api.refBindings!, 0).targetResource, "dns:record");
-    assert.equal(at(api.refBindings!, 0).statePath, "hostname");
+    assert.equal(api.refBindings.length, 1);
+    assert.equal(at(api.refBindings, 0).targetResource, "dns:record");
+    assert.equal(at(api.refBindings, 0).statePath, "hostname");
   });
 
   it("inner role can have a custom prefix", () => {
     const inner = defineRole("dns", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
         const prov = infra.provider("cf", mock, {});
         const record = prov.resource("DnsRecord", "record", {
@@ -558,9 +567,14 @@ describe("Nested roles", () => {
     });
 
     const outer = defineRole("app", {
-      params: z.object({ domain: z.string() }),
+      params: z.object({ domain: z.string().trim() }),
       create(infra, params) {
-        const dns = useRole(infra, inner, { domain: params.domain }, { prefix: "frontendDns" });
+        const dns = useRole(
+          infra,
+          inner,
+          { domain: params.domain },
+          { prefix: "frontendDns" },
+        );
         const prov = infra.provider("svc", mock, {});
         prov.resource("Service", "api", {
           name: "my-api",

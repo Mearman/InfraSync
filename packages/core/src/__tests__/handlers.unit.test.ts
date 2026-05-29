@@ -6,7 +6,10 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { InfraHandler, TriggeredOutcome, HandlerOutcome } from "../handlers.js";
+import type {
+  InfraHandler,
+  TriggeredOutcome,
+} from "../handlers.js";
 import { executeHandlers } from "../handlers.js";
 import type { FieldDiff } from "../resource.js";
 
@@ -84,9 +87,7 @@ describe("Handlers", () => {
     const diff: readonly FieldDiff[] = [
       { path: "ttl", desired: 300, actual: 600 },
     ];
-    const outcomes = makeOutcomes([
-      { name: "record", action: "update", diff },
-    ]);
+    const outcomes = makeOutcomes([{ name: "record", action: "update", diff }]);
 
     const result = await executeHandlers([tracker.handler], outcomes);
 
@@ -222,9 +223,7 @@ describe("Handlers", () => {
       { path: "region", desired: "us-east-1", actual: "eu-west-1" },
     ];
     const tracker = trackingHandler("verify-diff", ["r"]);
-    const outcomes = makeOutcomes([
-      { name: "r", action: "update", diff },
-    ]);
+    const outcomes = makeOutcomes([{ name: "r", action: "update", diff }]);
 
     await executeHandlers([tracker.handler], outcomes);
 
@@ -256,9 +255,7 @@ describe("Handlers", () => {
   });
 
   it("filters by action type in `on`", async () => {
-    const tracker = trackingHandler("create-only", ["x", "y"], [
-      "create",
-    ]);
+    const tracker = trackingHandler("create-only", ["x", "y"], ["create"]);
     const outcomes = makeOutcomes([
       { name: "x", action: "create" },
       { name: "y", action: "update" },
@@ -273,9 +270,7 @@ describe("Handlers", () => {
 
   it("triggers on all actions when `on` is omitted", async () => {
     const tracker = trackingHandler("all-actions", ["x"]);
-    const outcomes = makeOutcomes([
-      { name: "x", action: "create" },
-    ]);
+    const outcomes = makeOutcomes([{ name: "x", action: "create" }]);
 
     const result = await executeHandlers([tracker.handler], outcomes);
     assert.equal(result.length, 1);
@@ -283,9 +278,7 @@ describe("Handlers", () => {
 
   it("does not trigger when no resources match", async () => {
     const tracker = trackingHandler("no-match", ["nonexistent"]);
-    const outcomes = makeOutcomes([
-      { name: "other", action: "create" },
-    ]);
+    const outcomes = makeOutcomes([{ name: "other", action: "create" }]);
 
     const result = await executeHandlers([tracker.handler], outcomes);
     assert.equal(result.length, 0);
@@ -311,7 +304,7 @@ describe("Handlers", () => {
       name: "string-throw",
       triggers: ["x"],
       run: async () => {
-        throw "something went wrong"; // eslint-disable-line no-throw-literal
+        throw new Error("something went wrong");
       },
     };
 

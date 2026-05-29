@@ -133,19 +133,14 @@ export type HandlerAction = z.infer<typeof handlerActionSchema>;
 export const handlerMetaSchema = z
   .object({
     name: z.string().trim().meta({ description: "Unique handler name" }),
-    triggers: z
-      .array(z.string().trim())
-      .meta({
-        description:
-          'Resource names that trigger this handler. Use "*" for wildcard.',
-      }),
-    on: z
-      .array(handlerActionSchema)
-      .optional()
-      .meta({
-        description:
-          "Which actions trigger this handler. Omit to trigger on all actions.",
-      }),
+    triggers: z.array(z.string().trim()).meta({
+      description:
+        'Resource names that trigger this handler. Use "*" for wildcard.',
+    }),
+    on: z.array(handlerActionSchema).optional().meta({
+      description:
+        "Which actions trigger this handler. Omit to trigger on all actions.",
+    }),
   })
   .meta({
     description:

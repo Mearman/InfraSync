@@ -125,10 +125,9 @@ export type TransitionDeclaration<
  * 2. update this resource (the guarded operation)
  * 3. create target resource (restore after guarded update)
  */
-export type PreconditionDeclaration<
+export interface PreconditionDeclaration<
   TSpec extends z.ZodType = z.ZodType,
-  _TTarget extends z.ZodType = z.ZodType,
-> = {
+> {
   /**
    * Schema object reference for the target resource kind.
    * The planner resolves this to a kind string via the adapter registry
@@ -152,7 +151,9 @@ export type PreconditionDeclaration<
    *
    * When omitted, all resources of the target kind are matched.
    */
-  readonly matchOn?: string | ((source: z.infer<TSpec>, target: unknown) => boolean);
+  readonly matchOn?:
+    | string
+    | ((source: z.infer<TSpec>, target: unknown) => boolean);
 
   /**
    * Fields on this resource that, when divergent between desired and
@@ -170,4 +171,4 @@ export type PreconditionDeclaration<
    *   target stays (no restore needed if already present).
    */
   readonly required: "absent" | "present";
-};
+}
