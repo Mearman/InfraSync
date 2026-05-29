@@ -77,6 +77,9 @@ importers:
       typescript-eslint:
         specifier: 8.58.2
         version: 8.58.2(eslint@10.2.0(jiti@2.6.1))(typescript@6.0.3)
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
 
   packages/adapter-terraform-config-json:
     dependencies:
